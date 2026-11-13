@@ -5,4 +5,9 @@ use thiserror::Error;
 pub enum TrackError {
     #[error("unknown activity type: {0}")]
     UnknownActivity(String),
+    #[error("cannot {action} a recording that is {state}")]
+    InvalidTransition {
+        state: &'static str,
+        action: &'static str,
+    },
 }

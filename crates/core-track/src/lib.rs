@@ -8,10 +8,12 @@ mod filter;
 pub mod geo;
 mod model;
 mod params;
+mod recorder;
 mod stats;
 
 pub use error::TrackError;
 pub use filter::filter_segment;
 pub use model::{Activity, Segment, Track, TrackPoint};
 pub use params::StatsParams;
+pub use recorder::{Recorder, RecorderState};
 pub use stats::{TrackStats, compute_stats};

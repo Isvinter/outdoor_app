@@ -1,0 +1,17 @@
+[package]
+name = "core-location"
+description = "Position sources behind a common trait: GPX replay and gpsd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+core-track.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+
+[lints]
+workspace = true
