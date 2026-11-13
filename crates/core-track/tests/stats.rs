@@ -349,3 +349,25 @@ mod properties {
         }
     }
 }
+
+#[test]
+fn elevation_gain_of_a_profile_ignores_ripples_below_the_threshold() {
+    use core_track::elevation_gain;
+    // 2 km: 100 m up, 40 m down, with a 1 m ripple on top.
+    let profile: Vec<(f64, f64)> = (0..=200)
+        .map(|i| {
+            let d = f64::from(i) * 10.0;
+            let base = if d <= 1000.0 {
+                500.0 + d / 10.0
+            } else {
+                600.0 - (d - 1000.0) / 25.0
+            };
+            (d, base + if i % 2 == 0 { 0.5 } else { -0.5 })
+        })
+        .collect();
+    let (up, down) = elevation_gain(&profile, 50.0, 3.0);
+    assert!((up - 100.0).abs() < 3.0, "ascent {up}");
+    assert!((down - 40.0).abs() < 3.0, "descent {down}");
+    assert_eq!(elevation_gain(&[], 50.0, 3.0), (0.0, 0.0));
+    assert_eq!(elevation_gain(&[(0.0, 700.0)], 50.0, 3.0), (0.0, 0.0));
+}

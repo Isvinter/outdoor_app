@@ -5,10 +5,14 @@
  *  - OUTDOOR_SNAPSHOT=<png file>: save a picture of the map, exit.
  *  - OUTDOOR_SELFTEST_REGIONS=<catalog>: download, show and delete the first
  *    region of a catalog through the real controls, report, exit.
+ *  - OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]: plan a hike through
+ *    these points with the real controls, save it, report, exit. Together with
+ *    OUTDOOR_SNAPSHOT the picture shows the route.
  *  - OUTDOOR_SELFTEST=<gpx file>: drive the real controls through a recording
  *    with a simulated receiver, report what the page shows, exit.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { LngLat, LngLatBounds } from "maplibre-gl";
 import { api } from "./api";
 import type { MapView } from "./map";
 
@@ -142,6 +146,58 @@ async function regionsSelfTest(view: MapView, catalog: string): Promise<void> {
   await api.probeReport(report);
 }
 
+async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promise<void> {
+  const el = (id: string) => document.getElementById(id) as HTMLElement;
+  const text = (id: string) => el(id).textContent ?? "";
+  const report: Record<string, unknown> = {};
+  try {
+    const points = spec.split(";").map((pair) => pair.split(",").map(Number));
+    const saved = document.querySelectorAll("#route-list li[data-id]").length;
+    report.profiles = [...el("route-profile").querySelectorAll("option")].map((o) => o.textContent);
+    el("route-edit").click();
+    const places = points.map(([lat, lon]) => new LngLat(lon ?? 0, lat ?? 0));
+    const first = places[0];
+    if (!first) throw new Error("no waypoints given");
+    view.map.fitBounds(
+      places.reduce((bounds, place) => bounds.extend(place), new LngLatBounds(first, first)),
+      { padding: 80, duration: 0 },
+    );
+    await sleep(300);
+    // Real mouse events on the map, as a user would cause them.
+    const canvas = view.map.getCanvas();
+    const box = canvas.getBoundingClientRect();
+    for (const place of places) {
+      const { x, y } = view.map.project(place);
+      for (const type of ["mousedown", "mouseup", "click"]) {
+        const init = { clientX: box.left + x, clientY: box.top + y, bubbles: true, button: 0 };
+        canvas.dispatchEvent(new MouseEvent(type, init));
+      }
+      await sleep(100);
+    }
+    await until("route shown", () => !el("route-result").hidden || text("message").includes("("));
+    report.waypoints = document.querySelectorAll(".waypoint-marker").length;
+    report.stats = [...el("route-stats").querySelectorAll("div")].map((row) => row.textContent);
+    report.chart = el("route-chart").querySelector("path") !== null;
+    report.chart_scale = el("route-chart").querySelector(".scale")?.textContent;
+    report.note = text("route-note");
+    report.name = (el("route-name") as HTMLInputElement).value;
+    report.message = text("message");
+    if (!el("route-result").hidden) {
+      el("route-save").click();
+      await until("route saved", () => document.querySelectorAll("#route-list li[data-id]").length > saved);
+      report.saved = text("route-list");
+    }
+    el("route-edit").click();
+    report.ok = !el("route-result").hidden;
+  } catch (e) {
+    report.ok = false;
+    report.error = String(e);
+    report.message = text("message");
+  }
+  if (exit) await api.probeReport(report);
+  else api.log("info", JSON.stringify(report));
+}
+
 /** Saves a picture of the map once everything in view is drawn (OUTDOOR_SNAPSHOT). */
 async function snapshot(view: MapView, target: [number, number, number] | null, style: string | null): Promise<void> {
   const map = view.map;
@@ -165,6 +221,8 @@ async function snapshot(view: MapView, target: [number, number, number] | null, 
 
 export async function runDiagnostics(view: MapView): Promise<void> {
   const shot = await api.snapshotRequest();
+  const route = await invoke<string | null>("selftest_route");
+  if (route) await routeSelfTest(view, route, shot === null);
   if (shot) await snapshot(view, shot.view, shot.style);
   const catalog = await invoke<string | null>("selftest_regions");
   if (catalog) await regionsSelfTest(view, catalog);

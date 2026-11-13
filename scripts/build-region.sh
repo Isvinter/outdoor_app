@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Builds an offline region package from free data sources.
 #
-#   scripts/build-region.sh <region-id> [--steps osm,basemap,outdoor,dem,slope,manifest] [--force]
+#   scripts/build-region.sh <region-id> [--steps osm,basemap,outdoor,dem,slope,routing,manifest]
+#                                       [--max-mtb-scale N] [--force]
 #
 # Reads regions/<region-id>.json and writes data/regions/<region-id>/ with
 #   basemap.pmtiles   vector base map (OpenMapTiles schema, built with Planetiler)
 #   outdoor.pmtiles   vector overlay: trails, routes, pistes, peaks, huts
 #   dem.pmtiles       elevation tiles (Terrarium encoding, from Mapterhorn)
 #   slope.pmtiles     slope angle classes for winter maps (tools/slope-tiles)
+#   routing.tar       routing tiles (Valhalla, see scripts/build-valhalla-tiles.sh);
+#                     bicycles may not use ways above mtb:scale N (default 2)
 #   manifest.json     name, bounds, files with size and SHA-256, attribution
 # and data/regions/catalog.json listing all built regions. That directory (or
 # a web server publishing it) is what the app takes as its catalog.
@@ -23,18 +26,20 @@ PMTILES_VERSION="1.31.2"
 MAPTERHORN="https://download.mapterhorn.com"
 JAVA_HEAP="${JAVA_HEAP:-8g}"
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 log() { printf '\n== %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 [ $# -ge 1 ] || usage 1
 case "$1" in -h|--help) usage ;; esac
 ID="$1"; shift
-STEPS="osm,basemap,outdoor,dem,slope,manifest"
+STEPS="osm,basemap,outdoor,dem,slope,routing,manifest"
+MAX_MTB_SCALE=2
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --steps) STEPS="${2:?--steps needs a value}"; shift 2 ;;
+    --max-mtb-scale) MAX_MTB_SCALE="${2:?--max-mtb-scale needs a value}"; shift 2 ;;
     --force) FORCE=1; shift ;;
     -h|--help) usage ;;
     *) die "unknown option: $1" ;;
@@ -192,6 +197,12 @@ step_slope() {
   mv "$BUILD/slope.pmtiles" "$OUT/slope.pmtiles"
 }
 
+step_routing() {
+  local args=("$ID" --max-mtb-scale "$MAX_MTB_SCALE")
+  [ "$FORCE" = 1 ] && args+=(--force)
+  "$ROOT/scripts/build-valhalla-tiles.sh" "${args[@]}"
+}
+
 step_manifest() {
   log "writing manifest"
   python3 -I - "$CONFIG" "$OUT" <<'PY'
@@ -208,7 +219,7 @@ def describe(name):
             digest.update(chunk)
     return {"name": name, "size": os.path.getsize(path), "sha256": digest.hexdigest()}
 
-files = [describe(n) for n in ("basemap.pmtiles", "outdoor.pmtiles", "dem.pmtiles", "slope.pmtiles")
+files = [describe(n) for n in ("basemap.pmtiles", "outdoor.pmtiles", "dem.pmtiles", "slope.pmtiles", "routing.tar")
          if os.path.exists(os.path.join(out, n))]
 manifest = {
     "format": 1,
@@ -220,6 +231,9 @@ manifest = {
     "files": files,
     "size": sum(f["size"] for f in files),
 }
+# How the routing tiles were built, as noted by build-valhalla-tiles.sh.
+if any(f["name"] == "routing.tar" for f in files):
+    manifest["routing"] = json.load(open(os.path.join(out, "routing.json")))
 with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
     json.dump(manifest, f, ensure_ascii=False, indent=2)
     f.write("\n")
@@ -243,7 +257,7 @@ PY
 }
 
 ensure_tools
-for step in osm basemap outdoor dem slope manifest; do
+for step in osm basemap outdoor dem slope routing manifest; do
   if wants "$step"; then "step_$step"; fi
 done
 log "region package: $OUT"

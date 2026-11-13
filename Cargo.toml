@@ -14,6 +14,7 @@ core-app = { path = "crates/core-app" }
 core-gpx = { path = "crates/core-gpx" }
 core-location = { path = "crates/core-location" }
 core-maps = { path = "crates/core-maps" }
+core-routing = { path = "crates/core-routing" }
 core-storage = { path = "crates/core-storage" }
 
 flate2 = "1.1"

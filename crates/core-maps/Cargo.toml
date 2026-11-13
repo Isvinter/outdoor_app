@@ -7,7 +7,10 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+core-track.workspace = true
 flate2.workspace = true
+image-webp.workspace = true
+png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

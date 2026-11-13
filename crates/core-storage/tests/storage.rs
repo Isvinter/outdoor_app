@@ -217,3 +217,86 @@ fn database_from_a_newer_app_version_is_refused() {
             if found == Storage::CURRENT_SCHEMA_VERSION + 1 && supported == Storage::CURRENT_SCHEMA_VERSION
     ));
 }
+
+#[test]
+fn routes_are_saved_listed_renamed_and_deleted() {
+    let mut storage = Storage::open(&temp_db("routes")).unwrap();
+    assert!(storage.list_routes().unwrap().is_empty());
+
+    let first = storage
+        .save_route(
+            "Neureuth",
+            "hike",
+            3630.0,
+            Some(520.0),
+            "{\"plan\":1}",
+            1_000,
+        )
+        .unwrap();
+    let second = storage
+        .save_route(
+            "Achensee-Runde",
+            "mtb",
+            42_000.0,
+            None,
+            "{\"plan\":2}",
+            2_000,
+        )
+        .unwrap();
+
+    let routes = storage.list_routes().unwrap();
+    assert_eq!(
+        routes.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+        ["Achensee-Runde", "Neureuth"]
+    );
+    assert_eq!(routes[1].id, first);
+    assert_eq!(
+        (
+            routes[1].profile.as_str(),
+            routes[1].distance_m,
+            routes[1].ascent_m
+        ),
+        ("hike", 3630.0, Some(520.0))
+    );
+    assert_eq!(routes[0].ascent_m, None);
+    assert_eq!(routes[0].created_at_ms, 2_000);
+    assert_eq!(storage.route_plan(first).unwrap(), "{\"plan\":1}");
+
+    storage
+        .rename_route(first, "Neureuth über Sommerweg", 3_000)
+        .unwrap();
+    assert_eq!(
+        storage.list_routes().unwrap()[1].name,
+        "Neureuth über Sommerweg"
+    );
+    assert_eq!(storage.list_routes().unwrap()[1].updated_at_ms, 3_000);
+
+    storage.delete_route(second, 4_000).unwrap();
+    assert_eq!(storage.list_routes().unwrap().len(), 1);
+    assert!(matches!(
+        storage.route_plan(second),
+        Err(StorageError::NotFound(_))
+    ));
+    assert!(matches!(
+        storage.delete_route(second, 5_000),
+        Err(StorageError::NotFound(_))
+    ));
+    assert!(matches!(
+        storage.rename_route(Uuid::now_v7(), "x", 5_000),
+        Err(StorageError::NotFound(_))
+    ));
+}
+
+#[test]
+fn routes_survive_reopening_and_old_databases_gain_the_table() {
+    let path = temp_db("routes-reopen");
+    let id = {
+        let mut storage = Storage::open(&path).unwrap();
+        storage
+            .save_route("Tour", "manual", 1.0, None, "{}", 1)
+            .unwrap()
+    };
+    let storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.list_routes().unwrap()[0].id, id);
+    assert_eq!(storage.schema_version().unwrap(), 2);
+}

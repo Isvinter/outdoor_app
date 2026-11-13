@@ -394,3 +394,66 @@ fn tile_paths_are_parsed() {
         assert!(bad.parse::<TilePath>().is_err(), "{bad:?}");
     }
 }
+
+#[test]
+fn manifest_may_carry_routing_tiles_and_says_how_they_were_built() {
+    let json = manifest_json().replacen(
+        "\"files\": [",
+        "\"routing\": { \"valhalla\": \"3.9.1\", \"max_mtb_scale\": 2 },\n  \"files\": [\n    { \"name\": \"routing.tar\", \"size\": 10, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\" },",
+        1,
+    );
+    let manifest = RegionManifest::parse(&json, "test").unwrap();
+    assert_eq!(manifest.files[0].name, "routing.tar");
+    let routing = manifest.routing.unwrap();
+    assert_eq!(
+        (routing.valhalla.as_str(), routing.max_mtb_scale),
+        ("3.9.1", 2)
+    );
+    assert_eq!(
+        RegionManifest::parse(&manifest_json(), "test")
+            .unwrap()
+            .routing,
+        None
+    );
+
+    let other = json.replacen("routing.tar", "secrets.tar", 1);
+    assert!(matches!(
+        RegionManifest::parse(&other, "test"),
+        Err(MapsError::InvalidManifest { .. })
+    ));
+}
+
+#[test]
+fn routing_tiles_are_found_for_points_inside_one_region() {
+    let dir = temp_dir("routing-tiles");
+    let region = dir.join("tegernsee");
+    std::fs::create_dir_all(&region).unwrap();
+    std::fs::write(region.join("routing.tar"), b"tiles").unwrap();
+    let manifest = serde_json::json!({
+        "format": 1, "id": "tegernsee", "name": "Tegernsee", "bbox": [11.74, 47.70, 11.80, 47.74],
+        "version": "1", "attribution": [], "size": 5,
+        "routing": { "valhalla": "3.9.1", "max_mtb_scale": 2 },
+        "files": [{ "name": "routing.tar", "size": 5, "sha256": "0".repeat(64) }],
+    });
+    std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
+    let store = RegionStore::open(&dir).unwrap();
+
+    let found = store
+        .routing_tiles(&[(47.7128, 11.758), (47.7294, 11.7797)])
+        .unwrap();
+    assert_eq!(found.region, "tegernsee");
+    assert_eq!(found.path, region.join("routing.tar"));
+    assert_eq!(found.info.map(|info| info.max_mtb_scale), Some(2));
+    assert!(
+        store
+            .routing_tiles(&[(47.7128, 11.758), (48.5, 12.5)])
+            .is_none(),
+        "one point outside"
+    );
+    assert!(store.routing_tiles(&[]).is_none());
+
+    // A region without routing tiles does not offer any.
+    let plain = RegionStore::open(&temp_dir("no-routing")).unwrap();
+    install(&plain, &source()).unwrap();
+    assert!(plain.routing_tiles(&[(47.575, 11.55)]).is_none());
+}

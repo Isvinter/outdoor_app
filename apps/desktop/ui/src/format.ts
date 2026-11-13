@@ -15,6 +15,12 @@ export function duration(seconds: number): string {
   return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
 }
 
+/** A travel time such as "2:05 h". */
+export function hours(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")} h`;
+}
+
 export function speed(metresPerSecond: number): string {
   return `${number(metresPerSecond * 3.6, 1)} km/h`;
 }
@@ -48,8 +54,13 @@ export function statsRows(s: TrackStats): [MessageKey, string][] {
 }
 
 export function renderStats(target: HTMLElement, stats: TrackStats | null): void {
+  renderRows(target, stats ? statsRows(stats) : []);
+}
+
+/** Fills a statistics block with label/value pairs. */
+export function renderRows(target: HTMLElement, rows: [MessageKey, string][]): void {
   target.replaceChildren(
-    ...(stats ? statsRows(stats) : []).map(([key, value]) => {
+    ...rows.map(([key, value]) => {
       const row = document.createElement("div");
       const label = document.createElement("dt");
       const data = document.createElement("dd");

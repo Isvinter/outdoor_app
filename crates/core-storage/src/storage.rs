@@ -353,6 +353,88 @@ impl Storage {
         }
     }
 
+    // --- routes ----------------------------------------------------------
+
+    /// Stores a planned route and returns its id.
+    pub fn save_route(
+        &mut self,
+        name: &str,
+        profile: &str,
+        distance_m: f64,
+        ascent_m: Option<f64>,
+        plan_json: &str,
+        now_ms: i64,
+    ) -> Result<Uuid, StorageError> {
+        let id = Uuid::now_v7();
+        self.conn.execute(
+            "INSERT INTO routes (id, name, profile, distance_m, ascent_m, plan_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![id, name, profile, distance_m, ascent_m, plan_json, now_ms],
+        )?;
+        Ok(id)
+    }
+
+    /// The saved routes, newest first.
+    pub fn list_routes(&self) -> Result<Vec<RouteRecord>, StorageError> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, name, profile, distance_m, ascent_m, created_at, updated_at FROM routes
+             WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(RouteRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                profile: row.get(2)?,
+                distance_m: row.get(3)?,
+                ascent_m: row.get(4)?,
+                created_at_ms: row.get(5)?,
+                updated_at_ms: row.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The plan of a saved route as it was stored.
+    pub fn route_plan(&self, id: Uuid) -> Result<String, StorageError> {
+        self.conn
+            .query_row(
+                "SELECT plan_json FROM routes WHERE id = ?1 AND deleted_at IS NULL",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(StorageError::NotFound(id))
+    }
+
+    pub fn rename_route(&mut self, id: Uuid, name: &str, now_ms: i64) -> Result<(), StorageError> {
+        self.update_route(
+            id,
+            "UPDATE routes SET name = ?2, updated_at = ?3, rev = rev + 1 WHERE id = ?1 AND deleted_at IS NULL",
+            params![id, name, now_ms],
+        )
+    }
+
+    /// Marks a route as deleted. The row stays as a tombstone for synchronisation.
+    pub fn delete_route(&mut self, id: Uuid, now_ms: i64) -> Result<(), StorageError> {
+        self.update_route(
+            id,
+            "UPDATE routes SET deleted_at = ?2, updated_at = ?2, rev = rev + 1 WHERE id = ?1 AND deleted_at IS NULL",
+            params![id, now_ms],
+        )
+    }
+
+    fn update_route(
+        &mut self,
+        id: Uuid,
+        sql: &str,
+        params: impl rusqlite::Params,
+    ) -> Result<(), StorageError> {
+        match self.conn.execute(sql, params)? {
+            0 => Err(StorageError::NotFound(id)),
+            _ => Ok(()),
+        }
+    }
+
     // --- settings ---------------------------------------------------------
 
     pub fn setting(&self, key: &str) -> Result<Option<String>, StorageError> {
@@ -453,4 +535,17 @@ impl RawTrack {
             rev: self.rev,
         })
     }
+}
+
+/// A saved route as shown in lists; the plan itself is loaded separately.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RouteRecord {
+    pub id: Uuid,
+    pub name: String,
+    /// Routing profile, as named by `core-routing`.
+    pub profile: String,
+    pub distance_m: f64,
+    pub ascent_m: Option<f64>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
 }

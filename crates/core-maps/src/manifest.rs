@@ -63,6 +63,18 @@ pub struct RegionFile {
     pub sha256: String,
 }
 
+/// How the routing tiles of a region were built.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RoutingInfo {
+    /// Version of Valhalla that wrote the tiles.
+    pub valhalla: String,
+    /// Ways with a higher `mtb:scale` are closed to bicycles.
+    pub max_mtb_scale: u8,
+}
+
+/// Name of the routing tiles inside a region directory.
+pub const ROUTING_FILE: &str = "routing.tar";
+
 /// `manifest.json` of a region package.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegionManifest {
@@ -74,6 +86,9 @@ pub struct RegionManifest {
     /// Build time of the package; newer packages compare greater.
     pub version: String,
     pub attribution: Vec<String>,
+    /// Present if the region has routing tiles ([`ROUTING_FILE`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<RoutingInfo>,
     pub files: Vec<RegionFile>,
     /// Sum of all file sizes in bytes.
     pub size: u64,
@@ -96,7 +111,7 @@ impl RegionManifest {
         }
         for file in &manifest.files {
             let stem = file.name.strip_suffix(".pmtiles").unwrap_or("");
-            if !is_plain_name(stem) {
+            if !is_plain_name(stem) && file.name != ROUTING_FILE {
                 return Err(fail(format!("unexpected file name {:?}", file.name)));
             }
             let is_hex = |c: char| c.is_ascii_digit() || ('a'..='f').contains(&c);

@@ -6,6 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["valhalla"]
+# Route planning with Valhalla (C++). Needs clang, cmake, Boost and Protobuf to
+# build; without it only manual routes can be planned.
+valhalla = ["core-app/valhalla"]
+
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
 
@@ -14,6 +20,7 @@ core-app.workspace = true
 core-gpx.workspace = true
 core-location.workspace = true
 core-maps.workspace = true
+core-routing.workspace = true
 core-storage.workspace = true
 core-track.workspace = true
 serde.workspace = true

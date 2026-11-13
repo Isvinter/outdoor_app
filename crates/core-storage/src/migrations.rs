@@ -52,6 +52,23 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         updated_at  INTEGER NOT NULL
     ) STRICT, WITHOUT ROWID;
     ",
+    // 2: planned routes
+    "
+    CREATE TABLE routes (
+        id          BLOB PRIMARY KEY NOT NULL,
+        name        TEXT NOT NULL,
+        profile     TEXT NOT NULL,
+        distance_m  REAL NOT NULL,
+        ascent_m    REAL,
+        -- The complete plan (waypoints, line, elevation profile, times) as JSON.
+        plan_json   TEXT NOT NULL,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        deleted_at  INTEGER,
+        rev         INTEGER NOT NULL DEFAULT 1,
+        synced_rev  INTEGER NOT NULL DEFAULT 0
+    ) STRICT;
+    ",
 ];
 
 pub(crate) fn schema_version(conn: &Connection) -> Result<u32, StorageError> {

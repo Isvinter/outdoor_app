@@ -34,6 +34,10 @@ impl Maps {
         })
     }
 
+    pub(crate) fn store(&self) -> &RegionStore {
+        &self.store
+    }
+
     fn downloads(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
         self.downloads
             .lock()
@@ -224,6 +228,8 @@ impl App {
             .store
             .install(&source, id, &maps.fetcher, &mut report, &cancel);
         maps.downloads().remove(id);
+        // An update replaced the routing data the open router reads.
+        self.shared.routing.forget_region(id);
         Ok(result?)
     }
 
@@ -236,6 +242,7 @@ impl App {
 
     /// Removes an installed region from this device.
     pub fn delete_region(&self, id: &str) -> Result<(), AppError> {
+        self.shared.routing.forget_region(id);
         Ok(self.shared.maps.store.delete(id)?)
     }
 

@@ -74,6 +74,7 @@ pub struct App {
 pub(crate) struct Shared {
     inner: Mutex<Inner>,
     pub(crate) maps: crate::regions::Maps,
+    pub(crate) routing: crate::routes::Routing,
     /// Separate from `inner`: stopping a source joins its thread, which may be
     /// waiting for `inner` to deliver a fix.
     source: Mutex<Option<Box<dyn LocationSource>>>,
@@ -261,6 +262,7 @@ impl App {
             shared: Arc::new(Shared {
                 inner: Mutex::new(inner),
                 maps: crate::regions::Maps::open(&regions_dir)?,
+                routing: crate::routes::Routing::default(),
                 source: Mutex::new(None),
                 listener,
             }),

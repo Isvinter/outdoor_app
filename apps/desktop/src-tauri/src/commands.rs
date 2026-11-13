@@ -1,11 +1,14 @@
 //! Tauri commands: each one unpacks its arguments, calls the core and returns
 //! the result. Commands are `async` so they run off the UI thread.
 
-use core_app::{App, AppError, RecordingStatus, RegionsOverview, TrackDetail};
+use core_app::{
+    App, AppError, ProfileInfo, RecordingStatus, RegionsOverview, RoutePlan, TrackDetail,
+};
 use core_gpx::parse_gpx;
 use core_location::{GpsdSource, GpxReplaySource};
 use core_maps::InstalledRegion;
-use core_storage::TrackRecord;
+use core_routing::RouteRequest;
+use core_storage::{RouteRecord, TrackRecord};
 use core_track::Activity;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -68,6 +71,57 @@ pub async fn region_cancel(app: State<'_, App>, id: String) -> CommandResult<()>
 #[tauri::command]
 pub async fn region_delete(app: State<'_, App>, id: String) -> CommandResult<()> {
     Ok(app.delete_region(&id)?)
+}
+
+// --- routes -----------------------------------------------------------------
+
+#[tauri::command]
+pub async fn route_profiles(app: State<'_, App>) -> CommandResult<Vec<ProfileInfo>> {
+    Ok(app.route_profiles())
+}
+
+/// Computes a route; it becomes the planned route.
+#[tauri::command]
+pub async fn route_plan(handle: AppHandle, request: RouteRequest) -> CommandResult<RoutePlan> {
+    blocking(handle, move |app| app.plan_route(&request)).await
+}
+
+#[tauri::command]
+pub async fn route_clear(app: State<'_, App>) -> CommandResult<()> {
+    app.clear_planned_route();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn route_save(app: State<'_, App>, name: String) -> CommandResult<RouteRecord> {
+    Ok(app.save_planned_route(&name)?)
+}
+
+#[tauri::command]
+pub async fn routes_list(app: State<'_, App>) -> CommandResult<Vec<RouteRecord>> {
+    Ok(app.saved_routes()?)
+}
+
+/// Loads a saved route; it becomes the planned route.
+#[tauri::command]
+pub async fn route_load(app: State<'_, App>, id: Uuid) -> CommandResult<RoutePlan> {
+    Ok(app.saved_route(id)?)
+}
+
+#[tauri::command]
+pub async fn route_delete(app: State<'_, App>, id: Uuid) -> CommandResult<()> {
+    Ok(app.delete_route(id)?)
+}
+
+/// Writes the planned route as GPX.
+#[tauri::command]
+pub async fn route_export_gpx(
+    app: State<'_, App>,
+    name: String,
+    path: String,
+) -> CommandResult<()> {
+    let xml = app.export_planned_route_gpx(&name)?;
+    std::fs::write(&path, xml).map_err(|e| CommandError::io(&path, &e))
 }
 
 // --- recording ------------------------------------------------------------
@@ -213,6 +267,15 @@ const SELFTEST_REGIONS_ENV: &str = "OUTDOOR_SELFTEST_REGIONS";
 #[tauri::command]
 pub fn selftest_regions() -> Option<String> {
     std::env::var(SELFTEST_REGIONS_ENV).ok()
+}
+
+/// Set to `<lat>,<lon>;<lat>,<lon>[;…]` to plan a hike between these points
+/// through the user interface on start, report and exit (see README).
+const SELFTEST_ROUTE_ENV: &str = "OUTDOOR_SELFTEST_ROUTE";
+
+#[tauri::command]
+pub fn selftest_route() -> Option<String> {
+    std::env::var(SELFTEST_ROUTE_ENV).ok()
 }
 
 #[tauri::command]

@@ -16,14 +16,15 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::MapsError;
+use crate::dem::{DemCache, DemTile, ProfilePoint, decode_dem_tile, resample};
 use crate::fetch::Fetcher;
-use crate::manifest::{Catalog, CatalogEntry, Layer, RegionManifest};
+use crate::manifest::{Catalog, CatalogEntry, Layer, ROUTING_FILE, RegionManifest, RoutingInfo};
 use crate::pmtiles::Archive;
 
 const MANIFEST: &str = "manifest.json";
@@ -57,6 +58,15 @@ pub struct Tile {
     pub mime: &'static str,
 }
 
+/// The routing tiles of an installed region.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoutingTiles {
+    /// Id of the region.
+    pub region: String,
+    pub path: PathBuf,
+    pub info: Option<RoutingInfo>,
+}
+
 struct Region {
     info: InstalledRegion,
     archives: Vec<(Layer, Archive)>,
@@ -68,6 +78,8 @@ pub struct RegionStore {
     regions: RwLock<BTreeMap<String, Region>>,
     /// Regions with a download in progress.
     busy: Mutex<HashSet<String>>,
+    /// Decoded elevation tiles, most recently used first.
+    dem_cache: Mutex<DemCache>,
 }
 
 impl RegionStore {
@@ -92,6 +104,7 @@ impl RegionStore {
             dir: dir.to_path_buf(),
             regions: RwLock::new(regions),
             busy: Mutex::default(),
+            dem_cache: Mutex::default(),
         })
     }
 
@@ -230,6 +243,10 @@ impl RegionStore {
         let old = self.dir.join(STAGING).join(format!("{id}.old"));
         let mut regions = self.regions.write().unwrap_or_else(PoisonError::into_inner);
         regions.remove(id);
+        self.dem_cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
         if old.exists() {
             fs::remove_dir_all(&old).map_err(MapsError::io(&old))?;
         }
@@ -250,6 +267,10 @@ impl RegionStore {
         if regions.remove(id).is_none() {
             return Err(MapsError::NotInstalled(id.to_string()));
         }
+        self.dem_cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
         let target = self.dir.join(id);
         fs::remove_dir_all(&target).map_err(MapsError::io(&target))
     }
@@ -274,6 +295,111 @@ impl RegionStore {
             }
         }
         Ok(None)
+    }
+}
+
+impl RegionStore {
+    /// The routing tiles of the first region that contains all `(lat, lon)`
+    /// points; routes cannot cross from one region into another.
+    pub fn routing_tiles(&self, points: &[(f64, f64)]) -> Option<RoutingTiles> {
+        if points.is_empty() {
+            return None;
+        }
+        let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
+        regions.iter().find_map(|(id, region)| {
+            let manifest = &region.info.manifest;
+            let [west, south, east, north] = manifest.bbox;
+            let inside = |(lat, lon): &(f64, f64)| {
+                (west..=east).contains(lon) && (south..=north).contains(lat)
+            };
+            let path = self.dir.join(id).join(ROUTING_FILE);
+            (manifest.files.iter().any(|file| file.name == ROUTING_FILE)
+                && points.iter().all(inside)
+                && path.is_file())
+            .then(|| RoutingTiles {
+                region: id.clone(),
+                path,
+                info: manifest.routing.clone(),
+            })
+        })
+    }
+
+    /// Ground elevation in metres at a position, from the finest elevation
+    /// tiles of the installed regions; `None` where no region has data.
+    /// Interpolated between the four nearest pixels of a tile.
+    pub fn elevation(&self, lat: f64, lon: f64) -> Result<Option<f32>, MapsError> {
+        if !(-85.0..=85.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
+            return Ok(None);
+        }
+        let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
+        for (id, region) in regions.iter() {
+            let [west, south, east, north] = region.info.manifest.bbox;
+            if lon < west || lon > east || lat < south || lat > north {
+                continue;
+            }
+            for (_, archive) in region
+                .archives
+                .iter()
+                .filter(|(layer, _)| *layer == Layer::Dem)
+            {
+                let header = archive.header();
+                // Finest level first; a region may lack the finest tiles in places.
+                for z in (header.min_zoom..=header.max_zoom.min(24)).rev() {
+                    let n = f64::from(1u32 << z);
+                    let x = (lon + 180.0) / 360.0 * n;
+                    let y = (1.0 - lat.to_radians().tan().asinh() / PI) / 2.0 * n;
+                    let (tile_x, tile_y) = (x.floor() as u32, y.floor() as u32);
+                    let key = (id.clone(), z, tile_x, tile_y);
+                    let cached = self
+                        .dem_cache
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .get(&key);
+                    let tile: Arc<DemTile> = match cached {
+                        Some(tile) => tile,
+                        None => {
+                            let Some(data) = archive.tile(z, tile_x, tile_y)? else {
+                                continue;
+                            };
+                            let tile = Arc::new(decode_dem_tile(header.tile_type, &data).map_err(
+                                |reason| {
+                                    MapsError::Elevation(format!(
+                                        "tile {z}/{tile_x}/{tile_y}: {reason}"
+                                    ))
+                                },
+                            )?);
+                            self.dem_cache
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .put(key, Arc::clone(&tile));
+                            tile
+                        }
+                    };
+                    return Ok(Some(tile.sample(x.fract(), y.fract())));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Elevation along a line of `(latitude, longitude)` points, sampled at
+    /// most every `step_m` metres; the points of the line itself are kept.
+    pub fn elevation_profile(
+        &self,
+        line: &[(f64, f64)],
+        step_m: f64,
+    ) -> Result<Vec<ProfilePoint>, MapsError> {
+        resample(line, step_m)
+            .into_iter()
+            .map(|(distance_m, lat, lon)| {
+                Ok(ProfilePoint {
+                    distance_m,
+                    lat,
+                    lon,
+                    ele: self.elevation(lat, lon)?,
+                })
+            })
+            .collect()
     }
 }
 

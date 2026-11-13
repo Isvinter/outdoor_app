@@ -19,6 +19,8 @@ pub enum MapsError {
     Download { location: String, reason: String },
     #[error("{file} of region {region} is damaged (checksum mismatch)")]
     Checksum { region: String, file: String },
+    #[error("elevation data cannot be read: {0}")]
+    Elevation(String),
     #[error("region {0} is not in the catalog")]
     UnknownRegion(String),
     #[error("region {0} is not installed")]
@@ -38,6 +40,7 @@ impl MapsError {
             MapsError::InvalidManifest { .. } => "region_manifest",
             MapsError::Download { .. } => "region_download",
             MapsError::Checksum { .. } => "region_checksum",
+            MapsError::Elevation(_) => "region_elevation",
             MapsError::UnknownRegion(_) => "region_unknown",
             MapsError::NotInstalled(_) => "region_not_installed",
             MapsError::Busy(_) => "region_busy",

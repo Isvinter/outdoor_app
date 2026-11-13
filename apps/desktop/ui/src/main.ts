@@ -15,6 +15,7 @@ import { dateTime, distance, renderStats } from "./format";
 import { t, translateDocument, type MessageKey } from "./i18n";
 import { MapView, type BaseStyle } from "./map";
 import { RegionsPanel } from "./regions";
+import { RoutePanel } from "./route";
 import { runDiagnostics } from "./diagnostics";
 import "./style.css";
 
@@ -63,6 +64,12 @@ const errorKeys: Partial<Record<MessageKey, true>> = {
   "error.region_unknown": true,
   "error.region_not_installed": true,
   "error.region_busy": true,
+  "error.route_too_few_waypoints": true,
+  "error.route_not_found": true,
+  "error.routing_unavailable": true,
+  "error.routing": true,
+  "error.route_plan": true,
+  "error.no_route_planned": true,
 };
 
 /** Runs a user action and reports failures in the message line. */
@@ -204,6 +211,8 @@ const regions = new RegionsPanel({
   showMessage: (text) => showMessage(text),
   showError,
 });
+
+const route = new RoutePanel(view, { showMessage: (text) => showMessage(text), showError });
 
 // --- wiring -----------------------------------------------------------------
 
@@ -369,6 +378,7 @@ async function start(): Promise<void> {
 
   const initial = await regions.refresh();
   if (initial?.installed_bounds) view.showBounds(initial.installed_bounds);
+  await route.start();
   await loadRecordingState();
   await refreshTracks();
   await runDiagnostics(view);

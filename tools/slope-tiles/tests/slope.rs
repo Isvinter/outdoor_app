@@ -2,8 +2,7 @@
 
 use std::path::PathBuf;
 
-use core_maps::{Archive, TileType};
-use slope_tiles::writer::{ArchiveInfo, write_archive};
+use core_maps::{Archive, ArchiveInfo, TileType, write_archive};
 use slope_tiles::{
     CLASS_COLORS, Grid, Options, classify, decode_terrarium, downsample, encode_png, pixel_size_m,
     run, slope_grid,

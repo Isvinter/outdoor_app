@@ -1,0 +1,11 @@
+{
+  "id": "fixture-tegernsee",
+  "name": "Tegernsee – Neureuth (Testdaten für Routing)",
+  "bbox": [11.74, 47.70, 11.80, 47.74],
+  "osm": [
+    "https://download.geofabrik.de/europe/germany/bayern/oberbayern-latest.osm.pbf"
+  ],
+  "basemap_maxzoom": 14,
+  "dem_maxzoom": 12,
+  "attribution": ["© OpenStreetMap-Mitwirkende (ODbL)"]
+}

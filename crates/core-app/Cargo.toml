@@ -6,15 +6,25 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# In-process routing with Valhalla (C++); see core-routing.
+valhalla = ["core-routing/valhalla"]
+
 [dependencies]
 core-gpx.workspace = true
 core-location.workspace = true
 core-maps.workspace = true
+core-routing.workspace = true
 core-storage.workspace = true
 core-track.workspace = true
 serde.workspace = true
+# float_roundtrip: saved routes are read back exactly as they were planned.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+png.workspace = true
 
 [lints]
 workspace = true

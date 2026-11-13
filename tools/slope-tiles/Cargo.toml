@@ -9,8 +9,6 @@ publish.workspace = true
 [dependencies]
 clap.workspace = true
 core-maps.workspace = true
-flate2.workspace = true
-image-webp.workspace = true
 png.workspace = true
 rayon.workspace = true
 thiserror.workspace = true

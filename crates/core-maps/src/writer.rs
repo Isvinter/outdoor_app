@@ -5,10 +5,9 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use core_maps::{TileType, tile_id};
+use crate::MapsError;
+use crate::pmtiles::{TileType, tile_id};
 use flate2::{Compression, write::GzEncoder};
-
-use crate::SlopeError;
 
 const HEADER_LEN: usize = 127;
 /// Header and root directory must fit into the first 16 KiB of the file.
@@ -112,7 +111,7 @@ pub fn write_archive(
     path: &Path,
     tiles: Vec<(u8, u32, u32, Vec<u8>)>,
     info: &ArchiveInfo,
-) -> Result<u64, SlopeError> {
+) -> Result<u64, MapsError> {
     let min_zoom = tiles.iter().map(|tile| tile.0).min().unwrap_or(0);
     let max_zoom = tiles.iter().map(|tile| tile.0).max().unwrap_or(0);
     let mut tiles: Vec<(u64, Vec<u8>)> = tiles
@@ -146,9 +145,12 @@ pub fn write_archive(
         }
     }
 
-    let io = SlopeError::io(path);
-    let (root, leaves) = directories(&entries).map_err(&io)?;
-    let metadata = gzip(b"{}").map_err(&io)?;
+    let io = |source| MapsError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
+    let (root, leaves) = directories(&entries).map_err(io)?;
+    let metadata = gzip(b"{}").map_err(io)?;
     let root_offset = HEADER_LEN as u64;
     let metadata_offset = root_offset + root.len() as u64;
     let leaves_offset = metadata_offset + metadata.len() as u64;
@@ -190,13 +192,13 @@ pub fn write_archive(
     header.extend_from_slice(&e7((west + east) / 2.0));
     header.extend_from_slice(&e7((south + north) / 2.0));
 
-    let mut out = BufWriter::new(File::create(path).map_err(&io)?);
+    let mut out = BufWriter::new(File::create(path).map_err(io)?);
     for part in [header.as_slice(), &root, &metadata, &leaves] {
-        out.write_all(part).map_err(&io)?;
+        out.write_all(part).map_err(io)?;
     }
     for content in contents {
-        out.write_all(content).map_err(&io)?;
+        out.write_all(content).map_err(io)?;
     }
-    out.flush().map_err(&io)?;
+    out.flush().map_err(io)?;
     Ok(data_offset + data_len)
 }

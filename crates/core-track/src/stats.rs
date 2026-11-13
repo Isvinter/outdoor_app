@@ -261,6 +261,18 @@ fn moving_time(t: &[i64], speeds: &[f64], params: &StatsParams) -> f64 {
     total
 }
 
+/// Total ascent and descent in metres of an elevation profile given as
+/// `(distance from start, elevation)` pairs in metres. The profile is smoothed
+/// over `smooth_window_m` of distance; changes of direction smaller than
+/// `threshold_m` are ignored. The same method as for recorded tracks.
+pub fn elevation_gain(
+    profile: &[(f64, f64)],
+    smooth_window_m: f64,
+    threshold_m: f64,
+) -> (f64, f64) {
+    ascent_descent(&smooth_by_distance(profile, smooth_window_m), threshold_m)
+}
+
 /// Moving average of elevation over a window of `window_m` metres of travelled
 /// distance, centred on each point. Independent of the recording interval.
 fn smooth_by_distance(profile: &[(f64, f64)], window_m: f64) -> Vec<f64> {

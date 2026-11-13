@@ -233,7 +233,9 @@ Kein UI-Framework. Das Höhenprofil wird als kleines eigenes SVG/Canvas-Element 
   - Der Crate baut **ohne** Datenwerkzeuge (`ENABLE_DATA_TOOLS=OFF`). Kacheln werden also nicht
     in der App gebaut, sondern per Skript mit dem offiziellen Docker-Image
     (`ghcr.io/valhalla/valhalla`, Erreichbarkeit geprüft).
-  - Valhalla-Logging lässt sich noch nicht nach `tracing` umleiten.
+  - Valhalla-Logging lässt sich noch nicht nach `tracing` umleiten. (M5: Logger-Typ in der
+    Konfiguration leer gesetzt – Valhalla schreibt nichts mehr auf die Konsole; Fehler kommen
+    als `RoutingError` zurück.)
   - Die docs.rs-Dokumentation von 0.7.6 baut nicht (zuletzt erfolgreich 0.6.1) – wir lesen
     Quellen und Tests.
   - Nur ~1000 Downloads in 90 Tagen: junge Bindings, wenig Verbreitung. Deshalb strikt hinter
@@ -303,6 +305,43 @@ Regionsmanifest vermerkt, damit die App sie anzeigen kann. Die Schwelle gilt dam
 Kachelsatz; ändern heißt Routingkacheln der Region neu bauen. Eine pro Route in der App
 einstellbare Schwelle ginge nur mit einem Eingriff in Valhallas C++-Kern (Wert pro Kante
 speichern und im Costing auswerten) – das ist ein eigener Fork und nicht Teil von Phase 1.
+
+#### Stand M5 – was gebaut und gemessen wurde
+
+- `scripts/build-valhalla-tiles.sh <id> [--max-mtb-scale N]` baut `routing.tar` mit dem
+  Docker-Image 3.9.1 und ist als Schritt `routing` in `build-region.sh` eingebunden. Das
+  Manifest nennt Datei und Bauart (`"routing": {"valhalla": "3.9.1", "max_mtb_scale": 2}`).
+  Testregion: 19 MB Routingkacheln, Paket jetzt 90 MB.
+- `core-routing`: Profile mit Optionsbeschreibung (`OptionSpec` – die Oberfläche baut ihre
+  Regler daraus), `Router`-Trait, `ValhallaRouter` (Feature `valhalla`), manuelle Route,
+  DIN-33466-Gehzeit. `core-app::plan_route` wählt die Region, deren Begrenzung alle Wegpunkte
+  enthält, hält je Region einen geöffneten Router und ergänzt Höhenprofil (alle 25 m aus
+  dem DEM der Region, bilinear), Auf-/Abstieg (gleiches Verfahren wie bei Tracks: 50 m
+  glätten, 3 m Schwelle) und Gehzeit. Fehlen Höhendaten auf einem Teil der Route, gibt es
+  keine Höhenmeter statt zu kleiner.
+- Geplante Routen liegen als Tabelle `routes` in SQLite (Migration 2; Plan als JSON mit
+  Wegpunkten, Linie, Profil – eine gespeicherte Route lässt sich ohne Routingdaten anzeigen
+  und exportieren).
+- Rechenzeit: Route im Prozess unter 100 ms (Testregion).
+
+Beispielrouten (automatische Tests auf `fixtures/routing/tegernsee.tar`, echte OSM-Daten):
+
+| Fall | Ergebnis |
+|---|---|
+| Wandern Bahnhof Tegernsee → Neureuth | 3,63 km über den direkten Steig |
+| dasselbe mit `use_hills` 0 | 4,70 km über den flacheren Fahrweg – der Regler wirkt |
+| „Sommerweg“ (OSM-Weg 126301802, `mtb:scale=3`, `bicycle=yes`), Ende zu Ende | Wandern 664 m auf dem Weg; MTB 1,73 km außen herum – **S3-Sperre greift** |
+| Bergweg `sac_scale=mountain_hiking` (Weg 15915757, 1,16 km), Ende zu Ende | Standard (bis T3): auf dem Weg; mit `max_hiking_difficulty` 1: Umweg oder keine Route |
+| Auto zur Neureuth | keine Route (`route_not_found`), Räder kommen hin |
+| Wandern Lenggries Bahnhof → Brauneck (Testregion, über die Oberfläche) | 5,80 km, 838 Hm Aufstieg; Valhalla-Gehzeit 2:05 h, DIN 33466 3:33 h |
+
+Befund MTB: Das Profil `mountain` mit `use_roads` 0,1 und `avoid_bad_surfaces` 0 nimmt
+unbefestigte Wege und Pfade ohne Scheu. Nach dem Quelltext (siehe oben) kennt das Costing
+aber keine Trail-Attraktivität, nur Belag, Steigung und Straßenanteil – es **bevorzugt Trails
+also nicht aktiv**. Eine Schwierigkeitsgrenze
+pro Route gibt es nicht (siehe oben); die S-Grenze des Kachelsatzes zeigt die App bei
+Radrouten an. Die Valhalla-Gehzeit ist im Gebirge deutlich zu kurz (Beispiel Brauneck:
+2:05 h gegen 3:33 h nach DIN) – die App zeigt deshalb beide, für Skitouren nur DIN.
 
 Höhen im Valhalla-Graph (für `use_hills`): Der Kachelbau braucht Höhendaten im
 SRTM-HGT-Format; das Skript lädt sie über `valhalla_build_elevation`. Auflösung ~30 m, reicht
@@ -388,6 +427,8 @@ Eine Region ist ein Verzeichnis mit Manifest:
   routing.tar        # Valhalla tile_extract
 ```
 
+Stand M5: zusätzlich `routing.tar` (Testregion 19 MB) und der Abschnitt `routing` im Manifest.
+
 Stand M4: zusätzlich `slope.pmtiles` (Testregion 9,5 MB, Zoom 9–13, 0,3 s Rechenzeit auf
 32 Kernen; Kacheln ohne Gelände über 30° werden nicht gespeichert). Abweichung von 6.8:
 Ausgabe als PNG mit Farbpalette (5 Einträge) statt WebP – kleiner und ohne Encoder-Abhängigkeit.
@@ -411,7 +452,7 @@ Speicherbedarfsanzeige vor und nach dem Download, Löschen.
 
 ## 5. Datenmodell (sync-fähig)
 
-SQLite, Migrationen ab der ersten Version (eigener Runner über `PRAGMA user_version`; Tabellen für Routen kommen als weitere Migration mit M5; Regionen brauchen keine Tabelle, siehe 4.4).
+SQLite, Migrationen ab der ersten Version (eigener Runner über `PRAGMA user_version`; Tabelle `routes` seit M5 als Migration 2; Regionen brauchen keine Tabelle, siehe 4.4).
 
 Gemeinsam für alle synchronisierbaren Tabellen: `id` (UUIDv7, als 16-Byte-BLOB),
 `created_at`, `updated_at` (UTC, Millisekunden), `deleted_at` (Soft-Delete, sonst NULL),

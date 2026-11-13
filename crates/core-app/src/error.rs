@@ -13,6 +13,12 @@ pub enum AppError {
     Location(#[from] core_location::LocationError),
     #[error(transparent)]
     Maps(#[from] core_maps::MapsError),
+    #[error(transparent)]
+    Routing(#[from] core_routing::RoutingError),
+    #[error("stored route cannot be read: {0}")]
+    RoutePlan(String),
+    #[error("no route is planned")]
+    NoRoutePlanned,
     #[error("no map catalog is configured")]
     NoCatalog,
     #[error("no recording is in progress")]
@@ -34,6 +40,14 @@ impl AppError {
             AppError::Track(_) => "track",
             AppError::Location(_) => "location",
             AppError::Maps(e) => e.code(),
+            AppError::Routing(e) => match e {
+                core_routing::RoutingError::TooFewWaypoints => "route_too_few_waypoints",
+                core_routing::RoutingError::NoRoute(_) => "route_not_found",
+                core_routing::RoutingError::Unavailable(_) => "routing_unavailable",
+                _ => "routing",
+            },
+            AppError::RoutePlan(_) => "route_plan",
+            AppError::NoRoutePlanned => "no_route_planned",
             AppError::NoCatalog => "no_catalog",
             AppError::NoRecording => "no_recording",
             AppError::RecordingActive => "recording_active",

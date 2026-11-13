@@ -4,19 +4,17 @@
 //! archive of raster tiles that colour terrain by slope angle, in the classes
 //! avalanche maps use. See `PLAN.md`, section 6.8, for the reasoning.
 
-pub mod writer;
-
 use std::collections::HashMap;
-use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use core_maps::{Archive, MapsError, TileType};
+pub use core_maps::decode_terrarium;
+use core_maps::{
+    Archive, ArchiveInfo, DemTile, MapsError, TileType, decode_dem_tile, write_archive,
+};
 use rayon::prelude::*;
 use thiserror::Error;
-
-use writer::{ArchiveInfo, write_archive};
 
 /// Colours (RGB) of the slope classes: below 30° (not drawn), 30–35° yellow,
 /// 35–40° orange, 40–45° red, 45° and steeper violet.
@@ -38,12 +36,6 @@ const DEM_CACHE_SIZE: usize = 256;
 pub enum SlopeError {
     #[error(transparent)]
     Maps(#[from] MapsError),
-    #[error("{}: {source}", path.display())]
-    Io {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
     #[error("elevation tile {z}/{x}/{y} cannot be decoded: {reason}")]
     Decode {
         z: u8,
@@ -55,21 +47,6 @@ pub enum SlopeError {
     UnsupportedTiles(TileType),
     #[error("cannot start worker threads: {0}")]
     Threads(String),
-}
-
-impl SlopeError {
-    pub(crate) fn io(path: &Path) -> impl Fn(std::io::Error) -> SlopeError {
-        let path = path.to_path_buf();
-        move |source| SlopeError::Io {
-            path: path.clone(),
-            source,
-        }
-    }
-}
-
-/// Elevation in metres of a Terrarium-encoded pixel.
-pub fn decode_terrarium([r, g, b]: [u8; 3]) -> f32 {
-    f32::from(r) * 256.0 + f32::from(g) + f32::from(b) / 256.0 - 32768.0
 }
 
 /// Slope class of an angle in degrees: 0 (below 30° or unknown) to 4 (45° and steeper).
@@ -213,11 +190,7 @@ pub struct Summary {
     pub bytes: u64,
 }
 
-/// Elevations of one tile in metres, row by row.
-struct Dem {
-    size: usize,
-    heights: Vec<f32>,
-}
+type Dem = DemTile;
 
 type OutputTile = (u8, u32, u32, Vec<u8>);
 /// Decoded elevation tiles by column and row; `None` for tiles the archive lacks.
@@ -234,57 +207,14 @@ struct Job<'a> {
 
 impl Job<'_> {
     fn decode(&self, x: u32, y: u32, data: &[u8]) -> Result<Dem, SlopeError> {
-        let fail = |reason: String| SlopeError::Decode {
-            z: self.zoom,
-            x,
-            y,
-            reason,
-        };
-        let (width, height, channels, pixels) = match self.archive.header().tile_type {
-            TileType::Webp => {
-                let mut decoder = image_webp::WebPDecoder::new(Cursor::new(data))
-                    .map_err(|e| fail(e.to_string()))?;
-                let (width, height) = decoder.dimensions();
-                let channels = if decoder.has_alpha() { 4 } else { 3 };
-                let len = decoder
-                    .output_buffer_size()
-                    .ok_or_else(|| fail("image too large".into()))?;
-                let mut pixels = vec![0u8; len];
-                decoder
-                    .read_image(&mut pixels)
-                    .map_err(|e| fail(e.to_string()))?;
-                (width, height, channels, pixels)
+        decode_dem_tile(self.archive.header().tile_type, data).map_err(|reason| {
+            SlopeError::Decode {
+                z: self.zoom,
+                x,
+                y,
+                reason,
             }
-            TileType::Png => {
-                let mut reader = png::Decoder::new(Cursor::new(data))
-                    .read_info()
-                    .map_err(|e| fail(e.to_string()))?;
-                let len = reader
-                    .output_buffer_size()
-                    .ok_or_else(|| fail("image too large".into()))?;
-                let mut pixels = vec![0u8; len];
-                let frame = reader
-                    .next_frame(&mut pixels)
-                    .map_err(|e| fail(e.to_string()))?;
-                let channels = match (frame.color_type, frame.bit_depth) {
-                    (png::ColorType::Rgb, png::BitDepth::Eight) => 3,
-                    (png::ColorType::Rgba, png::BitDepth::Eight) => 4,
-                    other => return Err(fail(format!("unexpected pixel format {other:?}"))),
-                };
-                pixels.truncate(frame.buffer_size());
-                (frame.width, frame.height, channels, pixels)
-            }
-            other => return Err(SlopeError::UnsupportedTiles(other)),
-        };
-        let size = width as usize;
-        if width != height || pixels.len() != size * size * channels {
-            return Err(fail(format!("unexpected image size {width}x{height}")));
-        }
-        let heights = pixels
-            .chunks_exact(channels)
-            .map(|p| decode_terrarium([p[0], p[1], p[2]]))
-            .collect();
-        Ok(Dem { size, heights })
+        })
     }
 
     /// The elevation tile at the compute zoom, if the archive has it.

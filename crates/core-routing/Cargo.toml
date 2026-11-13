@@ -1,0 +1,21 @@
+[package]
+name = "core-routing"
+description = "Route planning: profiles, route model, time estimates, Valhalla behind a trait"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# In-process routing with Valhalla (C++). Needs clang, cmake, Boost and Protobuf to build.
+valhalla = ["dep:valhalla"]
+
+[dependencies]
+core-track.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+valhalla = { version = "0.7.6", optional = true }
+
+[lints]
+workspace = true

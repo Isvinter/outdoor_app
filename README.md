@@ -3,30 +3,37 @@
 Offline-Outdoor-App für Rad, MTB, Wandern und Skitouren. Architektur, Datenquellen,
 Algorithmen und Meilensteine stehen in [PLAN.md](PLAN.md).
 
-Stand: **Meilenstein 4** – Desktop-App mit Offline-Karte (herunterladbare Regionen,
+Stand: **Meilenstein 5** – Desktop-App mit Offline-Karte (herunterladbare Regionen,
 Topo-Sommerstil mit Schummerung, Höhenlinien, Wanderwegen und MTB-Trails; Winterstil mit
-Hangneigungsklassen, Pisten und Skirouten), Positionsanzeige,
-Live-Aufzeichnung (absturzsicher), GPX-Import/-Export.
+Hangneigungsklassen, Pisten und Skirouten), Offline-Routenplanung (Wandern, MTB, Trekkingrad,
+Rennrad, Auto, manuelle Skitour) mit Höhenprofil, Positionsanzeige, Live-Aufzeichnung
+(absturzsicher), GPX-Import/-Export.
 
 ## Voraussetzungen (Ubuntu 24.04 / 26.04)
 
 ```sh
 sudo apt install build-essential curl git pkg-config \
   libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev \
-  libssl-dev libxdo-dev
+  libssl-dev libxdo-dev \
+  clang cmake libboost-dev libprotobuf-dev protobuf-compiler zlib1g-dev   # für Valhalla (Routing)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust ≥ 1.90
 # Node.js ≥ 22 und pnpm ≥ 10 für das Frontend:
 curl -fsSL https://get.pnpm.io/install.sh | sh -
 ```
 
 Für GPS-Hardware zusätzlich `sudo apt install gpsd` (optional; ohne Empfänger genügt die
-GPX-Simulation). Pakete für Valhalla kommen mit Meilenstein 5 hinzu.
+GPX-Simulation).
+
+Die Routing-Engine Valhalla (C++) wird beim ersten Bauen mitkompiliert (einige Minuten).
+Ohne die Valhalla-Pakete baut die App mit `--no-default-features`; dann gibt es nur manuelle
+Routen (gerade Linien mit Höhenprofil).
 
 ## Bauen und starten
 
 ```sh
 (cd apps/desktop/ui && pnpm install && pnpm build)   # Frontend, wird in die App eingebettet
 cargo run --release -p outdoor-desktop
+cargo run --release -p outdoor-desktop --no-default-features   # ohne Valhalla
 ```
 
 Nach Änderungen am Frontend `pnpm build` wiederholen.
@@ -38,6 +45,8 @@ In der App:
 - **Aufzeichnung → Start / Pause / Fortsetzen / Stopp.** Jeder Punkt wird sofort gespeichert.
   Wird die App während einer Aufzeichnung beendet, bietet sie beim nächsten Start
   „Fortsetzen“ oder „Abschließen“ an.
+- **Route planen** – Profil wählen, „Wegpunkte setzen“, in die Karte klicken (siehe
+  [Routenplanung](#routenplanung)).
 - **Tracks** – Liste, Statistik, Umbenennen, GPX-Import und -Export, Löschen.
 - **Karten** – Kartenstil wählen, Katalog einstellen, Regionen herunterladen, anzeigen und
   löschen (siehe [Offline-Karten](#offline-karten)).
@@ -51,13 +60,15 @@ Kartenregionen in `regions/`.
 | `OUTDOOR_FPS_PROBE=1` | bewegt die Karte 10 s, gibt Bildraten als JSON aus, beendet die App |
 | `OUTDOOR_SELFTEST=<datei.gpx>` | bedient die Oberfläche selbst (Simulation, Start, Pause, Fortsetzen, Stopp), gibt das Ergebnis als JSON aus, beendet die App |
 | `OUTDOOR_SELFTEST_REGIONS=<katalog>` | lädt die erste Region des Katalogs über die Oberfläche, prüft die Karte, löscht die Region wieder, gibt das Ergebnis als JSON aus, beendet die App |
+| `OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>` | plant über die Oberfläche eine Wanderroute durch die Punkte, speichert sie, gibt das Ergebnis als JSON aus, beendet die App (zusammen mit `OUTDOOR_SNAPSHOT` zeigt das Bild die Route) |
 | `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt und `OUTDOOR_SNAPSHOT_STYLE=topo\|winter\|online` für einen Stil |
 
 ## Offline-Karten
 
 Die App zeigt Karten aus **Regionspaketen**, die einmal heruntergeladen werden und danach ohne
 Netz funktionieren. Ein Paket besteht aus Basiskarte, Outdoor-Overlay (Wege mit
-Schwierigkeit, markierte Wander-/Rad-/MTB-Routen, Pisten, Gipfel, Hütten) und Höhendaten.
+Schwierigkeit, markierte Wander-/Rad-/MTB-Routen, Pisten, Gipfel, Hütten), Höhendaten,
+Hangneigung und Routingdaten.
 Einen öffentlichen Server mit fertigen Paketen gibt es noch nicht (Phase 3) – Pakete werden
 lokal gebaut und aus einem Ordner (oder von einem eigenen Webserver) geladen.
 
@@ -68,11 +79,11 @@ Quelldaten nach `data/sources/` (OSM-Auszüge, Küstenlinien, Natural Earth); `d
 Teil des Repositories.
 
 ```sh
-scripts/build-region.sh isarwinkel-achensee      # Testregion, Ergebnis ~71 MB, Dauer ~2 min
+scripts/build-region.sh isarwinkel-achensee      # Testregion, Ergebnis ~90 MB, Dauer ~3 min
 scripts/build-region.sh isarwinkel-achensee --steps outdoor,manifest --force   # einzelne Schritte neu
 ```
 
-Ergebnis: `data/regions/<id>/` (vier `.pmtiles`-Dateien und `manifest.json`) sowie
+Ergebnis: `data/regions/<id>/` (vier `.pmtiles`-Dateien, `routing.tar` und `manifest.json`) sowie
 `data/regions/catalog.json` mit allen gebauten Regionen. Weitere Regionen entstehen aus einer
 Beschreibung in `regions/<id>.json` (Name, Begrenzung, OSM-Auszüge, Zoomstufen).
 
@@ -108,6 +119,42 @@ Kartendaten: © OpenStreetMap-Mitwirkende (ODbL), Schema © OpenMapTiles (CC BY)
 über Mapterhorn (u. a. Bayerische Vermessungsverwaltung, geoland.at, Copernicus); die genauen
 Angaben stehen im Manifest jeder Region und in der Karte unten rechts.
 
+## Routenplanung
+
+Routen werden vollständig auf dem Gerät berechnet (Valhalla im Prozess, Routingdaten aus dem
+Regionspaket). Alle Wegpunkte müssen in **einer** installierten Region liegen.
+
+1. Unter **Route planen** ein Profil wählen. Die Regler darunter gehören zum Profil
+   (z. B. Wandern: Schwierigkeit bis T1–T6 nach SAC-Skala, Steigungen meiden ↔ egal).
+2. **Wegpunkte setzen** drücken und in die Karte klicken: erster Klick Start, weitere Klicks
+   Zwischenziele und Ziel. Punkte lassen sich ziehen; ein Klick auf einen Punkt entfernt ihn.
+   Die Route wird nach jeder Änderung neu berechnet.
+3. Angezeigt werden Distanz, Zeit, Auf- und Abstieg, niedrigster/höchster Punkt und das
+   Höhenprofil (Zeiger über dem Profil zeigt die Stelle in der Karte). Höhen kommen aus dem
+   Geländemodell der Region, nicht aus dem Router.
+4. **Speichern** legt die Route in der Liste darunter ab (Klick lädt sie wieder, ✕ löscht),
+   **Als GPX exportieren** schreibt sie als Track mit Höhen.
+
+| Profil | Rechnet mit |
+|---|---|
+| Wandern | Fußwege bis zur gewählten SAC-Schwierigkeit; Gehzeit zusätzlich nach DIN 33466 (4 km/h, 300 Hm/h auf, 500 Hm/h ab) – die Zeit des Routers ist im Gebirge zu kurz |
+| MTB | unbefestigte Wege und Pfade, wenig Straße |
+| Trekkingrad | Radwege und ruhige Straßen, mäßig schlechter Belag |
+| Rennrad | Asphalt |
+| Auto | Straßen |
+| Skitour (manuell) | gerade Linien zwischen den Wegpunkten, Höhenprofil und DIN-Gehzeit aus dem Gelände; braucht keine Routingdaten |
+
+**MTB-Schwierigkeit:** Wege schwerer als S2 (`mtb:scale` ≥ 3) sind für alle Radprofile
+gesperrt. Die Grenze wird beim Bau der Routingdaten festgelegt, nicht pro Route:
+
+```sh
+scripts/build-region.sh isarwinkel-achensee --steps routing,manifest --max-mtb-scale 3 --force
+```
+
+Danach die Region in der App aktualisieren. Was Valhalla für MTB kann und was nicht (keine
+aktive Bevorzugung von Trails, keine Schwierigkeitsgrenze pro Route), steht mit Beispielrouten
+in [PLAN.md](PLAN.md), Abschnitt 3.3.
+
 ## Kommandozeile
 
 ```sh
@@ -121,7 +168,8 @@ cargo run --release -p track-cli -- record tour.gpx --db test.sqlite         # G
 ## Entwickeln
 
 ```sh
-cargo test --workspace
+cargo test --workspace                       # mit Valhalla (über die Desktop-App eingeschaltet)
+cargo test -p core-routing -p core-app       # dieselben Crates ohne Valhalla
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 (cd apps/desktop/ui && pnpm typecheck)
@@ -133,7 +181,7 @@ SQLite:
 
 ```sh
 rustup target add aarch64-apple-ios aarch64-linux-android
-cargo check -p core-track -p core-gpx -p core-location --target aarch64-linux-android   # core-maps, core-storage: brauchen das NDK
+cargo check -p core-track -p core-gpx -p core-location -p core-routing --target aarch64-linux-android   # core-maps, core-storage: brauchen das NDK
 ```
 
 Echte GPX-Aufzeichnungen in `fixtures/gpx/real/` werden von den Tests automatisch
@@ -148,13 +196,14 @@ Abweichung geprüft.
 | `crates/core-gpx` | GPX 1.1 lesen und schreiben |
 | `crates/core-storage` | SQLite: Schema, Migrationen, Tracks, Einstellungen |
 | `crates/core-location` | Positionsquellen: GPX-Simulation, gpsd |
-| `crates/core-maps` | Offline-Regionen: Katalog, Download, PMTiles-Leser, Kachelzugriff |
+| `crates/core-maps` | Offline-Regionen: Katalog, Download, PMTiles lesen und schreiben, Kachelzugriff, Höhen aus dem Geländemodell |
+| `crates/core-routing` | Routenprofile, Router-Schnittstelle, Valhalla (Feature `valhalla`), manuelle Route, DIN-Gehzeit |
 | `crates/core-app` | Anwendungsdienste; einzige Schnittstelle für Oberflächen |
 | `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
 | `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
-| `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln (mit PMTiles-Schreiber) |
+| `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |
 | `regions/` | Beschreibungen der baubaren Regionen |
-| `scripts/` | `build-region.sh` (Regionspaket bauen), `make-style.py` (Kartenstile), Planetiler-Profil |
+| `scripts/` | `build-region.sh` (Regionspaket bauen), `build-valhalla-tiles.sh` (Routingdaten), `make-style.py` (Kartenstile), Planetiler-Profil |
 | `styles/`, `assets/map/` | Kartenstile und Schriften, von allen Plattformen genutzt |
-| `fixtures/` | Testdaten (GPX-Tracks, Mini-Region) |
+| `fixtures/` | Testdaten (GPX-Tracks, Mini-Region, Routingkacheln Tegernsee) |

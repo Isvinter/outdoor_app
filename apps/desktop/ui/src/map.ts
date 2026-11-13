@@ -13,7 +13,7 @@ import {
 } from "maplibre-gl";
 import mlcontour from "maplibre-contour";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Fix, Line, RegionsOverview } from "./api";
+import type { Fix, LatLon, Line, RegionsOverview } from "./api";
 
 // The worker files are copied next to the bundle by vite.config.ts.
 setWorkerUrl(new URL("maplibre/maplibre-gl-worker.mjs", document.baseURI).href);
@@ -29,10 +29,18 @@ const TILES = convertFileSrc("", "tiles");
 const EMPTY_STYLE: StyleSpecification = { version: 8, sources: {}, layers: [] };
 const LIVE = "live-track";
 const SELECTED = "selected-track";
+const ROUTE = "planned-route";
 const OVERLAYS = [
   [SELECTED, "#7b3fb5"],
+  [ROUTE, "#0b63ce"],
   [LIVE, "#d93025"],
 ] as const;
+
+/** What the route panel wants to know about its waypoint markers. */
+export interface WaypointHandlers {
+  moved(index: number, to: LatLon): void;
+  removed(index: number): void;
+}
 
 // Contour lines are computed from the elevation tiles of the installed regions.
 const contours = new mlcontour.DemSource({
@@ -136,7 +144,9 @@ export class MapView {
   readonly map: MapLibreMap;
   private readonly marker: Marker;
   private markerShown = false;
-  private readonly lines: Record<string, Line> = { [LIVE]: [], [SELECTED]: [] };
+  private readonly lines: Record<string, Line> = { [LIVE]: [], [SELECTED]: [], [ROUTE]: [] };
+  private waypointMarkers: Marker[] = [];
+  private readonly cursor: Marker;
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
   private slopeOpacity = 0.6;
@@ -150,6 +160,9 @@ export class MapView {
     const dot = document.createElement("div");
     dot.className = "position-marker";
     this.marker = new Marker({ element: dot });
+    const cursor = document.createElement("div");
+    cursor.className = "profile-cursor";
+    this.cursor = new Marker({ element: cursor });
 
     this.map.on("styleimagemissing", (e) => {
       const image = drawIcon(e.id);
@@ -235,6 +248,52 @@ export class MapView {
     if (points.length === 0) return;
     const bounds = points.reduce((b, p) => b.extend(p), new LngLatBounds(points[0], points[0]));
     this.map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 600 });
+  }
+
+  /** Shows the planned route; an empty line clears it. */
+  showRoute(line: LatLon[], fit = false): void {
+    const points = line.map((p): [number, number] => [p.lon, p.lat]);
+    this.setLine(ROUTE, [points]);
+    if (!fit || points.length === 0) return;
+    const bounds = points.reduce((b, p) => b.extend(p), new LngLatBounds(points[0], points[0]));
+    this.map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 600 });
+  }
+
+  /** Replaces the numbered waypoint markers. They can be dragged; a click removes one. */
+  setWaypoints(points: LatLon[], handlers: WaypointHandlers): void {
+    for (const marker of this.waypointMarkers) marker.remove();
+    this.waypointMarkers = points.map((point, index) => {
+      const element = document.createElement("div");
+      element.className = "waypoint-marker";
+      element.textContent = String(index + 1);
+      const marker = new Marker({ element, draggable: true }).setLngLat([point.lon, point.lat]).addTo(this.map);
+      marker.on("dragend", () => {
+        const { lng, lat } = marker.getLngLat();
+        handlers.moved(index, { lat, lon: lng });
+      });
+      element.addEventListener("click", (e) => {
+        // Not a click on the map: do not add a waypoint here.
+        e.stopPropagation();
+        handlers.removed(index);
+      });
+      return marker;
+    });
+  }
+
+  /** Calls `handler` with the position of every click on the map. */
+  onClick(handler: (at: LatLon) => void): void {
+    this.map.on("click", (e) => handler({ lat: e.lngLat.lat, lon: e.lngLat.lng }));
+  }
+
+  /** Cross-hair cursor while clicks set waypoints. */
+  setPicking(picking: boolean): void {
+    this.map.getCanvas().style.cursor = picking ? "crosshair" : "";
+  }
+
+  /** Marks the place the pointer is at in the elevation profile; `null` hides the mark. */
+  showProfileCursor(at: LatLon | null): void {
+    if (at) this.cursor.setLngLat([at.lon, at.lat]).addTo(this.map);
+    else this.cursor.remove();
   }
 
   /** Zooms to a box given as west, south, east, north. */

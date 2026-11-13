@@ -96,6 +96,73 @@ export interface RegionProgress {
   total: number;
 }
 
+export type Profile = "road_bike" | "trekking" | "mtb" | "hike" | "car" | "manual";
+export type RouteOptionKey = "use_hills" | "use_roads" | "avoid_bad_surfaces" | "max_hiking_difficulty";
+
+export interface LatLon {
+  lat: number;
+  lon: number;
+}
+
+export interface OptionSpec {
+  key: RouteOptionKey;
+  min: number;
+  max: number;
+  default: number;
+  step: number;
+}
+
+export interface ProfileInfo {
+  profile: Profile;
+  options: OptionSpec[];
+  /** False if this build cannot compute the profile. */
+  available: boolean;
+}
+
+export type RouteOptions = Partial<Record<RouteOptionKey, number | null>>;
+
+export interface RouteRequest {
+  waypoints: LatLon[];
+  profile: Profile;
+  options: RouteOptions;
+}
+
+export interface ProfilePoint {
+  distance_m: number;
+  lat: number;
+  lon: number;
+  ele: number | null;
+}
+
+export interface RoutePlan {
+  route: {
+    profile: Profile;
+    waypoints: LatLon[];
+    line: LatLon[];
+    distance_m: number;
+    duration_s: number | null;
+  };
+  options: RouteOptions;
+  elevation: ProfilePoint[];
+  ascent_m: number | null;
+  descent_m: number | null;
+  min_ele_m: number | null;
+  max_ele_m: number | null;
+  hiking_time_s: number | null;
+  region: string | null;
+  max_mtb_scale: number | null;
+}
+
+export interface RouteRecord {
+  id: string;
+  name: string;
+  profile: Profile;
+  distance_m: number;
+  ascent_m: number | null;
+  created_at_ms: number;
+  updated_at_ms: number;
+}
+
 export interface SnapshotRequest {
   path: string;
   /** Longitude, latitude and zoom to show, if given. */
@@ -135,6 +202,15 @@ export const api = {
   regionInstall: (id: string) => invoke<unknown>("region_install", { id }),
   regionCancel: (id: string) => invoke<void>("region_cancel", { id }),
   regionDelete: (id: string) => invoke<void>("region_delete", { id }),
+
+  routeProfiles: () => invoke<ProfileInfo[]>("route_profiles"),
+  routePlan: (request: RouteRequest) => invoke<RoutePlan>("route_plan", { request }),
+  routeClear: () => invoke<void>("route_clear"),
+  routeSave: (name: string) => invoke<RouteRecord>("route_save", { name }),
+  routesList: () => invoke<RouteRecord[]>("routes_list"),
+  routeLoad: (id: string) => invoke<RoutePlan>("route_load", { id }),
+  routeDelete: (id: string) => invoke<void>("route_delete", { id }),
+  routeExportGpx: (name: string, path: string) => invoke<void>("route_export_gpx", { name, path }),
 
   snapshotRequest: () => invoke<SnapshotRequest | null>("snapshot_request"),
   snapshotSave: (png: number[]) => invoke<void>("snapshot_save", { png }),
