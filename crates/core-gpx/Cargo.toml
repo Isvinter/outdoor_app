@@ -1,0 +1,16 @@
+[package]
+name = "core-gpx"
+description = "GPX 1.1 import and export (platform independent)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+core-track.workspace = true
+quick-xml.workspace = true
+thiserror.workspace = true
+time.workspace = true
+
+[lints]
+workspace = true

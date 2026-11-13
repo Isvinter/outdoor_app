@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e07cfe9f6b86eb1c0cadc5891780ebdfbb01309b21b3e864101b47f637faf588 # shrinks to segs = [[TrackPoint { lat: 0.0, lon: 0.0, ele: None, time_ms: Some(1700008011700), h_accuracy_m: None, speed_mps: None }, TrackPoint { lat: 0.0, lon: 0.0, ele: None, time_ms: None, h_accuracy_m: None, speed_mps: None }, TrackPoint { lat: 0.0, lon: 0.0, ele: None, time_ms: Some(1700000000000), h_accuracy_m: None, speed_mps: None }]], activity = 0

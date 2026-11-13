@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="handwritten test fixture" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Synthetic fixture</name>
+  </metadata>
+  <trk>
+    <name>Kranzberg &amp; Ferchensee</name>
+    <type>hiking</type>
+    <trkseg>
+      <trkpt lat="47.4400000" lon="11.2500000"><ele>920.0</ele><time>2024-07-01T08:00:00Z</time></trkpt>
+      <trkpt lat="47.4401000" lon="11.2500000"><ele>921.5</ele><time>2024-07-01T08:00:10Z</time></trkpt>
+      <trkpt lat="47.4402000" lon="11.2500000"><ele>923.0</ele><time>2024-07-01T08:00:20Z</time></trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="47.4402000" lon="11.2501000"><ele>923.0</ele><time>2024-07-01T08:30:00Z</time></trkpt>
+      <trkpt lat="47.4403000" lon="11.2501000"><ele>924.5</ele><time>2024-07-01T08:30:10Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>
