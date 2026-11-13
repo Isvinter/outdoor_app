@@ -147,7 +147,7 @@ export class RoutePanel {
           this.options = { ...this.options, [spec.key]: Number(slider.value) };
           void this.compute(false);
         });
-        row.append(label, slider, value);
+        row.append(label, value, slider);
         return row;
       }),
     );

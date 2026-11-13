@@ -28,6 +28,27 @@ async function until(what: string, condition: () => boolean, timeoutMs = 15_000)
   }
 }
 
+/** Things in the sidebar that stick out of their section or lie on top of the next one. */
+function layoutProblems(): string[] {
+  const problems: string[] = [];
+  const blocks = [...document.querySelectorAll<HTMLElement>("#sidebar > *")].filter((el) => el.offsetParent !== null);
+  blocks.forEach((block, i) => {
+    const box = block.getBoundingClientRect();
+    for (const el of block.querySelectorAll<HTMLElement>("*")) {
+      const inner = el.getBoundingClientRect();
+      if (inner.width === 0 || inner.height === 0) continue;
+      // What a closed <details> holds is not shown, whatever its box says.
+      if (el.tagName !== "SUMMARY" && el.closest("details:not([open])")) continue;
+      const name = el.id || el.className || el.tagName;
+      if (inner.right > box.right + 0.5 || inner.left < box.left - 0.5) problems.push(`${name} wider than its section`);
+      if (inner.bottom > box.bottom + 0.5) problems.push(`${name} below its section`);
+    }
+    const next = blocks[i + 1]?.getBoundingClientRect();
+    if (next && box.bottom > next.top + 0.5) problems.push(`${block.id || block.tagName} overlaps the next block`);
+  });
+  return [...new Set(problems)];
+}
+
 async function fpsProbe(view: MapView): Promise<void> {
   const map = view.map;
   await new Promise<void>((resolve) => (map.loaded() ? resolve() : map.once("idle", () => resolve())));
@@ -103,6 +124,7 @@ async function selfTest(view: MapView, gpxPath: string): Promise<void> {
     report.tracks_listed = document.querySelectorAll("#track-list li[data-id]").length;
     report.first_track = text("track-list").slice(0, 80);
     report.track_stats = text("track-stats");
+    report.layout_problems = layoutProblems();
     report.legend_entries = document.querySelectorAll("#legend-list li").length;
     report.attribution_lines = document.querySelectorAll("#about-attribution li").length;
     report.message = text("message");
@@ -185,6 +207,7 @@ async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promis
     report.chart_scale = el("route-chart").querySelector(".scale")?.textContent;
     report.note = text("route-note");
     report.name = (el("route-name") as HTMLInputElement).value;
+    report.layout_problems = layoutProblems();
     // How long the core takes for the same route, without the page around it.
     const request = {
       waypoints: places.map((place) => ({ lat: place.lat, lon: place.lng })),
