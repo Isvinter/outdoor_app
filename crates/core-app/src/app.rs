@@ -53,7 +53,19 @@ pub struct TrackDetail {
     pub record: TrackRecord,
     /// One list of `[lon, lat]` positions per segment.
     pub line: Vec<Vec<[f64; 2]>>,
+    /// Statistics with elevation from the terrain model of the installed
+    /// regions instead of the receiver; `None` unless the model covers the track.
+    pub dem_stats: Option<TrackStats>,
 }
+
+/// Terrain elevation replaces receiver elevation only if it is known for this
+/// share of the points; a mix of both sources would invent ascent.
+const DEM_MIN_COVERAGE: f64 = 0.99;
+/// Terrain elevation read along a track is rough in its own way: on a road
+/// across a slope a few metres sideways are a few metres up or down. Smoothing
+/// over twice the distance used for receiver elevation evens that out
+/// (calibrated on the real tracks, see docs/ALGORITHMEN.md).
+const DEM_SMOOTH_FACTOR: f64 = 2.0;
 
 /// Receives what happens inside the app. Called from arbitrary threads; must not block.
 pub trait AppListener: Send + Sync {
@@ -314,6 +326,12 @@ impl App {
             if inner.recording.is_some() {
                 return Err(AppError::RecordingActive);
             }
+            // A recording left open by a crash would stay open forever once a
+            // new one exists; keep it as a finished track.
+            if let Some(open) = inner.storage.open_recording()? {
+                let track = inner.storage.load_track(open.id)?;
+                inner.finish(open.id, &track, open.activity)?;
+            }
             let id = inner
                 .storage
                 .create_track(None, activity, TrackState::Recording, now_ms())?;
@@ -460,10 +478,37 @@ impl App {
     }
 
     pub fn track_detail(&self, id: Uuid) -> Result<TrackDetail, AppError> {
-        let inner = self.shared.inner();
-        let record = inner.storage.track(id)?;
-        let line = line_of(&inner.storage.load_track(id)?);
-        Ok(TrackDetail { record, line })
+        let (record, track) = {
+            let inner = self.shared.inner();
+            (inner.storage.track(id)?, inner.storage.load_track(id)?)
+        };
+        let dem_stats = self.dem_stats(&track, record.activity)?;
+        Ok(TrackDetail {
+            record,
+            line: line_of(&track),
+            dem_stats,
+        })
+    }
+
+    /// Statistics of a track with its elevations taken from the terrain model.
+    fn dem_stats(&self, track: &Track, activity: Activity) -> Result<Option<TrackStats>, AppError> {
+        let store = self.shared.maps.store();
+        let mut corrected = track.clone();
+        let (mut total, mut known) = (0usize, 0usize);
+        for point in corrected.segments.iter_mut().flat_map(|s| &mut s.points) {
+            point.ele = store.elevation(point.lat, point.lon)?.map(f64::from);
+            total += 1;
+            known += usize::from(point.ele.is_some());
+        }
+        if total == 0 || (known as f64) < DEM_MIN_COVERAGE * total as f64 {
+            return Ok(None);
+        }
+        let base = StatsParams::for_activity(activity);
+        let params = StatsParams {
+            ele_smooth_m: base.ele_smooth_m * DEM_SMOOTH_FACTOR,
+            ..base
+        };
+        Ok(Some(compute_stats(&corrected, &params)))
     }
 
     pub fn rename_track(&self, id: Uuid, name: &str) -> Result<(), AppError> {

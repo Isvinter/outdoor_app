@@ -1,9 +1,15 @@
 # outdoor_app
 
-Offline-Outdoor-App für Rad, MTB, Wandern und Skitouren. Architektur, Datenquellen,
-Algorithmen und Meilensteine stehen in [PLAN.md](PLAN.md).
+Offline-Outdoor-App für Rad, MTB, Wandern und Skitouren.
 
-Stand: **Meilenstein 5** – Desktop-App mit Offline-Karte (herunterladbare Regionen,
+| Dokument | Inhalt |
+|---|---|
+| [PLAN.md](PLAN.md) | Architektur, Entscheidungen, Meilensteine, Risiken |
+| [docs/ALGORITHMEN.md](docs/ALGORITHMEN.md) | wie Statistik, Höhenmeter, Hangneigung und Routen berechnet werden |
+| [docs/DATENQUELLEN.md](docs/DATENQUELLEN.md) | Kartendaten, Lizenzen, Attribution, verwendete Software |
+| [docs/MESSPROTOKOLL.md](docs/MESSPROTOKOLL.md) | Startzeit, CPU, Speicher, Bildrate, Rechenzeiten |
+
+Stand: **Meilenstein 6 (Phase 1 abgeschlossen)** – Desktop-App mit Offline-Karte (herunterladbare Regionen,
 Topo-Sommerstil mit Schummerung, Höhenlinien, Wanderwegen und MTB-Trails; Winterstil mit
 Hangneigungsklassen, Pisten und Skirouten), Offline-Routenplanung (Wandern, MTB, Trekkingrad,
 Rennrad, Auto, manuelle Skitour) mit Höhenprofil, Positionsanzeige, Live-Aufzeichnung
@@ -47,9 +53,12 @@ In der App:
   „Fortsetzen“ oder „Abschließen“ an.
 - **Route planen** – Profil wählen, „Wegpunkte setzen“, in die Karte klicken (siehe
   [Routenplanung](#routenplanung)).
-- **Tracks** – Liste, Statistik, Umbenennen, GPX-Import und -Export, Löschen.
-- **Karten** – Kartenstil wählen, Katalog einstellen, Regionen herunterladen, anzeigen und
-  löschen (siehe [Offline-Karten](#offline-karten)).
+- **Tracks** – Liste, Statistik, Umbenennen, GPX-Import und -Export, Löschen. Liegt der Track
+  in einer installierten Region, erscheinen zusätzlich Auf- und Abstieg mit Höhen aus dem
+  Geländemodell („Gelände“) – GPS-Höhen rauschen; der Track selbst bleibt unverändert.
+- **Karten** – Kartenstil wählen, Legende, Katalog einstellen, Regionen herunterladen,
+  anzeigen und löschen (siehe [Offline-Karten](#offline-karten)).
+- **Über / Datenquellen** – Attribution der installierten Regionen und der Software.
 
 Die Daten liegen unter `~/.local/share/de.outdoor-app.desktop/`: Datenbank `outdoor.sqlite`,
 Kartenregionen in `regions/`.
@@ -58,7 +67,8 @@ Kartenregionen in `regions/`.
 |---|---|
 | `OUTDOOR_DATA_DIR=<ordner>` | anderes Datenverzeichnis (z. B. zum Testen) |
 | `OUTDOOR_FPS_PROBE=1` | bewegt die Karte 10 s, gibt Bildraten als JSON aus, beendet die App |
-| `OUTDOOR_SELFTEST=<datei.gpx>` | bedient die Oberfläche selbst (Simulation, Start, Pause, Fortsetzen, Stopp), gibt das Ergebnis als JSON aus, beendet die App |
+| `OUTDOOR_STARTUP_PROBE=1` | gibt aus, wann die Seite bereit und die Karte gezeichnet war, beendet die App |
+| `OUTDOOR_SELFTEST=<datei.gpx>` | bedient die Oberfläche selbst (Simulation, Start, Pause, Fortsetzen, Stopp), gibt das Ergebnis als JSON aus, beendet die App; `OUTDOOR_SELFTEST_SPEED=<faktor>` stellt das Tempo der Simulation ein (Standard 100) |
 | `OUTDOOR_SELFTEST_REGIONS=<katalog>` | lädt die erste Region des Katalogs über die Oberfläche, prüft die Karte, löscht die Region wieder, gibt das Ergebnis als JSON aus, beendet die App |
 | `OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>` | plant über die Oberfläche eine Wanderroute durch die Punkte, speichert sie, gibt das Ergebnis als JSON aus, beendet die App (zusammen mit `OUTDOOR_SNAPSHOT` zeigt das Bild die Route) |
 | `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt und `OUTDOOR_SNAPSHOT_STYLE=topo\|winter\|online` für einen Stil |
@@ -173,6 +183,7 @@ cargo test -p core-routing -p core-app       # dieselben Crates ohne Valhalla
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 (cd apps/desktop/ui && pnpm typecheck)
+scripts/measure-performance.sh               # Messprotokoll neu aufnehmen (Release-Build, ~3 min)
 ```
 
 Die Kern-Crates müssen für Mobilgeräte kompilierbar bleiben; das prüft die CI
@@ -204,6 +215,7 @@ Abweichung geprüft.
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |
 | `regions/` | Beschreibungen der baubaren Regionen |
-| `scripts/` | `build-region.sh` (Regionspaket bauen), `build-valhalla-tiles.sh` (Routingdaten), `make-style.py` (Kartenstile), Planetiler-Profil |
+| `scripts/` | `build-region.sh` (Regionspaket bauen), `build-valhalla-tiles.sh` (Routingdaten), `make-style.py` (Kartenstile), `measure-performance.sh`, Planetiler-Profil |
+| `docs/` | Algorithmen, Datenquellen, Messprotokoll |
 | `styles/`, `assets/map/` | Kartenstile und Schriften, von allen Plattformen genutzt |
 | `fixtures/` | Testdaten (GPX-Tracks, Mini-Region, Routingkacheln Tegernsee) |

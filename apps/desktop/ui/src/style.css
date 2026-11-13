@@ -53,6 +53,16 @@ input[type="text"] { width: 100%; margin-bottom: 8px; }
 .legend { list-style: none; display: flex; gap: 10px; margin: 0 0 10px; padding: 0; color: var(--muted); font-size: 12px; }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 4px; vertical-align: -2px; }
 input[type="range"] { flex: 1; accent-color: var(--accent); }
+#about summary { cursor: pointer; color: var(--muted); }
+#about ul { margin: 4px 0; padding-left: 18px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+#legend { margin-bottom: 10px; }
+#legend summary { cursor: pointer; color: var(--muted); }
+.lines { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 12px; }
+.lines li { display: flex; align-items: center; gap: 6px; }
+.lines i { flex: none; width: 26px; height: 0; border-top: 3px solid var(--c); }
+.lines i.dashed { border-top-style: dashed; }
+.lines i.dotted { border-top-style: dotted; }
+.lines i.band { border-top-width: 6px; opacity: 0.55; }
 .stacked { display: flex; flex-direction: column; gap: 4px; }
 #region-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 #region-list li { border: 1px solid var(--line); border-radius: 6px; padding: 8px; }

@@ -66,6 +66,10 @@
             <li><i style="background: #8e3fa8"></i>&gt; 45°</li>
           </ul>
         </div>
+        <details id="legend">
+          <summary data-i18n="legend.title"></summary>
+          <ul id="legend-list" class="lines"></ul>
+        </details>
         <label class="stacked">
           <span data-i18n="maps.catalog"></span>
           <input id="catalog-source" type="text" spellcheck="false" />
@@ -113,12 +117,21 @@
         <div id="track-detail" hidden>
           <input id="track-name" type="text" />
           <dl id="track-stats" class="stats"></dl>
+          <p id="track-dem-hint" class="hint"></p>
           <div class="row">
             <button id="track-export" data-i18n="tracks.export"></button>
             <button id="track-delete" class="danger" data-i18n="tracks.delete"></button>
           </div>
         </div>
       </section>
+
+      <details id="about">
+        <summary data-i18n="about.title"></summary>
+        <p class="hint" data-i18n="about.data"></p>
+        <ul id="about-attribution"></ul>
+        <p class="hint" data-i18n="about.software"></p>
+        <p class="hint" data-i18n="about.slope"></p>
+      </details>
 
       <p id="message" role="status"></p>
     </aside>

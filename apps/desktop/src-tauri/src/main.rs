@@ -71,6 +71,8 @@ fn main() -> ExitCode {
             commands::route_delete,
             commands::route_export_gpx,
             commands::selftest_route,
+            commands::selftest_speed,
+            commands::startup_probe,
             commands::probe_enabled,
             commands::snapshot_request,
             commands::snapshot_save,

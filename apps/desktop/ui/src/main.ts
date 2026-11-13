@@ -11,11 +11,12 @@ import {
   type SourceStatus,
   type TrackRecord,
 } from "./api";
-import { dateTime, distance, renderStats } from "./format";
+import { dateTime, distance, elevation, renderRows, renderStats, statsRows } from "./format";
 import { t, translateDocument, type MessageKey } from "./i18n";
 import { MapView, type BaseStyle } from "./map";
 import { RegionsPanel } from "./regions";
 import { RoutePanel } from "./route";
+import { renderLegend } from "./legend";
 import { runDiagnostics } from "./diagnostics";
 import "./style.css";
 
@@ -160,7 +161,17 @@ async function selectTrack(id: string | null): Promise<void> {
   }
   const detail = await api.trackDetail(id);
   $<HTMLInputElement>("track-name").value = trackTitle(detail.record);
-  renderStats($("track-stats"), detail.record.stats);
+  const rows = detail.record.stats ? statsRows(detail.record.stats) : [];
+  const dem = detail.dem_stats;
+  if (dem) {
+    rows.push(
+      ["stats.ascent_dem", elevation(dem.ascent_m)],
+      ["stats.descent_dem", elevation(dem.descent_m)],
+      ["stats.elevation_dem", `${elevation(dem.min_ele_m)} / ${elevation(dem.max_ele_m)}`],
+    );
+  }
+  renderRows($("track-stats"), rows);
+  $("track-dem-hint").textContent = dem ? t("tracks.dem_hint") : "";
   view.showTrack(detail.line);
 }
 
@@ -195,6 +206,7 @@ function applyStyle(): void {
   const base = selectedStyle();
   localStorage.setItem(STYLE_KEY, base);
   $("slope-controls").hidden = base !== "winter";
+  renderLegend($("legend-list"), base);
   view.setBaseStyle(base, overview).catch(showError);
   if (base !== "online" && overview && overview.installed_bounds === null) showMessage(t("maps.no_region"));
 }
@@ -204,6 +216,13 @@ const regions = new RegionsPanel({
     const changed = JSON.stringify(next.installed_bounds) !== JSON.stringify(overview?.installed_bounds);
     const first = overview === null;
     overview = next;
+    $("about-attribution").replaceChildren(
+      ...next.attribution.map((line) => {
+        const item = document.createElement("li");
+        item.textContent = line;
+        return item;
+      }),
+    );
     // Reload the offline style when regions were added or removed.
     if (first || (changed && selectedStyle() !== "online")) applyStyle();
   },
@@ -269,6 +288,9 @@ async function start(): Promise<void> {
     action(async () => {
       view.setLiveLine([]);
       renderRecording(await api.recordingStart(selectedActivity()));
+      // Starting anew finishes an interrupted recording; it is a track now.
+      renderRecovery(null);
+      await refreshTracks();
     }),
   );
   $("rec-pause").addEventListener("click", action(async () => renderRecording(await api.recordingPause())));

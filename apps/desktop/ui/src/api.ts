@@ -61,6 +61,8 @@ export interface RecordingState {
 export interface TrackDetail {
   record: TrackRecord;
   line: Line;
+  /** Statistics with elevation from the terrain model, if it covers the track. */
+  dem_stats: TrackStats | null;
 }
 
 export type SourceStatus =

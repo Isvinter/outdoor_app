@@ -278,6 +278,18 @@ pub fn selftest_route() -> Option<String> {
     std::env::var(SELFTEST_ROUTE_ENV).ok()
 }
 
+/// Replay speed of the recording self-test; 1 records in real time.
+#[tauri::command]
+pub fn selftest_speed() -> Option<f64> {
+    std::env::var("OUTDOOR_SELFTEST_SPEED").ok()?.parse().ok()
+}
+
+/// Set to report how long the page took to start and exit (see README).
+#[tauri::command]
+pub fn startup_probe() -> bool {
+    std::env::var_os("OUTDOOR_STARTUP_PROBE").is_some()
+}
+
 #[tauri::command]
 pub fn selftest_gpx() -> Option<String> {
     std::env::var(SELFTEST_ENV).ok()

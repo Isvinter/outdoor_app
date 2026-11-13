@@ -27,6 +27,8 @@ const ONLINE_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 /** Base URL of the tile protocol served by the core, e.g. `tiles://localhost/`. */
 const TILES = convertFileSrc("", "tiles");
 const EMPTY_STYLE: StyleSpecification = { version: 8, sources: {}, layers: [] };
+/** Following the position moves the map at once unless it has to move further than this. */
+const FOLLOW_GLIDE_PX = 60;
 const LIVE = "live-track";
 const SELECTED = "selected-track";
 const ROUTE = "planned-route";
@@ -214,7 +216,13 @@ export class MapView {
       this.markerShown = true;
       if (this.followPosition) this.map.jumpTo({ center: [fix.lon, fix.lat], zoom: Math.max(this.map.getZoom(), 14) });
     } else if (this.followPosition) {
-      this.map.easeTo({ center: [fix.lon, fix.lat], duration: 500 });
+      // An animation redraws the map for its whole duration, every second while
+      // recording. Small steps are not visible as jumps; only glide over large ones.
+      const centre = this.map.project(this.map.getCenter());
+      const target = this.map.project([fix.lon, fix.lat]);
+      const pixels = Math.hypot(target.x - centre.x, target.y - centre.y);
+      if (pixels < FOLLOW_GLIDE_PX) this.map.jumpTo({ center: [fix.lon, fix.lat] });
+      else this.map.easeTo({ center: [fix.lon, fix.lat], duration: 500 });
     }
   }
 

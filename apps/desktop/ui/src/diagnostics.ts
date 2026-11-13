@@ -2,6 +2,8 @@
  * Developer diagnostics, inactive unless requested through environment
  * variables of the host process (see README):
  *  - OUTDOOR_FPS_PROBE: animate the map, report frame timing, exit.
+ *  - OUTDOOR_STARTUP_PROBE: report when the page was ready and the map drawn, exit.
+ *  - OUTDOOR_SELFTEST_SPEED=<factor>: replay speed of OUTDOOR_SELFTEST (default 100).
  *  - OUTDOOR_SNAPSHOT=<png file>: save a picture of the map, exit.
  *  - OUTDOOR_SELFTEST_REGIONS=<catalog>: download, show and delete the first
  *    region of a catalog through the real controls, report, exit.
@@ -75,11 +77,11 @@ async function selfTest(view: MapView, gpxPath: string): Promise<void> {
       await until("recording continued", () => !el("rec-pause").hidden && el("recovery").hidden === true);
       report.points_recovered = view.liveLinePointCount();
     }
-    await api.locationStartReplay(gpxPath, 100);
+    await api.locationStartReplay(gpxPath, (await invoke<number | null>("selftest_speed")) ?? 100);
     if (!report.recovery_offered) click("rec-start");
     await until("recording phase", () => !el("rec-pause").hidden);
     const atStart = view.liveLinePointCount();
-    await until("live points", () => view.liveLinePointCount() > atStart + 100);
+    await until("live points", () => view.liveLinePointCount() > atStart + 100, 600_000);
     report.marker_on_map = document.querySelector(".position-marker") !== null;
     report.source_status = text("loc-status");
 
@@ -90,7 +92,7 @@ async function selfTest(view: MapView, gpxPath: string): Promise<void> {
     report.points_added_while_paused = view.liveLinePointCount() - atPause;
     click("rec-resume");
     await until("resumed", () => !el("rec-pause").hidden);
-    await until("more live points", () => view.liveLinePointCount() > atPause + 100);
+    await until("more live points", () => view.liveLinePointCount() > atPause + 100, 600_000);
 
     report.live_points = view.liveLinePointCount();
     report.live_stats = text("live-stats");
@@ -101,6 +103,8 @@ async function selfTest(view: MapView, gpxPath: string): Promise<void> {
     report.tracks_listed = document.querySelectorAll("#track-list li[data-id]").length;
     report.first_track = text("track-list").slice(0, 80);
     report.track_stats = text("track-stats");
+    report.legend_entries = document.querySelectorAll("#legend-list li").length;
+    report.attribution_lines = document.querySelectorAll("#about-attribution li").length;
     report.message = text("message");
     report.ok = true;
   } catch (e) {
@@ -181,6 +185,19 @@ async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promis
     report.chart_scale = el("route-chart").querySelector(".scale")?.textContent;
     report.note = text("route-note");
     report.name = (el("route-name") as HTMLInputElement).value;
+    // How long the core takes for the same route, without the page around it.
+    const request = {
+      waypoints: places.map((place) => ({ lat: place.lat, lon: place.lng })),
+      profile: "hike" as const,
+      options: {},
+    };
+    const times: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const before = performance.now();
+      await api.routePlan(request);
+      times.push(Math.round(performance.now() - before));
+    }
+    report.plan_ms = times;
     report.message = text("message");
     if (!el("route-result").hidden) {
       el("route-save").click();
@@ -219,7 +236,15 @@ async function snapshot(view: MapView, target: [number, number, number] | null, 
   await api.snapshotSave(blob ? Array.from(new Uint8Array(await blob.arrayBuffer())) : []);
 }
 
+async function startupProbe(view: MapView): Promise<void> {
+  const ready = performance.now();
+  const map = view.map;
+  await until("map drawn", () => map.loaded() && map.areTilesLoaded(), 30_000).catch(() => undefined);
+  await api.probeReport({ page_ready_ms: Math.round(ready), map_drawn_ms: Math.round(performance.now()) });
+}
+
 export async function runDiagnostics(view: MapView): Promise<void> {
+  if (await invoke<boolean>("startup_probe")) await startupProbe(view);
   const shot = await api.snapshotRequest();
   const route = await invoke<string | null>("selftest_route");
   if (route) await routeSelfTest(view, route, shot === null);

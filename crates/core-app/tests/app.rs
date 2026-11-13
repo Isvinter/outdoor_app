@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use core_app::{App, AppError, AppListener, RecordingPhase, RecordingStatus};
 use core_gpx::parse_gpx;
 use core_location::{Fix, GpxReplaySource, SourceStatus};
+use core_storage::TrackState;
 use core_track::{Activity, StatsParams, compute_stats};
 
 const REAL_TRACK: &str = include_str!("../../../fixtures/gpx/real/tour_sylvensteinsee.gpx");
@@ -257,6 +258,32 @@ fn interrupted_recording_can_be_finished_as_it_is() {
     assert!((record.stats.unwrap().distance_m - 100.0).abs() < 0.5);
     assert!(app.interrupted_recording().unwrap().is_none());
     assert_eq!(app.list_tracks().unwrap().len(), 1);
+}
+
+#[test]
+fn starting_anew_finishes_the_interrupted_recording_first() {
+    let path = temp_db("crash-start");
+    {
+        let app = App::open(&path, Arc::new(Listener::default())).unwrap();
+        app.start_recording(Activity::Bike).unwrap();
+        for i in 0..=20 {
+            app.handle_fix(fix(i));
+        }
+    }
+    let app = App::open(&path, Arc::new(Listener::default())).unwrap();
+
+    let status = app.start_recording(Activity::Hike).unwrap();
+
+    // The old recording is a finished track of its own, the new one is the only open one.
+    assert!(app.interrupted_recording().unwrap().is_none());
+    let tracks = app.list_tracks().unwrap();
+    assert_eq!(tracks.len(), 2);
+    let old = tracks
+        .iter()
+        .find(|t| Some(t.id) != status.track_id)
+        .unwrap();
+    assert_eq!(old.state, TrackState::Finished);
+    assert!((old.stats.as_ref().unwrap().distance_m - 100.0).abs() < 0.5);
 }
 
 #[test]

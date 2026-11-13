@@ -555,7 +555,11 @@ liegen bei 64,5 km/h).
 1. Höhenquelle wählen: GPS-Höhe oder – wenn Option aktiv und DEM für den Punkt vorhanden –
    **DEM-Höhe** (bilinear interpoliert aus der höchsten verfügbaren Zoomstufe). Mischung
    innerhalb eines Tracks wird vermieden: DEM nur, wenn es für ≥ 99 % der Punkte verfügbar
-   ist. (DEM-Korrektur folgt mit M6; M1 rechnet mit den Höhen aus dem Track.)
+   ist. Stand M6: Die Track-Ansicht zeigt beide Ergebnisse nebeneinander (GPS und
+   „Gelände“) statt einer Option; der gespeicherte Track behält die gemessenen Höhen. Mit
+   Modellhöhen wird über die doppelte Wegstrecke geglättet, Schwelle bleibt 3 m (nicht 2 m
+   wie geplant: an den echten Touren zählte das bis zu 45 % zu viel, siehe
+   `docs/ALGORITHMEN.md`).
 2. Glätten: gleitender Mittelwert über eine **Wegstrecke** (nicht Punktanzahl), Standard
    `ele_smooth_m` je Aktivität. Das ist unabhängig vom Aufzeichnungsintervall; Punkte im
    Stand liegen auf derselben Wegmarke und werden gemeinsam gemittelt.
@@ -575,7 +579,7 @@ Min-/Max-Höhe werden aus den geglätteten Werten bestimmt.
 | `move_window_s` | 5 s | 5 s | 15 s | 15 s |
 | `max_plausible_speed` | 110 km/h | 90 km/h | 25 km/h | 110 km/h |
 | `ele_smooth_m` | 60 m | 40 m | 30 m | 30 m |
-| `ele_threshold_m` (Track-Höhen; mit DEM-Korrektur ab M6: 2 m) | 3 m | 3 m | 3 m | 3 m |
+| `ele_threshold_m` | 3 m | 3 m | 3 m | 3 m |
 | Ortungsintervall | 1 s | 1 s | 3 s | 3 s |
 
 ### 6.7 Abgleich mit Komoot (Stand M2)
@@ -730,6 +734,26 @@ Nach jedem Meilenstein: anhalten, zeigen, Freigabe abwarten.
 | **M6** | Feinschliff, DEM-Höhenkorrektur für Tracks in der UI, Performance-Messung, README, Doku der Algorithmen und Datenquellen, Attributionen | Messprotokoll, vollständige Doku |
 
 ---
+
+### Stand M6 (2026-11-14) – Phase 1 abgeschlossen
+
+- Höhenkorrektur für Tracks aus dem Geländemodell (6.5), Kartenlegende,
+  „Über / Datenquellen“ mit den Attributionen der installierten Regionen.
+- Behoben: Ein neuer Start bei vorhandener unterbrochener Aufzeichnung schließt diese als
+  eigenen Track ab (vorher blieb sie für immer offen).
+- Messung nach Abschnitt 9: `scripts/measure-performance.sh`, Ergebnisse in
+  `docs/MESSPROTOKOLL.md`. Befund und Korrektur: Kartennachführung bei Aufzeichnung von
+  33,5 % auf 9,5 % eines Kerns.
+- Doku: `docs/ALGORITHMEN.md`, `docs/DATENQUELLEN.md`.
+
+Bekannte Grenzen, die in Phase 1 bleiben:
+
+- Kacheln an Regionsgrenzen kommen aus genau einer Region; Routen enden an der Regionsgrenze.
+- Höhenlinien entstehen im WebView (`maplibre-contour`); Phase 2 braucht vorberechnete.
+- Die Statistikparameter sind je Aktivität fest im Code (`track-cli --set` zum Probieren);
+  eine Einstellungsseite gibt es nicht.
+- Kein öffentlicher Katalog: Regionen werden lokal gebaut (Phase 3).
+- Die Oberfläche ist nur deutsch; die Texte liegen vollständig in `i18n/de.ts`.
 
 ## 11. Risiken
 
