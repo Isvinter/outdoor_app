@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 core-track = { path = "crates/core-track" }
+core-app = { path = "crates/core-app" }
 core-gpx = { path = "crates/core-gpx" }
 core-location = { path = "crates/core-location" }
 core-storage = { path = "crates/core-storage" }
@@ -21,7 +22,7 @@ rusqlite = { version = "0.42", features = ["bundled", "uuid"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-uuid = { version = "1.29", features = ["v7"] }
+uuid = { version = "1.29", features = ["v7", "serde"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [workspace.lints.rust]

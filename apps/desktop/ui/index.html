@@ -4,12 +4,69 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Outdoor</title>
-    <style>
-      html, body, #map { margin: 0; height: 100%; }
-    </style>
   </head>
   <body>
-    <div id="map"></div>
+    <aside id="sidebar">
+      <header><h1>Outdoor</h1></header>
+
+      <section id="recovery" hidden>
+        <h2 data-i18n="recovery.title"></h2>
+        <p id="recovery-text"></p>
+        <div class="row">
+          <button id="recovery-continue" class="primary" data-i18n="recovery.continue"></button>
+          <button id="recovery-finish" data-i18n="recovery.finish"></button>
+        </div>
+      </section>
+
+      <section>
+        <h2 data-i18n="recording.title"></h2>
+        <label class="field">
+          <span data-i18n="recording.activity"></span>
+          <select id="activity"></select>
+        </label>
+        <div class="row">
+          <button id="rec-start" class="primary" data-i18n="recording.start"></button>
+          <button id="rec-pause" data-i18n="recording.pause"></button>
+          <button id="rec-resume" class="primary" data-i18n="recording.resume"></button>
+          <button id="rec-stop" class="danger" data-i18n="recording.stop"></button>
+        </div>
+        <p id="rec-phase" class="hint"></p>
+        <dl id="live-stats" class="stats"></dl>
+      </section>
+
+      <section>
+        <h2 data-i18n="location.title"></h2>
+        <div class="row">
+          <button id="loc-replay" data-i18n="location.replay"></button>
+          <select id="loc-speed" aria-label="Geschwindigkeit"></select>
+        </div>
+        <div class="row">
+          <button id="loc-gpsd" data-i18n="location.gpsd"></button>
+          <button id="loc-stop" data-i18n="location.stop"></button>
+        </div>
+        <label class="check"><input type="checkbox" id="follow" checked /> <span data-i18n="location.follow"></span></label>
+        <p id="loc-status" class="hint"></p>
+      </section>
+
+      <section class="grow">
+        <h2 data-i18n="tracks.title"></h2>
+        <div class="row">
+          <button id="track-import" data-i18n="tracks.import"></button>
+        </div>
+        <ul id="track-list"></ul>
+        <div id="track-detail" hidden>
+          <input id="track-name" type="text" />
+          <dl id="track-stats" class="stats"></dl>
+          <div class="row">
+            <button id="track-export" data-i18n="tracks.export"></button>
+            <button id="track-delete" class="danger" data-i18n="tracks.delete"></button>
+          </div>
+        </div>
+      </section>
+
+      <p id="message" role="status"></p>
+    </aside>
+    <main id="map"></main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

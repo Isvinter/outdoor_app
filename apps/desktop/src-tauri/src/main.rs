@@ -1,33 +1,58 @@
 //! Desktop shell. Contains wiring only; all logic lives in the `core-*` crates.
 
+mod commands;
+mod error;
+mod events;
+
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
-/// Set to run the rendering benchmark on start and exit (see README).
-const PROBE_ENV: &str = "OUTDOOR_FPS_PROBE";
+use core_app::App;
+use tauri::Manager;
 
-#[tauri::command]
-fn probe_enabled() -> bool {
-    std::env::var_os(PROBE_ENV).is_some()
-}
+/// Overrides the directory holding the database (default: the per-user app data directory).
+const DATA_DIR_ENV: &str = "OUTDOOR_DATA_DIR";
 
-#[tauri::command]
-fn probe_report(app: tauri::AppHandle, report: serde_json::Value) {
-    println!("{report}");
-    app.exit(0);
-}
-
-/// Forwards frontend diagnostics to the terminal.
-#[tauri::command]
-fn ui_log(level: String, message: String) {
-    eprintln!("[ui:{level}] {message}");
+fn data_dir(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let dir = match std::env::var_os(DATA_DIR_ENV) {
+        Some(dir) => PathBuf::from(dir),
+        None => app.path().app_data_dir()?,
+    };
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
 fn main() -> ExitCode {
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let listener = Arc::new(events::EventForwarder::new(app.handle().clone()));
+            let core = App::open(&data_dir(app)?.join("outdoor.sqlite"), listener)?;
+            app.manage(core);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
-            probe_enabled,
-            probe_report,
-            ui_log
+            commands::recording_start,
+            commands::recording_pause,
+            commands::recording_resume,
+            commands::recording_stop,
+            commands::recording_state,
+            commands::recording_continue_interrupted,
+            commands::recording_finish_interrupted,
+            commands::tracks_list,
+            commands::track_detail,
+            commands::track_rename,
+            commands::track_delete,
+            commands::track_import_gpx,
+            commands::track_export_gpx,
+            commands::location_start_replay,
+            commands::location_start_gpsd,
+            commands::location_stop,
+            commands::probe_enabled,
+            commands::selftest_gpx,
+            commands::probe_report,
+            commands::ui_log,
         ])
         .run(tauri::generate_context!());
     match result {

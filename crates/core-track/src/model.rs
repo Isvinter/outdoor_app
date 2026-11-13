@@ -32,6 +32,15 @@ impl Activity {
             Activity::SkiTour => "ski_tour",
         }
     }
+
+    /// Default spacing of recorded fixes. Slower activities need fewer fixes,
+    /// which saves storage and, on mobile devices, battery.
+    pub fn location_interval_ms(self) -> u32 {
+        match self {
+            Activity::Bike | Activity::Mtb => 1000,
+            Activity::Hike | Activity::SkiTour => 3000,
+        }
+    }
 }
 
 impl FromStr for Activity {

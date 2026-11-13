@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+core-app.workspace = true
+core-location.workspace = true
 core-gpx.workspace = true
 core-track.workspace = true
 serde_json.workspace = true

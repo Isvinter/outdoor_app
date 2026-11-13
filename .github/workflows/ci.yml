@@ -51,4 +51,4 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p core-track -p core-gpx --target ${{ matrix.target }}
+      - run: cargo check -p core-track -p core-gpx -p core-location --target ${{ matrix.target }}

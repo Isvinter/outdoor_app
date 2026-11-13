@@ -32,6 +32,20 @@ enum Command {
         #[arg(long = "set", value_name = "NAME=VALUE")]
         overrides: Vec<String>,
     },
+    /// Record the first track of a GPX file into an app database, fix by fix
+    Record {
+        /// GPX file to play back
+        file: PathBuf,
+        /// Database file (created if missing)
+        #[arg(long)]
+        db: PathBuf,
+        /// Activity; overrides the `<type>` in the file
+        #[arg(long)]
+        activity: Option<Activity>,
+        /// Kill the process without cleanup after this many fixes (crash test)
+        #[arg(long, value_name = "FIXES")]
+        abort_after: Option<usize>,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -51,6 +65,22 @@ enum CliError {
     Json(#[from] serde_json::Error),
     #[error("invalid parameter override `{0}`: expected NAME=NUMBER with a known parameter name")]
     Override(String),
+    #[error(transparent)]
+    App(#[from] core_app::AppError),
+    #[error("the file contains no track")]
+    NoTrack,
+}
+
+/// The CLI has nobody to notify.
+struct NoListener;
+
+impl core_app::AppListener for NoListener {
+    fn on_position(&self, _: &core_location::Fix) {}
+    fn on_recording(&self, _: &core_app::RecordingStatus) {}
+    fn on_source_status(&self, _: &core_location::SourceStatus) {}
+    fn on_error(&self, message: &str) {
+        eprintln!("error: {message}");
+    }
 }
 
 fn main() -> ExitCode {
@@ -62,6 +92,12 @@ fn main() -> ExitCode {
             json,
             overrides,
         } => stats(&file, activity, json, &overrides),
+        Command::Record {
+            file,
+            db,
+            activity,
+            abort_after,
+        } => record(&file, &db, activity, abort_after),
     };
     match result {
         Ok(output) => {
@@ -132,6 +168,59 @@ fn stats(
         .map(|(name, activity, stats)| render(*name, *activity, stats))
         .collect();
     Ok(blocks.join("\n\n"))
+}
+
+fn record(
+    file: &Path,
+    db: &Path,
+    activity: Option<Activity>,
+    abort_after: Option<usize>,
+) -> Result<String, CliError> {
+    let xml = std::fs::read_to_string(file).map_err(|source| CliError::Read {
+        path: file.to_owned(),
+        source,
+    })?;
+    let doc = parse_gpx(&xml).map_err(|source| CliError::Gpx {
+        path: file.to_owned(),
+        source,
+    })?;
+    let track = doc.tracks.first().ok_or(CliError::NoTrack)?;
+    let activity = activity
+        .or(track.activity)
+        .ok_or(CliError::UnknownActivity { index: 1 })?;
+
+    let app = core_app::App::open(db, std::sync::Arc::new(NoListener))?;
+    app.start_recording(activity)?;
+    let fixes = track
+        .segments
+        .iter()
+        .flat_map(|s| &s.points)
+        .filter_map(|p| {
+            Some(core_location::Fix {
+                lat: p.lat,
+                lon: p.lon,
+                ele: p.ele,
+                time_ms: p.time_ms?,
+                h_accuracy_m: p.h_accuracy_m,
+                speed_mps: p.speed_mps,
+                course_deg: None,
+            })
+        });
+    for (count, fix) in fixes.enumerate() {
+        if abort_after == Some(count) {
+            // Die like a crash would: no destructors, no flushing.
+            std::process::abort();
+        }
+        app.handle_fix(fix);
+    }
+    match app.stop_recording()? {
+        Some(record) => Ok(render(
+            record.name.as_deref(),
+            record.activity,
+            &record.stats.unwrap_or_default(),
+        )),
+        None => Ok("nothing recorded".to_owned()),
+    }
 }
 
 fn render(name: Option<&str>, activity: Activity, s: &TrackStats) -> String {

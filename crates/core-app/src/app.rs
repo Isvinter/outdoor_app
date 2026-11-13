@@ -1,0 +1,514 @@
+use std::path::Path;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use core_gpx::{GpxDocument, parse_gpx, write_gpx};
+use core_location::{Fix, FixSink, LocationConfig, LocationSource, SourceStatus};
+use core_storage::{Storage, TrackRecord, TrackState};
+use core_track::{
+    Activity, Recorder, RecorderState, StatsParams, Track, TrackStats, compute_stats,
+};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::AppError;
+
+/// Recording updates are sent to the listener at most this often.
+const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
+/// A fix is recorded if it follows the previous one after at least this share of
+/// the activity's interval; receivers do not tick with millisecond precision.
+const INTERVAL_TOLERANCE: f64 = 0.8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingPhase {
+    Idle,
+    Recording,
+    Paused,
+}
+
+/// A point of the track being recorded, for drawing the live line.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LinePoint {
+    pub segment: usize,
+    pub lon: f64,
+    pub lat: f64,
+}
+
+/// State of the current recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordingStatus {
+    pub phase: RecordingPhase,
+    pub track_id: Option<Uuid>,
+    pub activity: Option<Activity>,
+    /// Statistics of the track so far.
+    pub stats: Option<TrackStats>,
+    /// Points recorded since the previous update sent to the listener.
+    pub appended: Vec<LinePoint>,
+}
+
+/// A stored track with its geometry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackDetail {
+    pub record: TrackRecord,
+    /// One list of `[lon, lat]` positions per segment.
+    pub line: Vec<Vec<[f64; 2]>>,
+}
+
+/// Receives what happens inside the app. Called from arbitrary threads; must not block.
+pub trait AppListener: Send + Sync {
+    fn on_position(&self, fix: &Fix);
+    fn on_recording(&self, status: &RecordingStatus);
+    fn on_source_status(&self, status: &SourceStatus);
+    /// A background operation failed, e.g. a fix could not be stored.
+    fn on_error(&self, message: &str);
+}
+
+/// The application. One instance per database.
+pub struct App {
+    shared: Arc<Shared>,
+}
+
+struct Shared {
+    inner: Mutex<Inner>,
+    /// Separate from `inner`: stopping a source joins its thread, which may be
+    /// waiting for `inner` to deliver a fix.
+    source: Mutex<Option<Box<dyn LocationSource>>>,
+    listener: Arc<dyn AppListener>,
+}
+
+struct Inner {
+    storage: Storage,
+    last_fix: Option<Fix>,
+    recording: Option<ActiveRecording>,
+}
+
+struct ActiveRecording {
+    track_id: Uuid,
+    activity: Activity,
+    recorder: Recorder,
+    params: StatsParams,
+    /// Database segment that receives points, and the recorder segment it mirrors.
+    segment: Option<(usize, Uuid)>,
+    last_recorded_ms: Option<i64>,
+    /// Points not yet announced to the listener.
+    pending: Vec<LinePoint>,
+    last_update: Option<Instant>,
+}
+
+impl ActiveRecording {
+    fn new(track_id: Uuid, activity: Activity, recorder: Recorder) -> Self {
+        Self {
+            track_id,
+            activity,
+            recorder,
+            params: StatsParams::for_activity(activity),
+            segment: None,
+            last_recorded_ms: None,
+            pending: Vec::new(),
+            last_update: None,
+        }
+    }
+
+    /// Current status; hands over the points collected since the last call.
+    fn status(&mut self) -> RecordingStatus {
+        self.last_update = Some(Instant::now());
+        RecordingStatus {
+            phase: match self.recorder.state() {
+                RecorderState::Recording => RecordingPhase::Recording,
+                RecorderState::Paused => RecordingPhase::Paused,
+                RecorderState::Stopped => RecordingPhase::Idle,
+            },
+            track_id: Some(self.track_id),
+            activity: Some(self.activity),
+            stats: Some(self.recorder.stats(&self.params)),
+            appended: std::mem::take(&mut self.pending),
+        }
+    }
+}
+
+const IDLE: RecordingStatus = RecordingStatus {
+    phase: RecordingPhase::Idle,
+    track_id: None,
+    activity: None,
+    stats: None,
+    appended: Vec::new(),
+};
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
+fn line_of(track: &Track) -> Vec<Vec<[f64; 2]>> {
+    track
+        .segments
+        .iter()
+        .map(|s| s.points.iter().map(|p| [p.lon, p.lat]).collect())
+        .collect()
+}
+
+impl Shared {
+    fn inner(&self) -> MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn handle_fix(&self, fix: Fix) {
+        let (update, error) = {
+            let mut inner = self.inner();
+            inner.last_fix = Some(fix);
+            match inner.record(fix) {
+                Ok(update) => (update, None),
+                Err(e) => (None, Some(format!("could not store position: {e}"))),
+            }
+        };
+        self.listener.on_position(&fix);
+        if let Some(status) = update {
+            self.listener.on_recording(&status);
+        }
+        if let Some(message) = error {
+            self.listener.on_error(&message);
+        }
+    }
+}
+
+impl Inner {
+    /// Adds a fix to the active recording. Returns a status if one is due.
+    fn record(&mut self, fix: Fix) -> Result<Option<RecordingStatus>, AppError> {
+        let Some(rec) = &mut self.recording else {
+            return Ok(None);
+        };
+        let min_gap = f64::from(rec.activity.location_interval_ms()) * INTERVAL_TOLERANCE;
+        if rec
+            .last_recorded_ms
+            .is_some_and(|last| ((fix.time_ms - last) as f64) < min_gap)
+        {
+            return Ok(None);
+        }
+        let point = fix.to_track_point();
+        if !rec.recorder.add_point(point) {
+            return Ok(None);
+        }
+        rec.last_recorded_ms = Some(fix.time_ms);
+        let index = rec.recorder.current_segment();
+        let segment_id = match rec.segment {
+            Some((i, id)) if i == index => id,
+            _ => {
+                let id = self.storage.begin_segment(rec.track_id, now_ms())?;
+                rec.segment = Some((index, id));
+                id
+            }
+        };
+        self.storage.append_point(segment_id, &point)?;
+        rec.pending.push(LinePoint {
+            segment: index,
+            lon: fix.lon,
+            lat: fix.lat,
+        });
+        let due = rec
+            .last_update
+            .is_none_or(|t| t.elapsed() >= UPDATE_INTERVAL);
+        Ok(due.then(|| rec.status()))
+    }
+
+    /// Finishes a track: caches its statistics, or deletes it if it has no points.
+    fn finish(
+        &mut self,
+        id: Uuid,
+        track: &Track,
+        activity: Activity,
+    ) -> Result<Option<TrackRecord>, AppError> {
+        let now = now_ms();
+        if track.segments.iter().all(|s| s.points.is_empty()) {
+            self.storage.delete_track(id, now)?;
+            return Ok(None);
+        }
+        let stats = compute_stats(track, &StatsParams::for_activity(activity));
+        self.storage.set_track_stats(id, &stats, now)?;
+        self.storage
+            .set_track_state(id, TrackState::Finished, now)?;
+        Ok(Some(self.storage.track(id)?))
+    }
+}
+
+struct SinkAdapter(Arc<Shared>);
+
+impl FixSink for SinkAdapter {
+    fn on_fix(&self, fix: Fix) {
+        self.0.handle_fix(fix);
+    }
+
+    fn on_status(&self, status: SourceStatus) {
+        self.0.listener.on_source_status(&status);
+    }
+}
+
+impl App {
+    /// Opens the database at `db_path`, creating or migrating it as needed.
+    pub fn open(db_path: &Path, listener: Arc<dyn AppListener>) -> Result<Self, AppError> {
+        let inner = Inner {
+            storage: Storage::open(db_path)?,
+            last_fix: None,
+            recording: None,
+        };
+        Ok(Self {
+            shared: Arc::new(Shared {
+                inner: Mutex::new(inner),
+                source: Mutex::new(None),
+                listener,
+            }),
+        })
+    }
+
+    // --- location ---------------------------------------------------------
+
+    /// Replaces the position source and starts it.
+    pub fn set_location_source(&self, mut source: Box<dyn LocationSource>) -> Result<(), AppError> {
+        self.stop_location_source();
+        source.start(
+            LocationConfig::default(),
+            Arc::new(SinkAdapter(Arc::clone(&self.shared))),
+        )?;
+        *self.source() = Some(source);
+        Ok(())
+    }
+
+    pub fn stop_location_source(&self) {
+        let source = self.source().take();
+        if let Some(mut source) = source {
+            source.stop();
+        }
+    }
+
+    fn source(&self) -> MutexGuard<'_, Option<Box<dyn LocationSource>>> {
+        self.shared
+            .source
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Entry point for fixes that do not come from a [`LocationSource`], such as
+    /// a native location service on a mobile platform.
+    pub fn handle_fix(&self, fix: Fix) {
+        self.shared.handle_fix(fix);
+    }
+
+    pub fn last_position(&self) -> Option<Fix> {
+        self.shared.inner().last_fix
+    }
+
+    // --- recording --------------------------------------------------------
+
+    pub fn start_recording(&self, activity: Activity) -> Result<RecordingStatus, AppError> {
+        let status = {
+            let mut inner = self.shared.inner();
+            if inner.recording.is_some() {
+                return Err(AppError::RecordingActive);
+            }
+            let id = inner
+                .storage
+                .create_track(None, activity, TrackState::Recording, now_ms())?;
+            let rec = inner.recording.insert(ActiveRecording::new(
+                id,
+                activity,
+                Recorder::start(activity),
+            ));
+            rec.status()
+        };
+        self.shared.listener.on_recording(&status);
+        Ok(status)
+    }
+
+    pub fn pause_recording(&self) -> Result<RecordingStatus, AppError> {
+        self.change_state(TrackState::Paused, Recorder::pause)
+    }
+
+    pub fn resume_recording(&self) -> Result<RecordingStatus, AppError> {
+        self.change_state(TrackState::Recording, Recorder::resume)
+    }
+
+    fn change_state(
+        &self,
+        state: TrackState,
+        transition: fn(&mut Recorder) -> Result<(), core_track::TrackError>,
+    ) -> Result<RecordingStatus, AppError> {
+        let status = {
+            let mut inner = self.shared.inner();
+            let inner = &mut *inner;
+            let rec = inner.recording.as_mut().ok_or(AppError::NoRecording)?;
+            transition(&mut rec.recorder)?;
+            inner
+                .storage
+                .set_track_state(rec.track_id, state, now_ms())?;
+            rec.status()
+        };
+        self.shared.listener.on_recording(&status);
+        Ok(status)
+    }
+
+    /// Ends the recording. Returns the finished track, or `None` if nothing was
+    /// recorded (the empty track is discarded).
+    pub fn stop_recording(&self) -> Result<Option<TrackRecord>, AppError> {
+        let (record, last_points) = {
+            let mut inner = self.shared.inner();
+            let mut rec = inner.recording.take().ok_or(AppError::NoRecording)?;
+            rec.recorder.stop()?;
+            let record = inner.finish(rec.track_id, rec.recorder.track(), rec.activity)?;
+            (record, std::mem::take(&mut rec.pending))
+        };
+        self.shared.listener.on_recording(&RecordingStatus {
+            appended: last_points,
+            ..IDLE
+        });
+        Ok(record)
+    }
+
+    pub fn recording_status(&self) -> RecordingStatus {
+        let mut inner = self.shared.inner();
+        match &mut inner.recording {
+            // Do not consume the points still owed to the listener.
+            Some(rec) => {
+                let pending = rec.pending.clone();
+                let status = rec.status();
+                rec.pending = pending;
+                RecordingStatus {
+                    appended: Vec::new(),
+                    ..status
+                }
+            }
+            None => IDLE,
+        }
+    }
+
+    /// Geometry of the track being recorded: `[lon, lat]` positions per segment.
+    pub fn recording_line(&self) -> Vec<Vec<[f64; 2]>> {
+        self.shared
+            .inner()
+            .recording
+            .as_ref()
+            .map(|rec| line_of(rec.recorder.track()))
+            .unwrap_or_default()
+    }
+
+    /// A recording that was in progress when the app last ended, if any.
+    pub fn interrupted_recording(&self) -> Result<Option<TrackRecord>, AppError> {
+        let inner = self.shared.inner();
+        let open = inner.storage.open_recording()?;
+        Ok(open.filter(|t| {
+            inner
+                .recording
+                .as_ref()
+                .is_none_or(|rec| rec.track_id != t.id)
+        }))
+    }
+
+    /// Continues the interrupted recording in a new segment.
+    pub fn continue_interrupted(&self) -> Result<RecordingStatus, AppError> {
+        let status = {
+            let mut inner = self.shared.inner();
+            if inner.recording.is_some() {
+                return Err(AppError::RecordingActive);
+            }
+            let record = inner
+                .storage
+                .open_recording()?
+                .ok_or(AppError::NothingInterrupted)?;
+            let track = inner.storage.load_track(record.id)?;
+            inner
+                .storage
+                .set_track_state(record.id, TrackState::Recording, now_ms())?;
+            let recorder = Recorder::continue_from(track, record.activity);
+            let rec =
+                inner
+                    .recording
+                    .insert(ActiveRecording::new(record.id, record.activity, recorder));
+            rec.status()
+        };
+        self.shared.listener.on_recording(&status);
+        Ok(status)
+    }
+
+    /// Finishes the interrupted recording with the points it has.
+    pub fn finish_interrupted(&self) -> Result<Option<TrackRecord>, AppError> {
+        let mut inner = self.shared.inner();
+        let open = inner.storage.open_recording()?;
+        let record = open
+            .filter(|t| {
+                inner
+                    .recording
+                    .as_ref()
+                    .is_none_or(|rec| rec.track_id != t.id)
+            })
+            .ok_or(AppError::NothingInterrupted)?;
+        let track = inner.storage.load_track(record.id)?;
+        inner.finish(record.id, &track, record.activity)
+    }
+
+    // --- tracks -----------------------------------------------------------
+
+    pub fn list_tracks(&self) -> Result<Vec<TrackRecord>, AppError> {
+        Ok(self.shared.inner().storage.list_tracks()?)
+    }
+
+    pub fn track_detail(&self, id: Uuid) -> Result<TrackDetail, AppError> {
+        let inner = self.shared.inner();
+        let record = inner.storage.track(id)?;
+        let line = line_of(&inner.storage.load_track(id)?);
+        Ok(TrackDetail { record, line })
+    }
+
+    pub fn rename_track(&self, id: Uuid, name: &str) -> Result<(), AppError> {
+        Ok(self
+            .shared
+            .inner()
+            .storage
+            .rename_track(id, name, now_ms())?)
+    }
+
+    pub fn delete_track(&self, id: Uuid) -> Result<(), AppError> {
+        Ok(self.shared.inner().storage.delete_track(id, now_ms())?)
+    }
+
+    /// Imports every track of a GPX document. `activity` overrides the type named
+    /// in the file and is required if the file names none.
+    pub fn import_gpx(
+        &self,
+        xml: &str,
+        activity: Option<Activity>,
+    ) -> Result<Vec<TrackRecord>, AppError> {
+        let doc = parse_gpx(xml)?;
+        let activities: Vec<Activity> = doc
+            .tracks
+            .iter()
+            .map(|t| activity.or(t.activity).ok_or(AppError::ActivityRequired))
+            .collect::<Result<_, _>>()?;
+        let mut inner = self.shared.inner();
+        let mut records = Vec::new();
+        for (track, activity) in doc.tracks.iter().zip(activities) {
+            let stats = compute_stats(track, &StatsParams::for_activity(activity));
+            let id = inner
+                .storage
+                .import_track(track, activity, &stats, now_ms())?;
+            records.push(inner.storage.track(id)?);
+        }
+        Ok(records)
+    }
+
+    /// Serialises a stored track as GPX 1.1.
+    pub fn export_gpx(&self, id: Uuid) -> Result<String, AppError> {
+        let track = self.shared.inner().storage.load_track(id)?;
+        Ok(write_gpx(&GpxDocument {
+            name: track.name.clone(),
+            tracks: vec![track],
+        })?)
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        // The source's thread holds a reference to the shared state; stop it so
+        // both can go away.
+        self.stop_location_source();
+    }
+}

@@ -151,3 +151,78 @@ fn real_fixture_tracks_yield_plausible_statistics() {
         }
     }
 }
+
+/// A listener that ignores everything.
+struct Quiet;
+
+impl core_app::AppListener for Quiet {
+    fn on_position(&self, _: &core_location::Fix) {}
+    fn on_recording(&self, _: &core_app::RecordingStatus) {}
+    fn on_source_status(&self, _: &core_location::SourceStatus) {}
+    fn on_error(&self, _: &str) {}
+}
+
+fn temp_db(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("track-cli-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join("app.sqlite")
+}
+
+#[test]
+fn records_a_gpx_file_into_a_database() {
+    let db = temp_db("record");
+    let file = fixtures().join("real/tour_sylvensteinsee.gpx");
+    let o = run(&[
+        "record",
+        "--db",
+        db.to_str().unwrap(),
+        file.to_str().unwrap(),
+    ]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert!(
+        stdout(&o).contains("Distance:      27.39 km"),
+        "{}",
+        stdout(&o)
+    );
+
+    let app = core_app::App::open(&db, std::sync::Arc::new(Quiet)).unwrap();
+    let tracks = app.list_tracks().unwrap();
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].stats.as_ref().unwrap().points_total, 1542);
+}
+
+/// Crash safety: the process dies without any cleanup in the middle of a
+/// recording. Every fix handed over before that must be in the database.
+#[test]
+fn recording_survives_the_process_being_killed() {
+    let db = temp_db("abort");
+    let file = fixtures().join("real/tour_sylvensteinsee.gpx");
+    let o = run(&[
+        "record",
+        "--db",
+        db.to_str().unwrap(),
+        file.to_str().unwrap(),
+        "--abort-after",
+        "300",
+    ]);
+    assert!(!o.status.success(), "the process must have died");
+    assert_eq!(
+        o.status.code(),
+        None,
+        "killed by a signal, not a regular exit"
+    );
+
+    let app = core_app::App::open(&db, std::sync::Arc::new(Quiet)).unwrap();
+    assert!(
+        app.list_tracks().unwrap()[0].stats.is_none(),
+        "track was never finished"
+    );
+    let interrupted = app
+        .interrupted_recording()
+        .unwrap()
+        .expect("unfinished recording is found");
+    let finished = app.finish_interrupted().unwrap().unwrap();
+    assert_eq!(finished.id, interrupted.id);
+    assert_eq!(finished.stats.unwrap().points_total, 300);
+}

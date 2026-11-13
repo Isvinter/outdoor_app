@@ -3,13 +3,15 @@ use std::str::FromStr;
 
 use core_track::{Activity, Segment, Track, TrackPoint, TrackStats};
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::StorageError;
 use crate::migrations::{MIGRATIONS, migrate, schema_version};
 
 /// Life cycle of a track.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TrackState {
     Recording,
     Paused,
@@ -38,7 +40,7 @@ impl TrackState {
 }
 
 /// A track without its points.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackRecord {
     pub id: Uuid,
     pub name: Option<String>,

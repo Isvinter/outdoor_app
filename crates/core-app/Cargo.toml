@@ -1,0 +1,19 @@
+[package]
+name = "core-app"
+description = "Application services tying location, recording, storage and GPX together"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+core-gpx.workspace = true
+core-location.workspace = true
+core-storage.workspace = true
+core-track.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

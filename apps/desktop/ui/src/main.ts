@@ -1,63 +1,318 @@
-import { invoke } from "@tauri-apps/api/core";
-import { Map as MapLibreMap, setWorkerUrl } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+/** Wires the page to the core. Rendering and input handling only. */
+import { open, save } from "@tauri-apps/plugin-dialog";
+import {
+  ACTIVITIES,
+  api,
+  events,
+  isCommandError,
+  type Activity,
+  type RecordingStatus,
+  type SourceStatus,
+  type TrackRecord,
+} from "./api";
+import { dateTime, distance, renderStats } from "./format";
+import { t, translateDocument, type MessageKey } from "./i18n";
+import { MapView } from "./map";
+import { runDiagnostics } from "./diagnostics";
+import "./style.css";
 
-function log(level: "info" | "error", message: string): void {
-  void invoke("ui_log", { level, message });
-}
-window.addEventListener("error", (e) => log("error", `${e.message} (${e.filename}:${e.lineno})`));
-window.addEventListener("unhandledrejection", (e) => log("error", `unhandled: ${String(e.reason)}`));
-log("info", `ui started, ${navigator.userAgent}`);
+const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-// The worker files are copied next to the bundle by vite.config.ts.
-setWorkerUrl(new URL("maplibre/maplibre-gl-worker.mjs", document.baseURI).href);
+const view = new MapView("map");
+let tracks: TrackRecord[] = [];
+let selectedTrack: string | null = null;
 
-const map = new MapLibreMap({
-  container: "map",
-  style: "https://tiles.openfreemap.org/styles/liberty",
-  center: [11.57, 47.68],
-  zoom: 12,
-});
+// --- messages ---------------------------------------------------------------
 
-/** Animates the map for a few seconds and reports frame timing to the host. */
-async function runFpsProbe(): Promise<void> {
-  const gl = map.getCanvas().getContext("webgl2");
-  const info = gl?.getExtension("WEBGL_debug_renderer_info");
-  const renderer = gl && info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "unknown";
-
-  const durationMs = 10_000;
-  const frames: number[] = [];
-  let last = performance.now();
-  const start = last;
-  map.easeTo({ zoom: 14.5, bearing: 180, pitch: 45, duration: durationMs, easing: (t: number) => t });
-  await new Promise<void>((resolve) => {
-    const tick = (now: number) => {
-      frames.push(now - last);
-      last = now;
-      if (now - start < durationMs) requestAnimationFrame(tick);
-      else resolve();
-    };
-    requestAnimationFrame(tick);
-  });
-  frames.sort((a, b) => a - b);
-  const total = frames.reduce((a, b) => a + b, 0);
-  await invoke("probe_report", {
-    report: {
-      renderer,
-      frames: frames.length,
-      fps_avg: (frames.length * 1000) / total,
-      frame_ms_median: frames[Math.floor(frames.length / 2)],
-      frame_ms_p95: frames[Math.floor(frames.length * 0.95)],
-      frame_ms_max: frames[frames.length - 1],
-      device_pixel_ratio: window.devicePixelRatio,
-      canvas: `${map.getCanvas().width}x${map.getCanvas().height}`,
-    },
-  });
+function showMessage(text: string, kind: "info" | "error" = "info"): void {
+  const el = $("message");
+  el.textContent = text;
+  el.className = kind;
 }
 
-map.on("error", (e) => log("error", `map: ${e.error?.message ?? String(e)}`));
-map.once("load", () => log("info", "map loaded"));
-map.once("idle", async () => {
-  log("info", "map idle");
-  if (await invoke<boolean>("probe_enabled")) await runFpsProbe();
-});
+function showError(e: unknown): void {
+  if (isCommandError(e)) {
+    const key = `error.${e.code}` as MessageKey;
+    const known = key in errorKeys;
+    showMessage(`${known ? t(key) : t("error.unknown")} (${e.message})`, "error");
+    api.log("error", `${e.code}: ${e.message}`);
+  } else {
+    showMessage(`${t("error.unknown")} (${String(e)})`, "error");
+    api.log("error", String(e));
+  }
+}
+
+const errorKeys: Partial<Record<MessageKey, true>> = {
+  "error.storage": true,
+  "error.gpx": true,
+  "error.track": true,
+  "error.location": true,
+  "error.no_recording": true,
+  "error.recording_active": true,
+  "error.nothing_interrupted": true,
+  "error.activity_required": true,
+  "error.io": true,
+};
+
+/** Runs a user action and reports failures in the message line. */
+function action(run: () => Promise<void>): () => void {
+  return () => {
+    showMessage("");
+    run().catch(showError);
+  };
+}
+
+// --- recording --------------------------------------------------------------
+
+function selectedActivity(): Activity {
+  return $<HTMLSelectElement>("activity").value as Activity;
+}
+
+function renderRecording(status: RecordingStatus): void {
+  const { phase } = status;
+  $("rec-start").hidden = phase !== "idle";
+  $("rec-pause").hidden = phase !== "recording";
+  $("rec-resume").hidden = phase !== "paused";
+  $("rec-stop").hidden = phase === "idle";
+  $<HTMLSelectElement>("activity").disabled = phase !== "idle";
+  if (status.activity) $<HTMLSelectElement>("activity").value = status.activity;
+  $("rec-phase").textContent = t(`recording.phase.${phase}`);
+  renderStats($("live-stats"), status.stats);
+}
+
+function renderRecovery(interrupted: TrackRecord | null): void {
+  $("recovery").hidden = interrupted === null;
+  if (interrupted) {
+    $("recovery-text").textContent = t("recovery.text", { date: dateTime(interrupted.created_at_ms) });
+  }
+}
+
+async function loadRecordingState(): Promise<void> {
+  const state = await api.recordingState();
+  view.setLiveLine(state.line);
+  renderRecording(state.status);
+  renderRecovery(state.interrupted);
+}
+
+// --- tracks -----------------------------------------------------------------
+
+function trackTitle(track: TrackRecord): string {
+  return track.name ?? t("tracks.unnamed", { date: dateTime(track.started_at_ms ?? track.created_at_ms) });
+}
+
+function renderTrackList(): void {
+  const list = $("track-list");
+  if (tracks.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = t("tracks.empty");
+    list.replaceChildren(empty);
+    return;
+  }
+  list.replaceChildren(
+    ...tracks.map((track) => {
+      const item = document.createElement("li");
+      item.dataset.id = track.id;
+      item.classList.toggle("selected", track.id === selectedTrack);
+      const title = document.createElement("span");
+      title.textContent = trackTitle(track);
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = `${t(`activity.${track.activity}`)} · ${track.stats ? distance(track.stats.distance_m) : "–"}`;
+      item.append(title, meta);
+      item.addEventListener("click", action(() => selectTrack(track.id)));
+      return item;
+    }),
+  );
+}
+
+async function refreshTracks(): Promise<void> {
+  tracks = (await api.tracksList()).filter((track) => track.state === "finished");
+  if (selectedTrack && !tracks.some((track) => track.id === selectedTrack)) await selectTrack(null);
+  renderTrackList();
+}
+
+async function selectTrack(id: string | null): Promise<void> {
+  selectedTrack = id;
+  renderTrackList();
+  $("track-detail").hidden = id === null;
+  if (id === null) {
+    view.showTrack([]);
+    return;
+  }
+  const detail = await api.trackDetail(id);
+  $<HTMLInputElement>("track-name").value = trackTitle(detail.record);
+  renderStats($("track-stats"), detail.record.stats);
+  view.showTrack(detail.line);
+}
+
+// --- location ---------------------------------------------------------------
+
+function renderSourceStatus(status: SourceStatus | null): void {
+  const text =
+    status === null
+      ? t("location.status.off")
+      : status.state === "lost"
+        ? t("location.status.lost", { reason: status.reason })
+        : t(`location.status.${status.state}`);
+  $("loc-status").textContent = text;
+}
+
+const gpxFilter = () => [{ name: t("dialog.gpx"), extensions: ["gpx"] }];
+
+// --- wiring -----------------------------------------------------------------
+
+function fillSelect(select: HTMLSelectElement, options: [string, string][]): void {
+  select.replaceChildren(
+    ...options.map(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    }),
+  );
+}
+
+async function start(): Promise<void> {
+  translateDocument();
+  fillSelect(
+    $<HTMLSelectElement>("activity"),
+    ACTIVITIES.map((a) => [a, t(`activity.${a}`)]),
+  );
+  fillSelect(
+    $<HTMLSelectElement>("loc-speed"),
+    ["1", "5", "20", "100"].map((s) => [s, `${s}×`]),
+  );
+  $<HTMLSelectElement>("loc-speed").value = "20";
+  renderSourceStatus(null);
+
+  window.addEventListener("error", (e) => api.log("error", `${e.message} (${e.filename}:${e.lineno})`));
+  window.addEventListener("unhandledrejection", (e) => api.log("error", `unhandled: ${String(e.reason)}`));
+  view.map.on("error", (e) => api.log("error", `map: ${e.error?.message ?? String(e)}`));
+
+  await events.onFix((fix) => view.showPosition(fix));
+  await events.onRecording((status) => {
+    view.appendLive(status.appended);
+    renderRecording(status);
+  });
+  await events.onSourceStatus(renderSourceStatus);
+  await events.onError((message) => showMessage(message, "error"));
+
+  $("rec-start").addEventListener(
+    "click",
+    action(async () => {
+      view.setLiveLine([]);
+      renderRecording(await api.recordingStart(selectedActivity()));
+    }),
+  );
+  $("rec-pause").addEventListener("click", action(async () => renderRecording(await api.recordingPause())));
+  $("rec-resume").addEventListener("click", action(async () => renderRecording(await api.recordingResume())));
+  $("rec-stop").addEventListener(
+    "click",
+    action(async () => {
+      const record = await api.recordingStop();
+      view.setLiveLine([]);
+      await refreshTracks();
+      if (record) {
+        showMessage(t("recording.saved"));
+        await selectTrack(record.id);
+      } else {
+        showMessage(t("recording.discarded"));
+      }
+    }),
+  );
+
+  $("recovery-continue").addEventListener(
+    "click",
+    action(async () => {
+      const state = await api.recordingContinueInterrupted();
+      view.setLiveLine(state.line);
+      renderRecording(state.status);
+      renderRecovery(null);
+    }),
+  );
+  $("recovery-finish").addEventListener(
+    "click",
+    action(async () => {
+      const record = await api.recordingFinishInterrupted();
+      renderRecovery(null);
+      await refreshTracks();
+      if (record) await selectTrack(record.id);
+    }),
+  );
+
+  $("loc-replay").addEventListener(
+    "click",
+    action(async () => {
+      const path = await open({ multiple: false, filters: gpxFilter() });
+      if (typeof path !== "string") return;
+      await api.locationStartReplay(path, Number($<HTMLSelectElement>("loc-speed").value));
+    }),
+  );
+  $("loc-gpsd").addEventListener("click", action(() => api.locationStartGpsd()));
+  $("loc-stop").addEventListener(
+    "click",
+    action(async () => {
+      await api.locationStop();
+      renderSourceStatus(null);
+    }),
+  );
+  $<HTMLInputElement>("follow").addEventListener("change", (e) => {
+    view.followPosition = (e.target as HTMLInputElement).checked;
+  });
+
+  $("track-import").addEventListener(
+    "click",
+    action(async () => {
+      const path = await open({ multiple: false, filters: gpxFilter() });
+      if (typeof path !== "string") return;
+      let imported: TrackRecord[];
+      try {
+        imported = await api.trackImportGpx(path, null);
+        showMessage(t("tracks.imported", { count: imported.length }));
+      } catch (e) {
+        if (!isCommandError(e) || e.code !== "activity_required") throw e;
+        const activity = selectedActivity();
+        imported = await api.trackImportGpx(path, activity);
+        showMessage(t("tracks.imported_as", { activity: t(`activity.${activity}`) }));
+      }
+      await refreshTracks();
+      if (imported[0]) await selectTrack(imported[0].id);
+    }),
+  );
+  $("track-export").addEventListener(
+    "click",
+    action(async () => {
+      if (!selectedTrack) return;
+      const name = $<HTMLInputElement>("track-name").value.replace(/[^\p{L}\p{N} ._-]/gu, "_");
+      const path = await save({ defaultPath: `${name}.gpx`, filters: gpxFilter() });
+      if (!path) return;
+      await api.trackExportGpx(selectedTrack, path);
+      showMessage(t("tracks.exported", { path }));
+    }),
+  );
+  $("track-delete").addEventListener(
+    "click",
+    action(async () => {
+      if (!selectedTrack) return;
+      await api.trackDelete(selectedTrack);
+      await selectTrack(null);
+      await refreshTracks();
+    }),
+  );
+  $<HTMLInputElement>("track-name").addEventListener(
+    "change",
+    action(async () => {
+      const name = $<HTMLInputElement>("track-name").value.trim();
+      if (!selectedTrack || name === "") return;
+      await api.trackRename(selectedTrack, name);
+      await refreshTracks();
+    }),
+  );
+
+  await loadRecordingState();
+  await refreshTracks();
+  await runDiagnostics(view);
+}
+
+start().catch(showError);
