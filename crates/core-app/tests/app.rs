@@ -107,7 +107,7 @@ fn recording_stores_fixes_and_stop_yields_a_finished_track_with_statistics() {
     assert_eq!(record.activity, Activity::Bike);
     assert!((record.stats.as_ref().unwrap().distance_m - 500.0).abs() < 1.0);
     assert_eq!(app.recording_status().phase, RecordingPhase::Idle);
-    assert_eq!(app.list_tracks().unwrap(), [record.clone()]);
+    assert_eq!(app.list_tracks().unwrap(), std::slice::from_ref(&record));
 
     let detail = app.track_detail(record.id).unwrap();
     assert_eq!(detail.line.len(), 1);
