@@ -21,16 +21,19 @@ pub enum Layer {
     Outdoor,
     /// Elevation tiles in Terrarium encoding.
     Dem,
+    /// Raster tiles colouring terrain by slope angle (optional).
+    Slope,
 }
 
 impl Layer {
-    pub const ALL: [Layer; 3] = [Layer::Basemap, Layer::Outdoor, Layer::Dem];
+    pub const ALL: [Layer; 4] = [Layer::Basemap, Layer::Outdoor, Layer::Dem, Layer::Slope];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Layer::Basemap => "basemap",
             Layer::Outdoor => "outdoor",
             Layer::Dem => "dem",
+            Layer::Slope => "slope",
         }
     }
 

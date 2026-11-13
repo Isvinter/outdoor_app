@@ -143,8 +143,14 @@ async function regionsSelfTest(view: MapView, catalog: string): Promise<void> {
 }
 
 /** Saves a picture of the map once everything in view is drawn (OUTDOOR_SNAPSHOT). */
-async function snapshot(view: MapView, target: [number, number, number] | null): Promise<void> {
+async function snapshot(view: MapView, target: [number, number, number] | null, style: string | null): Promise<void> {
   const map = view.map;
+  if (style) {
+    const select = document.getElementById("map-style") as HTMLSelectElement;
+    select.value = style;
+    select.dispatchEvent(new Event("change"));
+    await sleep(1000);
+  }
   if (target) map.jumpTo({ center: [target[0], target[1]], zoom: target[2] });
   await sleep(500);
   await until("map drawn", () => map.loaded() && map.areTilesLoaded(), 30_000).catch(() => undefined);
@@ -159,7 +165,7 @@ async function snapshot(view: MapView, target: [number, number, number] | null):
 
 export async function runDiagnostics(view: MapView): Promise<void> {
   const shot = await api.snapshotRequest();
-  if (shot) await snapshot(view, shot.view);
+  if (shot) await snapshot(view, shot.view, shot.style);
   const catalog = await invoke<string | null>("selftest_regions");
   if (catalog) await regionsSelfTest(view, catalog);
   if (await api.probeEnabled()) await fpsProbe(view);

@@ -100,6 +100,8 @@ export interface SnapshotRequest {
   path: string;
   /** Longitude, latitude and zoom to show, if given. */
   view: [number, number, number] | null;
+  /** Value of the style selector to switch to, if given. */
+  style: string | null;
 }
 
 export interface CommandError {

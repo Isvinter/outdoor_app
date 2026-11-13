@@ -46,6 +46,8 @@ export const de = {
   "maps.title": "Karten",
   "maps.style": "Kartenstil",
   "maps.style.topo": "Topo Sommer (offline)",
+  "maps.style.winter": "Topo Winter (offline)",
+  "maps.slope": "Hangneigung",
   "maps.style.online": "OpenFreeMap (online)",
   "maps.catalog": "Katalog (URL oder Ordner)",
   "maps.catalog.choose": "Ordner …",

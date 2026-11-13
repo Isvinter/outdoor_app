@@ -351,7 +351,9 @@ fn catalog_entries_must_stay_below_the_catalog() {
 
 #[test]
 fn layer_names_round_trip() {
-    for layer in [Layer::Basemap, Layer::Outdoor, Layer::Dem] {
+    assert_eq!("slope".parse::<Layer>().ok(), Some(Layer::Slope));
+    assert_eq!(Layer::Slope.file_name(), "slope.pmtiles");
+    for layer in Layer::ALL {
         assert_eq!(layer.as_str().parse::<Layer>().ok(), Some(layer));
     }
     assert!("secrets".parse::<Layer>().is_err());

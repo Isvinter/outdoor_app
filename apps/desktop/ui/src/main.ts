@@ -179,15 +179,17 @@ const STYLE_KEY = "outdoor.map-style";
 let overview: RegionsOverview | null = null;
 
 function selectedStyle(): BaseStyle {
-  return $<HTMLSelectElement>("map-style").value === "online" ? "online" : "topo";
+  const value = $<HTMLSelectElement>("map-style").value;
+  return value === "online" || value === "winter" ? value : "topo";
 }
 
 /** Applies the chosen base map; the offline style depends on what is installed. */
 function applyStyle(): void {
   const base = selectedStyle();
   localStorage.setItem(STYLE_KEY, base);
+  $("slope-controls").hidden = base !== "winter";
   view.setBaseStyle(base, overview).catch(showError);
-  if (base === "topo" && overview && overview.installed_bounds === null) showMessage(t("maps.no_region"));
+  if (base !== "online" && overview && overview.installed_bounds === null) showMessage(t("maps.no_region"));
 }
 
 const regions = new RegionsPanel({
@@ -196,7 +198,7 @@ const regions = new RegionsPanel({
     const first = overview === null;
     overview = next;
     // Reload the offline style when regions were added or removed.
-    if (first || (changed && selectedStyle() === "topo")) applyStyle();
+    if (first || (changed && selectedStyle() !== "online")) applyStyle();
   },
   showRegion: (region) => view.showBounds(region.bbox),
   showMessage: (text) => showMessage(text),
@@ -230,9 +232,14 @@ async function start(): Promise<void> {
   renderSourceStatus(null);
   fillSelect($<HTMLSelectElement>("map-style"), [
     ["topo", t("maps.style.topo")],
+    ["winter", t("maps.style.winter")],
     ["online", t("maps.style.online")],
   ]);
-  $<HTMLSelectElement>("map-style").value = localStorage.getItem(STYLE_KEY) === "online" ? "online" : "topo";
+  const savedStyle = localStorage.getItem(STYLE_KEY);
+  $<HTMLSelectElement>("map-style").value = savedStyle === "online" || savedStyle === "winter" ? savedStyle : "topo";
+  $<HTMLInputElement>("slope-opacity").addEventListener("input", (e) => {
+    view.setSlopeOpacity(Number((e.target as HTMLInputElement).value) / 100);
+  });
   $<HTMLSelectElement>("map-style").addEventListener("change", applyStyle);
 
   window.addEventListener("error", (e) => api.log("error", `${e.message} (${e.filename}:${e.lineno})`));

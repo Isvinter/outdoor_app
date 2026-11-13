@@ -18,7 +18,10 @@ import type { Fix, Line, RegionsOverview } from "./api";
 // The worker files are copied next to the bundle by vite.config.ts.
 setWorkerUrl(new URL("maplibre/maplibre-gl-worker.mjs", document.baseURI).href);
 
-export type BaseStyle = "topo" | "online";
+export type BaseStyle = "topo" | "winter" | "online";
+
+const OFFLINE_STYLES = { topo: "topo-summer.json", winter: "topo-winter.json" } as const;
+const SLOPE = "slope";
 
 const ONLINE_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 /** Base URL of the tile protocol served by the core, e.g. `tiles://localhost/`. */
@@ -69,7 +72,7 @@ async function offlineStyle(file: string, overview: RegionsOverview | null): Pro
   const fill = (url: string) => url.replace("__TILES__", TILES).replace("__CONTOURS__", CONTOUR_TILES);
   style.glyphs = style.glyphs?.replace("__FONTS__", `${TILES}fonts/`);
   for (const [id, source] of Object.entries(style.sources)) {
-    if (source.type !== "vector" && source.type !== "raster-dem") continue;
+    if (source.type !== "vector" && source.type !== "raster-dem" && source.type !== "raster") continue;
     source.tiles = source.tiles?.map(fill);
     // There are no tiles outside the installed regions; do not ask for them.
     source.bounds = bounds;
@@ -136,6 +139,7 @@ export class MapView {
   private readonly lines: Record<string, Line> = { [LIVE]: [], [SELECTED]: [] };
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
+  private slopeOpacity = 0.6;
   followPosition = true;
 
   constructor(container: string) {
@@ -152,14 +156,23 @@ export class MapView {
       if (image && !this.map.hasImage(e.id)) this.map.addImage(e.id, image, { pixelRatio: 2 });
     });
     // Every base style replaces all layers; put the tracks back on top.
-    this.map.on("style.load", () => this.addOverlays());
+    this.map.on("style.load", () => {
+      this.addOverlays();
+      this.setSlopeOpacity(this.slopeOpacity);
+    });
   }
 
   /** Switches the base map. The offline style only covers the installed regions. */
   async setBaseStyle(base: BaseStyle, overview: RegionsOverview | null): Promise<void> {
     const request = ++this.styleRequest;
-    const style = base === "online" ? ONLINE_STYLE : await offlineStyle("topo-summer.json", overview);
+    const style = base === "online" ? ONLINE_STYLE : await offlineStyle(OFFLINE_STYLES[base], overview);
     if (request === this.styleRequest) this.map.setStyle(style, { diff: false });
+  }
+
+  /** Opacity (0 to 1) of the slope angle colours of the winter style. */
+  setSlopeOpacity(opacity: number): void {
+    this.slopeOpacity = opacity;
+    if (this.map.getLayer(SLOPE)) this.map.setPaintProperty(SLOPE, "raster-opacity", opacity);
   }
 
   private addOverlays(): void {

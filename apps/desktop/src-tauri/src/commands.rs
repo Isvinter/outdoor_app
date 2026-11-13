@@ -21,6 +21,8 @@ const SELFTEST_ENV: &str = "OUTDOOR_SELFTEST";
 /// `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` the map shows that place first.
 const SNAPSHOT_ENV: &str = "OUTDOOR_SNAPSHOT";
 const SNAPSHOT_VIEW_ENV: &str = "OUTDOOR_SNAPSHOT_VIEW";
+/// `topo`, `winter` or `online`: the map style to switch to before the picture is taken.
+const SNAPSHOT_STYLE_ENV: &str = "OUTDOOR_SNAPSHOT_STYLE";
 const DEFAULT_GPSD_ADDRESS: &str = "localhost:2947";
 
 fn read_file(path: &str) -> CommandResult<String> {
@@ -234,6 +236,7 @@ pub fn ui_log(level: String, message: String) {
 pub struct SnapshotRequest {
     path: String,
     view: Option<[f64; 3]>,
+    style: Option<String>,
 }
 
 #[tauri::command]
@@ -246,7 +249,8 @@ pub fn snapshot_request() -> Option<SnapshotRequest> {
             .collect();
         <[f64; 3]>::try_from(numbers).ok()
     });
-    Some(SnapshotRequest { path, view })
+    let style = std::env::var(SNAPSHOT_STYLE_ENV).ok();
+    Some(SnapshotRequest { path, view, style })
 }
 
 /// Writes the picture requested through `OUTDOOR_SNAPSHOT` and ends the app.

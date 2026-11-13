@@ -54,6 +54,18 @@
           <span data-i18n="maps.style"></span>
           <select id="map-style"></select>
         </label>
+        <div id="slope-controls" hidden>
+          <label class="field">
+            <span data-i18n="maps.slope"></span>
+            <input id="slope-opacity" type="range" min="0" max="100" step="5" value="60" />
+          </label>
+          <ul id="slope-legend" class="legend">
+            <li><i style="background: #f7e13c"></i>30–35°</li>
+            <li><i style="background: #f59500"></i>35–40°</li>
+            <li><i style="background: #e0241c"></i>40–45°</li>
+            <li><i style="background: #8e3fa8"></i>&gt; 45°</li>
+          </ul>
+        </div>
         <label class="stacked">
           <span data-i18n="maps.catalog"></span>
           <input id="catalog-source" type="text" spellcheck="false" />

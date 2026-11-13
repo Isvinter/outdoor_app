@@ -3,8 +3,9 @@
 Offline-Outdoor-App für Rad, MTB, Wandern und Skitouren. Architektur, Datenquellen,
 Algorithmen und Meilensteine stehen in [PLAN.md](PLAN.md).
 
-Stand: **Meilenstein 3** – Desktop-App mit Offline-Karte (herunterladbare Regionen,
-Topo-Sommerstil mit Schummerung, Höhenlinien, Wanderwegen und MTB-Trails), Positionsanzeige,
+Stand: **Meilenstein 4** – Desktop-App mit Offline-Karte (herunterladbare Regionen,
+Topo-Sommerstil mit Schummerung, Höhenlinien, Wanderwegen und MTB-Trails; Winterstil mit
+Hangneigungsklassen, Pisten und Skirouten), Positionsanzeige,
 Live-Aufzeichnung (absturzsicher), GPX-Import/-Export.
 
 ## Voraussetzungen (Ubuntu 24.04 / 26.04)
@@ -50,7 +51,7 @@ Kartenregionen in `regions/`.
 | `OUTDOOR_FPS_PROBE=1` | bewegt die Karte 10 s, gibt Bildraten als JSON aus, beendet die App |
 | `OUTDOOR_SELFTEST=<datei.gpx>` | bedient die Oberfläche selbst (Simulation, Start, Pause, Fortsetzen, Stopp), gibt das Ergebnis als JSON aus, beendet die App |
 | `OUTDOOR_SELFTEST_REGIONS=<katalog>` | lädt die erste Region des Katalogs über die Oberfläche, prüft die Karte, löscht die Region wieder, gibt das Ergebnis als JSON aus, beendet die App |
-| `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt |
+| `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt und `OUTDOOR_SNAPSHOT_STYLE=topo\|winter\|online` für einen Stil |
 
 ## Offline-Karten
 
@@ -67,11 +68,11 @@ Quelldaten nach `data/sources/` (OSM-Auszüge, Küstenlinien, Natural Earth); `d
 Teil des Repositories.
 
 ```sh
-scripts/build-region.sh isarwinkel-achensee      # Testregion, Ergebnis ~62 MB, Dauer ~2 min
+scripts/build-region.sh isarwinkel-achensee      # Testregion, Ergebnis ~71 MB, Dauer ~2 min
 scripts/build-region.sh isarwinkel-achensee --steps outdoor,manifest --force   # einzelne Schritte neu
 ```
 
-Ergebnis: `data/regions/<id>/` (drei `.pmtiles`-Dateien und `manifest.json`) sowie
+Ergebnis: `data/regions/<id>/` (vier `.pmtiles`-Dateien und `manifest.json`) sowie
 `data/regions/catalog.json` mit allen gebauten Regionen. Weitere Regionen entstehen aus einer
 Beschreibung in `regions/<id>.json` (Name, Begrenzung, OSM-Auszüge, Zoomstufen).
 
@@ -86,7 +87,22 @@ Beschreibung in `regions/<id>.json` (Name, Begrenzung, OSM-Auszüge, Zoomstufen)
 Kartenstil: Wanderwege nach SAC-Skala (braun gestrichelt = Wanderweg, rot = Bergwanderweg,
 blau gepunktet = alpin), MTB-Trails farbig hinterlegt nach Singletrail-Skala (grün S0, blau
 S1, orange S2, schwarz ab S3), markierte Routen als breite Linien (rot Wandern, blau Rad,
-orange MTB). Der Stil wird aus `scripts/make-style.py` erzeugt (`styles/topo-summer.json`).
+orange MTB).
+
+**Topo Winter (offline)** zeigt statt der Sommerrouten die Hangneigung in den Klassen der
+Lawinenkarten (gelb 30–35°, orange 35–40°, rot 40–45°, violett über 45°; Deckkraft per
+Regler), dazu Pisten nach Schwierigkeit, Loipen (türkis gestrichelt) und Skirouten (magenta
+gestrichelt). Die Hangneigung wird beim Bau der Region mit `tools/slope-tiles` aus den
+Höhendaten berechnet (Gradient nach Horn auf Zoom 13, ca. 6,5 m je Pixel; gröbere Stufen
+gemittelt). Sie ist eine Planungshilfe aus einem Geländemodell und ersetzt weder
+Lawinenlagebericht noch Beurteilung im Gelände.
+
+```sh
+cargo run --release -p slope-tiles -- dem.pmtiles slope.pmtiles   # einzeln aufrufen; --help zeigt Optionen
+```
+
+Die Stile werden aus `scripts/make-style.py` erzeugt (`styles/topo-summer.json`,
+`styles/topo-winter.json`).
 
 Kartendaten: © OpenStreetMap-Mitwirkende (ODbL), Schema © OpenMapTiles (CC BY), Höhendaten
 über Mapterhorn (u. a. Bayerische Vermessungsverwaltung, geoland.at, Copernicus); die genauen
@@ -137,6 +153,7 @@ Abweichung geprüft.
 | `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
 | `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
+| `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln (mit PMTiles-Schreiber) |
 | `regions/` | Beschreibungen der baubaren Regionen |
 | `scripts/` | `build-region.sh` (Regionspaket bauen), `make-style.py` (Kartenstile), Planetiler-Profil |
 | `styles/`, `assets/map/` | Kartenstile und Schriften, von allen Plattformen genutzt |

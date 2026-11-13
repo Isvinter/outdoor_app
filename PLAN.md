@@ -388,6 +388,10 @@ Eine Region ist ein Verzeichnis mit Manifest:
   routing.tar        # Valhalla tile_extract
 ```
 
+Stand M4: zusätzlich `slope.pmtiles` (Testregion 9,5 MB, Zoom 9–13, 0,3 s Rechenzeit auf
+32 Kernen; Kacheln ohne Gelände über 30° werden nicht gespeichert). Abweichung von 6.8:
+Ausgabe als PNG mit Farbpalette (5 Einträge) statt WebP – kleiner und ohne Encoder-Abhängigkeit.
+
 Stand M3: `scripts/build-region.sh <id>` liest `regions/<id>.json` und erzeugt `basemap`,
 `outdoor`, `dem` und das Manifest sowie `catalog.json` (Liste aller Pakete; Ordner oder URL
 davon ist der „Katalog“ der App). Testregion `isarwinkel-achensee`: 62 MB (Basiskarte 14 MB,

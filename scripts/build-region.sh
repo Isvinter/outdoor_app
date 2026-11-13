@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Builds an offline region package from free data sources.
 #
-#   scripts/build-region.sh <region-id> [--steps osm,basemap,outdoor,dem,manifest] [--force]
+#   scripts/build-region.sh <region-id> [--steps osm,basemap,outdoor,dem,slope,manifest] [--force]
 #
 # Reads regions/<region-id>.json and writes data/regions/<region-id>/ with
 #   basemap.pmtiles   vector base map (OpenMapTiles schema, built with Planetiler)
 #   outdoor.pmtiles   vector overlay: trails, routes, pistes, peaks, huts
 #   dem.pmtiles       elevation tiles (Terrarium encoding, from Mapterhorn)
+#   slope.pmtiles     slope angle classes for winter maps (tools/slope-tiles)
 #   manifest.json     name, bounds, files with size and SHA-256, attribution
 # and data/regions/catalog.json listing all built regions. That directory (or
 # a web server publishing it) is what the app takes as its catalog.
 #
-# Needs: bash, curl, python3, java >= 21, docker. Downloads are cached in
+# Needs: bash, curl, python3, java >= 21, docker, cargo. Downloads are cached in
 # data/sources and data/tools; set OUTDOOR_DATA to move the data directory.
 set -euo pipefail
 
@@ -22,14 +23,14 @@ PMTILES_VERSION="1.31.2"
 MAPTERHORN="https://download.mapterhorn.com"
 JAVA_HEAP="${JAVA_HEAP:-8g}"
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 log() { printf '\n== %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 [ $# -ge 1 ] || usage 1
 case "$1" in -h|--help) usage ;; esac
 ID="$1"; shift
-STEPS="osm,basemap,outdoor,dem,manifest"
+STEPS="osm,basemap,outdoor,dem,slope,manifest"
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,7 +43,7 @@ done
 
 CONFIG="$ROOT/regions/$ID.json"
 [ -f "$CONFIG" ] || die "no region definition $CONFIG"
-for tool in curl python3 java docker; do
+for tool in curl python3 java docker cargo; do
   command -v "$tool" >/dev/null || die "$tool is required"
 done
 
@@ -182,6 +183,15 @@ step_dem() {
   fi
 }
 
+step_slope() {
+  stale "$OUT/slope.pmtiles" || return 0
+  [ -s "$OUT/dem.pmtiles" ] || die "run the dem step first"
+  log "deriving slope angle tiles"
+  (cd "$ROOT" && cargo run --quiet --release -p slope-tiles -- \
+    "$OUT/dem.pmtiles" "$BUILD/slope.pmtiles" --zoom "$DEM_MAXZOOM")
+  mv "$BUILD/slope.pmtiles" "$OUT/slope.pmtiles"
+}
+
 step_manifest() {
   log "writing manifest"
   python3 -I - "$CONFIG" "$OUT" <<'PY'
@@ -198,7 +208,7 @@ def describe(name):
             digest.update(chunk)
     return {"name": name, "size": os.path.getsize(path), "sha256": digest.hexdigest()}
 
-files = [describe(n) for n in ("basemap.pmtiles", "outdoor.pmtiles", "dem.pmtiles")
+files = [describe(n) for n in ("basemap.pmtiles", "outdoor.pmtiles", "dem.pmtiles", "slope.pmtiles")
          if os.path.exists(os.path.join(out, n))]
 manifest = {
     "format": 1,
@@ -233,7 +243,7 @@ PY
 }
 
 ensure_tools
-for step in osm basemap outdoor dem manifest; do
+for step in osm basemap outdoor dem slope manifest; do
   if wants "$step"; then "step_$step"; fi
 done
 log "region package: $OUT"
