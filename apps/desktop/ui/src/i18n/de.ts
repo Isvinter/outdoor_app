@@ -25,7 +25,7 @@ export const de = {
   "location.title": "Position",
   "location.replay": "GPX-Simulation …",
   "location.gpsd": "GPS (gpsd)",
-  "location.stop": "Aus",
+  "location.stop": "Quelle stoppen",
   "location.follow": "Karte folgt der Position",
   "location.status.off": "Keine Positionsquelle",
   "location.status.connecting": "Verbinde …",

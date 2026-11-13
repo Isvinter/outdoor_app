@@ -156,6 +156,8 @@ function renderSourceStatus(status: SourceStatus | null): void {
         ? t("location.status.lost", { reason: status.reason })
         : t(`location.status.${status.state}`);
   $("loc-status").textContent = text;
+  // Stopping only makes sense while a source is running (or retrying).
+  $<HTMLButtonElement>("loc-stop").disabled = status === null || status.state === "finished";
 }
 
 const gpxFilter = () => [{ name: t("dialog.gpx"), extensions: ["gpx"] }];
