@@ -39,7 +39,8 @@ outdoor_app/
 │  ├─ core-storage/           # SQLite, Migrationen, Repositories
 │  ├─ core-routing/           # Trait Router, Profile, Zeitschätzung; Feature "valhalla"
 │  ├─ core-maps/              # Regionen (Katalog, Download, Löschen), PMTiles-Lesen, DEM-Abfrage
-│  └─ core-location/          # Trait LocationSource, GPX-Replay; Feature "gpsd"
+│  ├─ core-location/          # Trait LocationSource, GPX-Replay, gpsd-Client
+│  └─ core-app/               # Anwendungsdienste: verbindet Ortung, Aufzeichnung, Speicher, GPX
 ├─ tools/
 │  ├─ slope-tiles/            # CLI: DEM-PMTiles → Hangneigungs-PMTiles
 │  └─ track-cli/              # CLI M1: GPX rein → Statistik raus
@@ -54,17 +55,26 @@ outdoor_app/
 └─ README.md
 ```
 
-`core-location` ist ein zusätzliches Crate gegenüber der Vorgabe (meine Entscheidung): Der Trait
-`LocationSource` gehört weder in `core-track` noch in die Tauri-Hülle, und die mobilen Quellen
-aus Phase 2 implementieren denselben Trait von außen.
+Zwei Crates kommen gegenüber der Vorgabe hinzu (meine Entscheidung):
+
+- `core-location`: Der Trait `LocationSource` gehört weder in `core-track` noch in die
+  Tauri-Hülle, und die mobilen Quellen aus Phase 2 implementieren denselben Trait von außen.
+- `core-app`: die eine Stelle, an der Ortung, Aufzeichnung, Speicher und GPX zusammenkommen
+  (Aufzeichnung starten/pausieren/stoppen, Wiederaufnahme nach Absturz, Import/Export,
+  Trackverwaltung). Die Tauri-Commands rufen nur `core-app` auf; in Phase 2 wird genau diese
+  Schnittstelle per UniFFI an Swift/Kotlin gereicht. Native Ortungsdienste liefern ihre Fixes
+  über `App::handle_fix`.
 
 ### 2.2 Abhängigkeitsregeln
 
 - `core-*` kennt kein Tauri, kein GTK, kein Dateisystem-Layout des Betriebssystems. Pfade
   (Datenverzeichnis, Regionsverzeichnis) werden von der Hülle hineingereicht.
-- C++-Anteile sind per Cargo-Feature abschaltbar: `core-routing/valhalla`, `core-location/gpsd`.
-  Ohne Features kompilieren alle Kern-Crates rein in Rust (plus gebündeltes SQLite in C) –
-  das ist der Zustand, den die CI für iOS/Android per `cargo check` prüft.
+- C++-Anteile sind per Cargo-Feature abschaltbar (`core-routing/valhalla`). Der gpsd-Client
+  ist reines Rust auf der Standardbibliothek (blockierendes Lesen in einem eigenen Thread)
+  und braucht kein Feature. Ohne Features kompilieren alle Kern-Crates rein in Rust plus
+  gebündeltes SQLite in C – das ist der Zustand, den die CI für iOS/Android per
+  `cargo check` prüft (Android mit dem NDK des CI-Runners, iOS auf einem macOS-Runner, weil
+  SQLite einen C-Compiler für das Zielsystem braucht).
 - Die Tauri-Hülle enthält nur Verdrahtung: Command → Kern-Aufruf → serialisiertes Ergebnis.
 - Das Frontend enthält keine Fachlogik. Es rechnet keine Distanzen, keine Statistik, keine
   Höhenprofile; es zeichnet, was der Kern liefert.
@@ -165,13 +175,13 @@ LocationSource ──Fix──► Recorder (core-track) ──► core-storage (
 | | `tauri-build` | 2.7.4 | 2026-10-21 | MIT/Apache-2.0 | |
 | | `tauri-plugin-dialog` | 2.8.4 | 2026-10-28 | MIT/Apache-2.0 | Datei öffnen/speichern |
 | SQLite | `rusqlite` (bundled) | 0.42.0 | 2026-11-11 | MIT | SQLite wird mitkompiliert → identisch auf allen Zielen |
-| Migrationen | `rusqlite_migration` | 2.7.0 | 2026-11-10 | Apache-2.0 | |
+| Migrationen | eigener Runner | – | – | – | `PRAGMA user_version`, ~30 Zeilen. `rusqlite_migration` 2.7.0 verlangt noch rusqlite 0.41 |
 | XML | `quick-xml` | 0.42.0 | 2026-08-22 | MIT | GPX-Parser/-Writer selbst geschrieben |
 | IDs | `uuid` (v7) | 1.29.2 | 2026-11-09 | MIT/Apache-2.0 | zeitlich sortierbare UUIDs |
 | Zeit | `time` | 0.3.55 | 2026-08-01 | MIT/Apache-2.0 | |
 | Fehler | `thiserror` | 2.0.21 | 2026-09-23 | MIT/Apache-2.0 | eigene Error-Typen je Crate |
 | Serialisierung | `serde` / `serde_json` | 1.0.229 / 1.0.154 | 2026 | MIT/Apache-2.0 | |
-| Async (Hülle, Download, gpsd) | `tokio` | 1.54.1 | 2026-10-21 | MIT | |
+| Async (Hülle, Download ab M3) | `tokio` | 1.54.1 | 2026-10-21 | MIT | über Tauri; die Kern-Crates sind bisher synchron |
 | HTTP-Download | `reqwest` (rustls) | 0.13.5 | 2026-09-08 | MIT/Apache-2.0 | Range-Requests, Fortsetzen |
 | PMTiles lesen/schreiben | `pmtiles` | 0.28.1 | 2026-11-13 | MIT/Apache-2.0 | Stadia Maps, sehr aktiv; kann schreiben |
 | Bilder (WebP/PNG) | `image` | 0.25.10 | 2026-03-10 | MIT/Apache-2.0 | DEM-WebP dekodieren, Kacheln kodieren; reines Rust |
@@ -389,7 +399,7 @@ Speicherbedarfsanzeige vor und nach dem Download, Löschen.
 
 ## 5. Datenmodell (sync-fähig)
 
-SQLite, Migrationen ab der ersten Version (`rusqlite_migration`, `PRAGMA user_version`).
+SQLite, Migrationen ab der ersten Version (eigener Runner über `PRAGMA user_version`; Tabellen für Routen und Regionen kommen als weitere Migrationen mit M3/M5).
 
 Gemeinsam für alle synchronisierbaren Tabellen: `id` (UUIDv7, als 16-Byte-BLOB),
 `created_at`, `updated_at` (UTC, Millisekunden), `deleted_at` (Soft-Delete, sonst NULL),
@@ -426,13 +436,20 @@ In dieser Reihenfolge, pro Segment:
    exakte Duplikate.
 2. **Genauigkeitsfilter:** Punkte mit gemeldeter horizontaler Genauigkeit schlechter als
    `max_hdop_m` (Standard 50 m) verwerfen, sofern der Empfänger den Wert liefert.
-3. **Sprungfilter:** Ein Punkt wird verworfen, wenn die aus Distanz/Zeit zum letzten
-   akzeptierten Punkt berechnete Geschwindigkeit `max_plausible_speed` der Aktivität
-   übersteigt **oder** die implizierte Beschleunigung `max_accel` (Standard 6 m/s²)
-   überschreitet. So fällt ein einzelner Sprung heraus, ohne dass der Track danach „hängt“:
-   nach `max_reject_run` (Standard 5) aufeinanderfolgenden Verwerfungen wird der nächste Punkt
-   als neuer Anker akzeptiert (echter Ortswechsel, z. B. nach Tunnel). Über einen solchen
-   Neuanker hinweg wird keine Distanz gezählt.
+3. **Sprungfilter:** Ein Punkt ist *verdächtig*, wenn die aus Distanz/Zeit zum letzten
+   akzeptierten Punkt berechnete Geschwindigkeit `max_plausible_speed` übersteigt **oder**
+   die implizierte Beschleunigung `max_accel` (Standard 6 m/s²) überschreitet.
+   Ein verdächtiger Punkt wird trotzdem behalten, wenn nur seine **Zeit** nicht stimmt, die
+   Position aber auf dem Weg liegt (häufig bei Handy-Aufzeichnungen: sekundenlang kein
+   Fortschritt, dann 150 m in einer Sekunde). Das gilt, wenn
+   - die Durchschnittsgeschwindigkeit über die letzten `speed_window_s` Sekunden plausibel
+     ist **und**
+   - der Punkt kein Zacken ist, der Weg also nicht zu ihm hin und gleich wieder zurück führt
+     (Umweg über den Punkt > 2 × direkte Strecke zum Folgepunkt + 2 × `min_move_m`).
+
+   Alle anderen verdächtigen Punkte werden verworfen. Nach `max_reject_run` (Standard 5)
+   aufeinanderfolgenden Verwerfungen wird der nächste Punkt als neuer Anker akzeptiert
+   (echter Ortswechsel). Über einen solchen Neuanker hinweg wird keine Distanz gezählt.
 4. **Stillstandsrauschen:** Punkte, die weniger als `min_move_m` (Standard 3 m) vom letzten
    akzeptierten Punkt entfernt sind, tragen nicht zur Distanz bei (GPS-Wandern im Stand).
 
@@ -453,15 +470,17 @@ volle Fensterdauer (echte Aufzeichnungen haben unregelmäßige Abstände).
 - Sonst gibt es zwei Schätzer aus den Positionen:
   - **Nettoverschiebung** (Luftlinie über das Fenster / Dauer) für die Bewegungserkennung.
     Positionsrauschen im Stand hebt sich auf.
-  - **Median der Einzelgeschwindigkeiten** (Fix zu Fix) im Fenster für die Maximal-
-    geschwindigkeit. Einzelne falsche Zeitstempel oder Positionen können ihn nicht anheben.
+  - **Zeitgewichteter Median der Einzelgeschwindigkeiten** (Fix zu Fix) im Fenster für die
+    Maximalgeschwindigkeit: die Geschwindigkeit, die während der Hälfte der Fensterzeit
+    nicht überschritten wurde. Falsche Zeitstempel oder Positionen können ihn nicht anheben,
+    auch nicht viele sehr kurze Intervalle hintereinander.
 - **Max-Speed:** Maximum des Median-Schätzers mit Fenster `speed_window_s` (Standard 10 s).
 - **Durchschnitt:** Distanz / Zeit in Bewegung. Zusätzlich Distanz / Gesamtzeit.
 
-Befund an den echten Komoot-Aufzeichnungen (M1): Die Zeitstempel sind stellenweise
-gestaucht – mehrere Sekunden ohne Fortschritt, danach 140–150 m in einer Sekunde, bei
-plausibler Spur. Die Position stimmt also, die Zeit nicht. Mit Nettoverschiebung über 5 s
-ergab das 84 km/h Spitze, mit dem Median über 10 s 65 km/h (die schnellsten 30 s der Tour
+Befund an den echten Komoot-Aufzeichnungen: Die Zeitstempel sind stellenweise gestaucht –
+mehrere Sekunden ohne Fortschritt, danach 140–150 m in einer Sekunde, bei plausibler Spur.
+Die Position stimmt also, die Zeit nicht. Mit Nettoverschiebung über 5 s ergab das 84 km/h
+Spitze, mit dem zeitgewichteten Median über 10 s 64 km/h (die schnellsten 30 s der Tour
 liegen bei 64,5 km/h).
 
 ### 6.4 Zeit
@@ -503,10 +522,31 @@ Min-/Max-Höhe werden aus den geglätteten Werten bestimmt.
 | `move_window_s` | 5 s | 5 s | 15 s | 15 s |
 | `max_plausible_speed` | 110 km/h | 90 km/h | 25 km/h | 110 km/h |
 | `ele_smooth_m` | 60 m | 40 m | 30 m | 30 m |
-| `ele_threshold_m` (GPS / DEM) | 5 / 2 m | 5 / 2 m | 5 / 2 m | 5 / 2 m |
+| `ele_threshold_m` (Track-Höhen; mit DEM-Korrektur ab M6: 2 m) | 3 m | 3 m | 3 m | 3 m |
 | Ortungsintervall | 1 s | 1 s | 3 s | 3 s |
 
-### 6.7 Hangneigung (`slope-tiles`)
+### 6.7 Abgleich mit Komoot (Stand M2)
+
+Zwei echte Rad-Aufzeichnungen (`fixtures/gpx/real/`), Vergleichswerte aus der Komoot-App.
+Komoots Verfahren sind nicht bekannt; die Werte sind Plausibilitätsreferenz, keine Wahrheit.
+Ein Test hält die Abweichung in Grenzen (Distanz ±1 %, Bewegungszeit ±10 %, Höhenmeter ±20 %).
+
+| | Sylvensteinsee: wir | Komoot | Rottach-Egern: wir | Komoot |
+|---|---|---|---|---|
+| Distanz | 27,60 km | 27,7 km | 31,77 km | 31,9 km |
+| Zeit in Bewegung | 0:56:46 | 0:54:24 | 1:39:54 | 1:32:19 |
+| Ø in Bewegung | 29,2 km/h | 30,7 km/h | 19,1 km/h | 20,7 km/h |
+| Aufstieg / Abstieg | 134 / 144 m | 160 / 170 m | 234 / 289 m | 250 / 310 m |
+
+- **Distanz:** 0,4 % unter Komoot; der Rest ist die Stillstandsschwelle `min_move_m`.
+- **Bewegungszeit:** Wir liegen 4–8 % höher. Die Aufzeichnungen enthalten Lücken (bis 13 min
+  ohne Fix bei 2,9 km Strecke). Komoot rechnet dafür fast keine Bewegungszeit an, was für
+  2,9 km nicht stimmen kann; wir rechnen das Durchschnittstempo an (6.4).
+- **Höhenmeter:** Komoots Zahl entspricht der ungefilterten Summe aller Anstiege in den
+  (bereits DEM-geglätteten) Höhen der Datei. Wir glätten und verlangen 3 m Mindesthub und
+  liegen 6–16 % darunter. Mit 5 m Schwelle waren es bis zu 29 %.
+
+### 6.8 Hangneigung (`slope-tiles`)
 
 - Eingabe: DEM-PMTiles (Terrarium: `h = R·256 + G + B/256 − 32768`).
 - Je Ausgabekachel wird die DEM-Kachel mit 1 Pixel Rand aus den 8 Nachbarn geladen

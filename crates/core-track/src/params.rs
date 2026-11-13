@@ -48,7 +48,7 @@ impl StatsParams {
             min_move_m: 3.0,
             max_gap_s: 30.0,
             ele_smooth_m: 60.0,
-            ele_threshold_m: 5.0,
+            ele_threshold_m: 3.0,
         };
         match activity {
             Activity::Bike => base,

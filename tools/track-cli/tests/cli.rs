@@ -142,6 +142,45 @@ fn real_fixture_tracks_yield_plausible_statistics() {
                 "{}: moving {moving} > total {total}",
                 path.display()
             );
+            // Where another app's figures are known, stay close to them.
+            let references: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(fixtures().join("real/reference.json")).unwrap(),
+            )
+            .unwrap();
+            let name = path.file_name().unwrap().to_str().unwrap();
+            if let Some(reference) = references.get(name) {
+                let within = |what: &str, actual: f64, expected: f64, tolerance: f64| {
+                    assert!(
+                        (actual / expected - 1.0).abs() <= tolerance,
+                        "{name}: {what} is {actual:.1}, reference {expected:.1} (±{:.0} %)",
+                        tolerance * 100.0
+                    );
+                };
+                within(
+                    "distance",
+                    dist / 1000.0,
+                    reference["distance_km"].as_f64().unwrap(),
+                    0.01,
+                );
+                within(
+                    "moving time",
+                    moving,
+                    reference["moving_time_s"].as_f64().unwrap(),
+                    0.10,
+                );
+                within(
+                    "ascent",
+                    s["ascent_m"].as_f64().unwrap(),
+                    reference["ascent_m"].as_f64().unwrap(),
+                    0.20,
+                );
+                within(
+                    "descent",
+                    s["descent_m"].as_f64().unwrap(),
+                    reference["descent_m"].as_f64().unwrap(),
+                    0.20,
+                );
+            }
             let used = s["points_used"].as_f64().unwrap() / s["points_total"].as_f64().unwrap();
             assert!(
                 used > 0.9,
@@ -181,7 +220,7 @@ fn records_a_gpx_file_into_a_database() {
     ]);
     assert!(o.status.success(), "{}", stderr(&o));
     assert!(
-        stdout(&o).contains("Distance:      27.39 km"),
+        stdout(&o).contains("Distance:      27.60 km"),
         "{}",
         stdout(&o)
     );

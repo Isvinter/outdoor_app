@@ -61,10 +61,18 @@ async function selfTest(view: MapView, gpxPath: string): Promise<void> {
   try {
     const tracksBefore = document.querySelectorAll("#track-list li[data-id]").length;
     (el("activity") as HTMLSelectElement).value = "bike";
+    // If the previous run ended mid-recording, take it up again instead of starting anew.
+    report.recovery_offered = !el("recovery").hidden;
+    if (report.recovery_offered) {
+      click("recovery-continue");
+      await until("recording continued", () => !el("rec-pause").hidden && el("recovery").hidden === true);
+      report.points_recovered = view.liveLinePointCount();
+    }
     await api.locationStartReplay(gpxPath, 100);
-    click("rec-start");
+    if (!report.recovery_offered) click("rec-start");
     await until("recording phase", () => !el("rec-pause").hidden);
-    await until("live points", () => view.liveLinePointCount() > 100);
+    const atStart = view.liveLinePointCount();
+    await until("live points", () => view.liveLinePointCount() > atStart + 100);
     report.marker_on_map = document.querySelector(".position-marker") !== null;
     report.source_status = text("loc-status");
 

@@ -228,19 +228,37 @@ fn irregular_timestamps_do_not_inflate_max_speed() {
     // (seen in real phone recordings): intervals of 2, 2, 3, 1, 2, 2 … seconds.
     let mut pts = north_line(47.0, 41, 20.0, T0, 2.0);
     pts[20].time_ms = Some(T0 + 41_000);
-    let s = compute_stats(&track(vec![pts.clone()]), &bike());
-    assert_close(s.max_speed_mps, 10.0, 1.0, "max speed");
-
-    let mut lenient = bike();
-    lenient.max_accel_mps2 = f64::INFINITY;
-    let s = compute_stats(&track(vec![pts]), &lenient);
-    assert_eq!(s.points_used, 41);
-    assert_close(
-        s.max_speed_mps,
-        10.0,
-        1.0,
-        "max speed without acceleration filter",
+    let s = compute_stats(&track(vec![pts]), &bike());
+    assert_eq!(
+        s.points_used, 41,
+        "the position is fine, only its time is off"
     );
+    assert_close(s.max_speed_mps, 10.0, 1.0, "max speed");
+    assert_close(s.distance_m, 800.0, 1.0, "distance");
+}
+
+#[test]
+fn compressed_timestamps_on_a_plausible_path_keep_every_point() {
+    // Seen in real recordings: no progress for several seconds, then 150 m within
+    // one second. The positions lie on the route; only the times are bunched up.
+    let mut pts = north_line(47.0, 60, 10.0, T0, 2.0);
+    for (i, p) in pts.iter_mut().enumerate().skip(30).take(8) {
+        p.time_ms = Some(T0 + 74_000 + (i as i64 - 30) * 100);
+    }
+    let s = compute_stats(&track(vec![pts]), &bike());
+    assert_eq!(s.points_used, 60);
+    assert_close(s.distance_m, 590.0, 1.0, "distance");
+    assert_close(s.max_speed_mps, 5.0, 1.5, "max speed");
+}
+
+#[test]
+fn small_sideways_spike_is_removed_even_below_the_speed_limit() {
+    // 25 m off the path for one fix: only 25 m/s, but out and back again.
+    let mut pts = north_line(47.0, 101, 5.0, T0, 1.0);
+    pts[50].lon += 25.0 / (M_PER_DEG_LAT * 47.0f64.to_radians().cos());
+    let s = compute_stats(&track(vec![pts]), &bike());
+    assert_eq!(s.points_used, 100);
+    assert_close(s.distance_m, 500.0, 1.0, "distance");
 }
 
 #[test]

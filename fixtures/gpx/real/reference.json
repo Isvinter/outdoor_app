@@ -1,0 +1,5 @@
+{
+  "_comment": "Figures shown by Komoot for the same recordings. Komoot's algorithms are unknown; they serve as a plausibility reference, not as ground truth.",
+  "tour_sylvensteinsee.gpx": { "distance_km": 27.7, "moving_time_s": 3264, "ascent_m": 160, "descent_m": 170 },
+  "von Rottach-Egern nach Obergries.gpx": { "distance_km": 31.9, "moving_time_s": 5539, "ascent_m": 250, "descent_m": 310 }
+}

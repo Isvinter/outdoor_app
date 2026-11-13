@@ -35,20 +35,42 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
-  mobile-check:
-    # The platform independent crates must keep compiling for iOS and Android.
+  android-check:
+    # The platform independent crates must keep compiling for Android. The bundled
+    # SQLite is C code and needs the NDK compiler, which the runner image provides.
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target:
-          - aarch64-apple-ios
-          - aarch64-linux-android
-          - armv7-linux-androideabi
-          - x86_64-linux-android
+        include:
+          - target: aarch64-linux-android
+            clang: aarch64-linux-android24-clang
+          - target: armv7-linux-androideabi
+            clang: armv7a-linux-androideabi24-clang
+          - target: x86_64-linux-android
+            clang: x86_64-linux-android24-clang
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p core-track -p core-gpx -p core-location --target ${{ matrix.target }}
+      - name: cargo check
+        run: |
+          bin="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          triple="$(echo '${{ matrix.target }}' | tr - _)"
+          export "CC_${triple}=$bin/${{ matrix.clang }}" "AR_${triple}=$bin/llvm-ar"
+          cargo check -p core-track -p core-gpx -p core-location -p core-storage -p core-app \
+            --target ${{ matrix.target }}
+
+  ios-check:
+    # Same for iOS; needs Xcode's compiler for SQLite, hence a macOS runner.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+      - run: >
+          cargo check -p core-track -p core-gpx -p core-location -p core-storage -p core-app
+          --target aarch64-apple-ios

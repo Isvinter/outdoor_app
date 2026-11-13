@@ -138,8 +138,9 @@ enum SpeedEstimate {
     /// Straight-line distance across the window divided by its duration. Position
     /// jitter while standing still cancels out, so this decides "moving or not".
     NetDisplacement,
-    /// Median of the fix-to-fix speeds inside the window. A few wrong timestamps
-    /// or positions cannot raise it, so this is used for the maximum speed.
+    /// Time-weighted median of the fix-to-fix speeds inside the window. A few
+    /// wrong timestamps or positions cannot raise it, so this is used for the
+    /// maximum speed.
     MedianOfIntervals,
 }
 
@@ -154,11 +155,12 @@ enum SpeedEstimate {
 /// otherwise yield wildly wrong speeds.
 fn point_speeds(run: &[TrackPoint], t: &[i64], window_s: f64, estimate: SpeedEstimate) -> Vec<f64> {
     let n = run.len();
-    // interval_speeds[i] is the speed between fix i and fix i + 1
-    let interval_speeds: Vec<f64> = (1..n)
+    // intervals[i] is (speed, duration) between fix i and fix i + 1
+    let intervals: Vec<(f64, f64)> = (1..n)
         .map(|i| {
             let dt = (t[i] - t[i - 1]) as f64 / 1000.0;
-            haversine_m(run[i - 1].lat, run[i - 1].lon, run[i].lat, run[i].lon) / dt
+            let d = haversine_m(run[i - 1].lat, run[i - 1].lon, run[i].lat, run[i].lon);
+            (d / dt, dt)
         })
         .collect();
     let window_ms = (window_s * 1000.0) as i64;
@@ -197,12 +199,29 @@ fn point_speeds(run: &[TrackPoint], t: &[i64], window_s: f64, estimate: SpeedEst
                         0.0
                     }
                 }
-                SpeedEstimate::MedianOfIntervals => median(&interval_speeds[a..b]),
+                SpeedEstimate::MedianOfIntervals => time_weighted_median(&intervals[a..b]),
             },
         };
         out.push(v);
     }
     out
+}
+
+/// The speed that was not exceeded for half of the time covered by `intervals`
+/// (pairs of speed and duration). Unlike a plain median it is not swayed by
+/// many very short intervals, which is what bunched-up timestamps produce.
+fn time_weighted_median(intervals: &[(f64, f64)]) -> f64 {
+    let mut sorted = intervals.to_vec();
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let half = sorted.iter().map(|(_, dt)| dt).sum::<f64>() / 2.0;
+    let mut elapsed = 0.0;
+    for (speed, dt) in &sorted {
+        elapsed += dt;
+        if elapsed >= half {
+            return *speed;
+        }
+    }
+    0.0
 }
 
 fn median(values: &[f64]) -> f64 {
