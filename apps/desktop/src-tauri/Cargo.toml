@@ -1,0 +1,18 @@
+[package]
+name = "outdoor-desktop"
+description = "Desktop shell (Tauri) of the outdoor app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12", features = ["custom-protocol"] }
+
+[lints]
+workspace = true
