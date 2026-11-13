@@ -55,6 +55,35 @@ fn prints_json_statistics_on_request() {
 }
 
 #[test]
+fn overrides_individual_statistics_parameters() {
+    let file = fixtures().join("synthetic_two_segments.gpx");
+    let o = run(&[
+        "stats",
+        file.to_str().unwrap(),
+        "--json",
+        "--set",
+        "min_move_m=1000",
+    ]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(v[0]["stats"]["distance_m"], 0.0);
+}
+
+#[test]
+fn rejects_unknown_or_malformed_parameter_overrides() {
+    let file = fixtures().join("synthetic_two_segments.gpx");
+    for bad in ["no_such_param=1", "min_move_m=abc", "min_move_m"] {
+        let o = run(&["stats", file.to_str().unwrap(), "--set", bad]);
+        assert_eq!(o.status.code(), Some(1), "{bad}");
+        assert!(
+            stderr(&o).contains(bad.split('=').next().unwrap()),
+            "{bad}: {}",
+            stderr(&o)
+        );
+    }
+}
+
+#[test]
 fn asks_for_the_activity_when_the_file_does_not_name_one() {
     let dir = std::env::temp_dir().join(format!("track-cli-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -96,13 +125,8 @@ fn real_fixture_tracks_yield_plausible_statistics() {
         .map(|e| e.unwrap().path())
         .filter(|p| p.extension().is_some_and(|e| e == "gpx"))
     {
-        let o = run(&[
-            "stats",
-            path.to_str().unwrap(),
-            "--json",
-            "--activity",
-            "hike",
-        ]);
+        // Real fixtures must carry their activity in `<type>`.
+        let o = run(&["stats", path.to_str().unwrap(), "--json"]);
         assert!(o.status.success(), "{}: {}", path.display(), stderr(&o));
         let v: serde_json::Value = serde_json::from_str(&stdout(&o)).unwrap();
         for t in v.as_array().unwrap() {

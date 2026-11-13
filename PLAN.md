@@ -441,14 +441,25 @@ Höhendifferenz wird nicht in die Distanz eingerechnet (übliche Konvention; als
 
 ### 6.3 Geschwindigkeit
 
-- Punktgeschwindigkeit über ein um den Punkt zentriertes **Zeitfenster**: Luftlinie zwischen
-  erstem und letztem Punkt im Fenster, geteilt durch deren Zeitabstand. Die Nettoverschiebung
-  ist unempfindlich gegen Positionsrauschen (im Stand ergibt sie nahezu null, während die
-  Summe der Einzelschritte eine Scheinbewegung liefern würde).
-- Liefert der Empfänger für alle Punkte eine Dopplergeschwindigkeit, wird stattdessen deren
-  Median im Fenster verwendet.
-- **Max-Speed:** Maximum der Punktgeschwindigkeit mit Fenster `speed_window_s` (Standard 5 s).
+Je Punkt wird die Geschwindigkeit über ein Zeitfenster um den Punkt bestimmt. Das Fenster
+reicht immer bis zu den nächsten Fixes jenseits von ±Fenster/2, umfasst also mindestens die
+volle Fensterdauer (echte Aufzeichnungen haben unregelmäßige Abstände).
+
+- Liefert der Empfänger für alle Punkte eine Dopplergeschwindigkeit, gilt deren Median im
+  Fenster.
+- Sonst gibt es zwei Schätzer aus den Positionen:
+  - **Nettoverschiebung** (Luftlinie über das Fenster / Dauer) für die Bewegungserkennung.
+    Positionsrauschen im Stand hebt sich auf.
+  - **Median der Einzelgeschwindigkeiten** (Fix zu Fix) im Fenster für die Maximal-
+    geschwindigkeit. Einzelne falsche Zeitstempel oder Positionen können ihn nicht anheben.
+- **Max-Speed:** Maximum des Median-Schätzers mit Fenster `speed_window_s` (Standard 10 s).
 - **Durchschnitt:** Distanz / Zeit in Bewegung. Zusätzlich Distanz / Gesamtzeit.
+
+Befund an den echten Komoot-Aufzeichnungen (M1): Die Zeitstempel sind stellenweise
+gestaucht – mehrere Sekunden ohne Fortschritt, danach 140–150 m in einer Sekunde, bei
+plausibler Spur. Die Position stimmt also, die Zeit nicht. Mit Nettoverschiebung über 5 s
+ergab das 84 km/h Spitze, mit dem Median über 10 s 65 km/h (die schnellsten 30 s der Tour
+liegen bei 64,5 km/h).
 
 ### 6.4 Zeit
 
@@ -457,9 +468,12 @@ Höhendifferenz wird nicht in die Distanz eingerechnet (übliche Konvention; als
 - **Zeit in Bewegung:** Summe der Intervalle, in denen die Punktgeschwindigkeit (Fenster
   `move_window_s`: 5 s auf dem Rad, 15 s zu Fuß/auf Ski) mindestens `v_move` beträgt.
   Hysterese: Ein Abfall unter die Schwelle, der kürzer als `stop_delay_s` dauert, zählt
-  weiter als Bewegung; dauert er länger, zählt er vollständig als Stillstand. Intervalle
-  länger als `max_gap_s` (Standard 30 s, z. B. Tunnel) zählen nie als Bewegung, ihre
-  Distanz aber schon.
+  weiter als Bewegung; dauert er länger, zählt er vollständig als Stillstand. 
+- **Lücken:** Über ein Intervall länger als `max_gap_s` (Standard 30 s; Tunnel, App im
+  Hintergrund) ist nur Strecke und Dauer bekannt. Die Strecke zählt voll. Als Bewegungszeit
+  wird die Zeit angerechnet, die man mit dem Durchschnittstempo des übrigen Tracks für diese
+  Strecke braucht, höchstens aber die Dauer der Lücke. Geschwindigkeitsfenster reichen nie
+  über eine Lücke hinweg.
 
 ### 6.5 Höhenmeter
 

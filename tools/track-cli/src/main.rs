@@ -28,6 +28,9 @@ enum Command {
         /// Print JSON instead of text
         #[arg(long)]
         json: bool,
+        /// Override a statistics parameter, e.g. `--set ele_threshold_m=3` (repeatable)
+        #[arg(long = "set", value_name = "NAME=VALUE")]
+        overrides: Vec<String>,
     },
 }
 
@@ -46,6 +49,8 @@ enum CliError {
     UnknownActivity { index: usize },
     #[error("cannot encode output: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("invalid parameter override `{0}`: expected NAME=NUMBER with a known parameter name")]
+    Override(String),
 }
 
 fn main() -> ExitCode {
@@ -55,7 +60,8 @@ fn main() -> ExitCode {
             file,
             activity,
             json,
-        } => stats(&file, activity, json),
+            overrides,
+        } => stats(&file, activity, json, &overrides),
     };
     match result {
         Ok(output) => {
@@ -69,7 +75,30 @@ fn main() -> ExitCode {
     }
 }
 
-fn stats(file: &Path, activity: Option<Activity>, as_json: bool) -> Result<String, CliError> {
+/// Applies `NAME=VALUE` overrides to the default parameters of an activity.
+fn params_for(activity: Activity, overrides: &[String]) -> Result<StatsParams, CliError> {
+    let mut value = serde_json::to_value(StatsParams::for_activity(activity))?;
+    for item in overrides {
+        let invalid = || CliError::Override(item.clone());
+        let (name, number) = item.split_once('=').ok_or_else(invalid)?;
+        let number: f64 = number.trim().parse().map_err(|_| invalid())?;
+        let slot = value.get_mut(name.trim()).ok_or_else(invalid)?;
+        // integer parameters stay integers
+        *slot = if slot.is_u64() {
+            json!(number as u64)
+        } else {
+            json!(number)
+        };
+    }
+    Ok(serde_json::from_value(value)?)
+}
+
+fn stats(
+    file: &Path,
+    activity: Option<Activity>,
+    as_json: bool,
+    overrides: &[String],
+) -> Result<String, CliError> {
     let xml = std::fs::read_to_string(file).map_err(|source| CliError::Read {
         path: file.to_owned(),
         source,
@@ -84,7 +113,7 @@ fn stats(file: &Path, activity: Option<Activity>, as_json: bool) -> Result<Strin
         let activity = activity
             .or(track.activity)
             .ok_or(CliError::UnknownActivity { index: i + 1 })?;
-        let stats = compute_stats(track, &StatsParams::for_activity(activity));
+        let stats = compute_stats(track, &params_for(activity, overrides)?);
         results.push((track.name.as_deref(), activity, stats));
     }
 

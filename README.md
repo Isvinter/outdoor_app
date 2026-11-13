@@ -22,6 +22,7 @@ hinzu und werden dann hier ergänzt.
 cargo run --release -p track-cli -- stats tour.gpx                  # Aktivität aus <type>
 cargo run --release -p track-cli -- stats tour.gpx --activity mtb   # bike | mtb | hike | ski_tour
 cargo run --release -p track-cli -- stats tour.gpx --activity hike --json
+cargo run --release -p track-cli -- stats tour.gpx --set ele_threshold_m=3   # Parameter überschreiben
 ```
 
 ## Entwickeln

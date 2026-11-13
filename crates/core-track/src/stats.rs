@@ -30,6 +30,8 @@ pub struct TrackStats {
 /// are skipped, an empty track yields all-zero statistics.
 pub fn compute_stats(track: &Track, params: &StatsParams) -> TrackStats {
     let mut s = TrackStats::default();
+    // (duration, distance) of every interval longer than `max_gap_s`
+    let mut gaps: Vec<(f64, f64)> = Vec::new();
 
     for segment in &track.segments {
         s.points_total += segment.points.len();
@@ -55,12 +57,30 @@ pub fn compute_stats(track: &Track, params: &StatsParams) -> TrackStats {
             segment_distance += along.last().copied().unwrap_or(0.0);
 
             if let Some(t) = run.iter().map(|p| p.time_ms).collect::<Option<Vec<i64>>>() {
-                let top = point_speeds(run, &t, params.speed_window_s)
-                    .into_iter()
-                    .fold(0.0, f64::max);
-                s.max_speed_mps = s.max_speed_mps.max(top);
-                s.moving_time_s +=
-                    moving_time(&t, &point_speeds(run, &t, params.move_window_s), params);
+                // Speeds are evaluated between gaps; a window must not reach across one.
+                let mut start = 0;
+                for k in 1..=run.len() {
+                    let gap_s = (k < run.len())
+                        .then(|| (t[k] - t[k - 1]) as f64 / 1000.0)
+                        .filter(|dt| *dt > params.max_gap_s);
+                    if k < run.len() && gap_s.is_none() {
+                        continue;
+                    }
+                    let (chunk, times) = (&run[start..k], &t[start..k]);
+                    let fastest = SpeedEstimate::MedianOfIntervals;
+                    let top = point_speeds(chunk, times, params.speed_window_s, fastest)
+                        .into_iter()
+                        .fold(0.0, f64::max);
+                    s.max_speed_mps = s.max_speed_mps.max(top);
+                    let net = SpeedEstimate::NetDisplacement;
+                    let speeds = point_speeds(chunk, times, params.move_window_s, net);
+                    s.moving_time_s += moving_time(times, &speeds, params);
+                    if let Some(dt) = gap_s {
+                        let (a, b) = (&run[k - 1], &run[k]);
+                        gaps.push((dt, haversine_m(a.lat, a.lon, b.lat, b.lon)));
+                    }
+                    start = k;
+                }
             }
         }
         s.distance_m += segment_distance;
@@ -73,6 +93,14 @@ pub fn compute_stats(track: &Track, params: &StatsParams) -> TrackStats {
             s.min_ele_m = Some(s.min_ele_m.map_or(e, |m| m.min(e)));
             s.max_ele_m = Some(s.max_ele_m.map_or(e, |m| m.max(e)));
         }
+    }
+
+    // Nothing is known about a gap except its length and duration. Assume the
+    // average moving pace of the rest of the track, capped by the gap's duration.
+    let gap_distance: f64 = gaps.iter().map(|(_, d)| d).sum();
+    if s.moving_time_s > 0.0 && s.distance_m > gap_distance {
+        let pace = (s.distance_m - gap_distance) / s.moving_time_s;
+        s.moving_time_s += gaps.iter().map(|(dt, d)| dt.min(d / pace)).sum::<f64>();
     }
 
     if s.moving_time_s > 0.0 {
@@ -104,14 +132,37 @@ fn cumulative_distance(run: &[TrackPoint], min_move_m: f64) -> Vec<f64> {
     out
 }
 
-/// Speed at every point of a run, over a time window centred on the point.
+/// How speed is derived from positions when the receiver reports none.
+#[derive(Clone, Copy)]
+enum SpeedEstimate {
+    /// Straight-line distance across the window divided by its duration. Position
+    /// jitter while standing still cancels out, so this decides "moving or not".
+    NetDisplacement,
+    /// Median of the fix-to-fix speeds inside the window. A few wrong timestamps
+    /// or positions cannot raise it, so this is used for the maximum speed.
+    MedianOfIntervals,
+}
+
+/// Speed at every point of a run, over a time window around the point.
 ///
 /// Uses the receiver's Doppler speed (median over the window) when every point
-/// has one, otherwise the net displacement across the window divided by its
-/// duration. Net displacement is robust against position jitter.
-fn point_speeds(run: &[TrackPoint], t: &[i64], window_s: f64) -> Vec<f64> {
+/// has one, otherwise an estimate derived from the positions, see [`SpeedEstimate`].
+///
+/// The window always spans at least `window_s` (less only if the whole run is
+/// shorter): it reaches out to the nearest fixes beyond `±window_s / 2`. Real
+/// recordings have irregular timestamps, and two fixes a second apart would
+/// otherwise yield wildly wrong speeds.
+fn point_speeds(run: &[TrackPoint], t: &[i64], window_s: f64, estimate: SpeedEstimate) -> Vec<f64> {
     let n = run.len();
-    let half_ms = (window_s * 500.0) as i64;
+    // interval_speeds[i] is the speed between fix i and fix i + 1
+    let interval_speeds: Vec<f64> = (1..n)
+        .map(|i| {
+            let dt = (t[i] - t[i - 1]) as f64 / 1000.0;
+            haversine_m(run[i - 1].lat, run[i - 1].lon, run[i].lat, run[i].lon) / dt
+        })
+        .collect();
+    let window_ms = (window_s * 1000.0) as i64;
+    let half_ms = window_ms / 2;
     let reported: Option<Vec<f64>> = run
         .iter()
         .map(|p| {
@@ -121,31 +172,33 @@ fn point_speeds(run: &[TrackPoint], t: &[i64], window_s: f64) -> Vec<f64> {
         })
         .collect();
 
-    let (mut a, mut b) = (0usize, 0usize);
     let mut out = Vec::with_capacity(n);
     for k in 0..n {
-        while t[a] < t[k] - half_ms {
-            a += 1;
-        }
-        while b + 1 < n && t[b + 1] <= t[k] + half_ms {
-            b += 1;
+        // last fix at or before the window start, first fix at or after its end
+        let mut a = t
+            .partition_point(|&x| x <= t[k] - half_ms)
+            .saturating_sub(1);
+        let b = t
+            .partition_point(|&x| x < (t[k] + half_ms).max(t[a] + window_ms))
+            .min(n - 1);
+        if t[b] - t[a] < window_ms {
+            a = t
+                .partition_point(|&x| x <= t[b] - window_ms)
+                .saturating_sub(1);
         }
         let v = match &reported {
             Some(speeds) => median(&speeds[a..=b]),
-            None => {
-                // Window holds a single point (sparse fixes): use the neighbouring interval.
-                let (i, j) = match (a == b, k > 0) {
-                    (false, _) => (a, b),
-                    (true, true) => (k - 1, k),
-                    (true, false) => (k, (k + 1).min(n - 1)),
-                };
-                let dt = (t[j] - t[i]) as f64 / 1000.0;
-                if dt > 0.0 {
-                    haversine_m(run[i].lat, run[i].lon, run[j].lat, run[j].lon) / dt
-                } else {
-                    0.0
+            None => match estimate {
+                SpeedEstimate::NetDisplacement => {
+                    let dt = (t[b] - t[a]) as f64 / 1000.0;
+                    if dt > 0.0 {
+                        haversine_m(run[a].lat, run[a].lon, run[b].lat, run[b].lon) / dt
+                    } else {
+                        0.0
+                    }
                 }
-            }
+                SpeedEstimate::MedianOfIntervals => median(&interval_speeds[a..b]),
+            },
         };
         out.push(v);
     }
@@ -162,7 +215,7 @@ fn median(values: &[f64]) -> f64 {
     }
 }
 
-/// Time in motion with hysteresis: a slowdown shorter than `stop_delay_s` still
+/// Time in motion within a stretch without gaps, with hysteresis: a slowdown shorter than `stop_delay_s` still
 /// counts as moving, a longer one does not count at all.
 fn moving_time(t: &[i64], speeds: &[f64], params: &StatsParams) -> f64 {
     let mut total = 0.0;
@@ -170,11 +223,6 @@ fn moving_time(t: &[i64], speeds: &[f64], params: &StatsParams) -> f64 {
     let mut pending = 0.0;
     for k in 1..t.len() {
         let dt = (t[k] - t[k - 1]) as f64 / 1000.0;
-        if dt > params.max_gap_s {
-            moving = false;
-            pending = 0.0;
-            continue;
-        }
         let v = (speeds[k - 1] + speeds[k]) / 2.0;
         if v >= params.v_move_mps {
             if moving {

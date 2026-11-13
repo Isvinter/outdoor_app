@@ -184,21 +184,63 @@ fn pause_between_segments_counts_neither_time_nor_distance() {
     assert_close(s.distance_m, 100.0, 0.5, "distance");
 }
 
-#[test]
-fn long_gap_inside_segment_counts_distance_but_not_moving_time() {
+/// Two 50 m stretches at 5 m/s around a gap without fixes.
+fn track_with_gap(gap_m: f64, gap_s: i64) -> Track {
     let mut pts = north_line(47.0, 11, 5.0, T0, 1.0);
-    // 300 s without fixes (tunnel), re-appearing 600 m further north: 2 m/s on average
+    let resume_lat = 47.0 + (50.0 + gap_m) / M_PER_DEG_LAT;
     pts.extend(north_line(
-        47.0 + 650.0 / M_PER_DEG_LAT,
+        resume_lat,
         11,
         5.0,
-        T0 + 310_000,
+        T0 + (10 + gap_s) * 1000,
         1.0,
     ));
-    let s = compute_stats(&track(vec![pts]), &bike());
+    track(vec![pts])
+}
+
+#[test]
+fn gap_without_fixes_counts_distance_and_moving_time_at_average_pace() {
+    // 300 s without fixes, 600 m further on: at the track's 5 m/s that is 120 s of riding
+    let s = compute_stats(&track_with_gap(600.0, 300), &bike());
     assert_close(s.distance_m, 700.0, 1.0, "distance");
     assert_close(s.total_time_s, 320.0, 1e-9, "total time");
+    assert_close(s.moving_time_s, 140.0, 2.0, "moving time");
+    assert_close(s.avg_moving_speed_mps, 5.0, 0.1, "avg moving speed");
+}
+
+#[test]
+fn gap_moving_time_never_exceeds_the_gap_duration() {
+    // 400 m in 40 s is faster than the rest of the track: the whole gap counts
+    let s = compute_stats(&track_with_gap(400.0, 40), &bike());
+    assert_close(s.moving_time_s, 60.0, 1.0, "moving time");
+}
+
+#[test]
+fn gap_without_progress_adds_no_moving_time() {
+    let s = compute_stats(&track_with_gap(0.0, 600), &bike());
+    assert_close(s.distance_m, 100.0, 1.0, "distance");
     assert_close(s.moving_time_s, 20.0, 1.0, "moving time");
+}
+
+#[test]
+fn irregular_timestamps_do_not_inflate_max_speed() {
+    // Steady 10 m/s with a fix every 20 m, but one timestamp is a second late
+    // (seen in real phone recordings): intervals of 2, 2, 3, 1, 2, 2 … seconds.
+    let mut pts = north_line(47.0, 41, 20.0, T0, 2.0);
+    pts[20].time_ms = Some(T0 + 41_000);
+    let s = compute_stats(&track(vec![pts.clone()]), &bike());
+    assert_close(s.max_speed_mps, 10.0, 1.0, "max speed");
+
+    let mut lenient = bike();
+    lenient.max_accel_mps2 = f64::INFINITY;
+    let s = compute_stats(&track(vec![pts]), &lenient);
+    assert_eq!(s.points_used, 41);
+    assert_close(
+        s.max_speed_mps,
+        10.0,
+        1.0,
+        "max speed without acceleration filter",
+    );
 }
 
 #[test]

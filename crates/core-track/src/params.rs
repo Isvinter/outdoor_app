@@ -40,7 +40,7 @@ impl StatsParams {
             v_move_mps: 3.0 * KMH,
             stop_delay_s: 5.0,
             move_window_s: 5.0,
-            speed_window_s: 5.0,
+            speed_window_s: 10.0,
             max_plausible_speed_mps: 110.0 * KMH,
             max_accel_mps2: 6.0,
             max_reject_run: 5,
