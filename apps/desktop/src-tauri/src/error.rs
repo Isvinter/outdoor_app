@@ -18,6 +18,14 @@ impl From<AppError> for CommandError {
 }
 
 impl CommandError {
+    /// A background task of a command did not run to completion.
+    pub fn task(e: &dyn std::fmt::Display) -> Self {
+        Self {
+            code: "unknown",
+            message: e.to_string(),
+        }
+    }
+
     pub fn io(path: &str, e: &std::io::Error) -> Self {
         Self {
             code: "io",

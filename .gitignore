@@ -2,6 +2,7 @@
 node_modules/
 dist/
 *.pmtiles
+!/fixtures/regions/**/*.pmtiles
 /data/
 .env
 .~lock.*

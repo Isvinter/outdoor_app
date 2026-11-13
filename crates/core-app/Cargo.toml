@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 core-gpx.workspace = true
 core-location.workspace = true
+core-maps.workspace = true
 core-storage.workspace = true
 core-track.workspace = true
 serde.workspace = true

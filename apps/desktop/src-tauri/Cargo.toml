@@ -13,6 +13,7 @@ tauri-build = { version = "2.7", features = [] }
 core-app.workspace = true
 core-gpx.workspace = true
 core-location.workspace = true
+core-maps.workspace = true
 core-storage.workspace = true
 core-track.workspace = true
 serde.workspace = true

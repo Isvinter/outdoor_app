@@ -11,6 +11,10 @@ pub enum AppError {
     Track(#[from] core_track::TrackError),
     #[error(transparent)]
     Location(#[from] core_location::LocationError),
+    #[error(transparent)]
+    Maps(#[from] core_maps::MapsError),
+    #[error("no map catalog is configured")]
+    NoCatalog,
     #[error("no recording is in progress")]
     NoRecording,
     #[error("a recording is already in progress")]
@@ -29,6 +33,8 @@ impl AppError {
             AppError::Gpx(_) => "gpx",
             AppError::Track(_) => "track",
             AppError::Location(_) => "location",
+            AppError::Maps(e) => e.code(),
+            AppError::NoCatalog => "no_catalog",
             AppError::NoRecording => "no_recording",
             AppError::RecordingActive => "recording_active",
             AppError::NothingInterrupted => "nothing_interrupted",

@@ -133,8 +133,9 @@ LocationSource ──Fix──► Recorder (core-track) ──► core-storage (
   Die Worker lädt v6 als eigene ES-Module von einer URL, die es nur unter http(s) selbst
   findet; im Tauri-Fenster (eigenes URL-Schema) werden die Worker-Dateien deshalb neben das
   Bundle kopiert und per `setWorkerUrl` gesetzt (`vite.config.ts`).
-- Kacheln kommen über ein eigenes Tauri-URI-Schema (`tiles://<region>/<layer>/{z}/{x}/{y}`),
-  das in Rust von `core-maps` aus den lokalen PMTiles-Dateien bedient wird. Das Frontend sieht
+- Kacheln kommen über ein eigenes Tauri-URI-Schema (`tiles://localhost/<layer>/{z}/{x}/{y}`;
+  umgesetzt in M3 ohne Region in der Adresse – der Kern sucht die Kachel in allen
+  installierten Regionen), das in Rust von `core-maps` aus den lokalen PMTiles-Dateien bedient wird. Das Frontend sieht
   ganz normale Kachel-URLs; Lesen und Zusammenführen mehrerer Regionen liegt im Kern.
   (Alternative wäre das `pmtiles`-JS-Protokoll mit Range-Requests auf Dateien – verworfen, weil
   dann Regionslogik im Frontend läge.)
@@ -182,8 +183,8 @@ LocationSource ──Fix──► Recorder (core-track) ──► core-storage (
 | Fehler | `thiserror` | 2.0.21 | 2026-09-23 | MIT/Apache-2.0 | eigene Error-Typen je Crate |
 | Serialisierung | `serde` / `serde_json` | 1.0.229 / 1.0.154 | 2026 | MIT/Apache-2.0 | |
 | Async (Hülle, Download ab M3) | `tokio` | 1.54.1 | 2026-10-21 | MIT | über Tauri; die Kern-Crates sind bisher synchron |
-| HTTP-Download | `reqwest` (rustls) | 0.13.5 | 2026-09-08 | MIT/Apache-2.0 | Range-Requests, Fortsetzen |
-| PMTiles lesen/schreiben | `pmtiles` | 0.28.1 | 2026-11-13 | MIT/Apache-2.0 | Stadia Maps, sehr aktiv; kann schreiben |
+| HTTP-Download | `ureq` (rustls) | 3.5.2 | 2026-11-13 | MIT/Apache-2.0 | M3: statt `reqwest` gewählt – blockierend, ohne tokio, damit bleibt `core-maps` synchron und klein; Range-Requests, Fortsetzen |
+| PMTiles lesen | eigener Leser in `core-maps` | – | – | – | M3: das Crate `pmtiles` 0.28.1 liest nur asynchron über tokio; der eigene synchrone Leser (v3, ~300 Zeilen, gegen go-pmtiles-Archive getestet) hält den Kern frei von einer Async-Laufzeit. Geschrieben wird mit Planetiler und go-pmtiles |
 | Bilder (WebP/PNG) | `image` | 0.25.10 | 2026-03-10 | MIT/Apache-2.0 | DEM-WebP dekodieren, Kacheln kodieren; reines Rust |
 | Prüfsummen | `sha2` | 0.11.1 | 2026-10-12 | MIT/Apache-2.0 | Regionspakete verifizieren |
 | CLI | `clap` | 4.6.7 | 2026-09-14 | MIT/Apache-2.0 | |
@@ -380,11 +381,18 @@ Eine Region ist ein Verzeichnis mit Manifest:
 ```
 <region-id>/
   manifest.json      # Name, BBox, Version, Dateien mit Größe + SHA-256, Attributionen
-  basemap.pmtiles    # Vektor (eigenes Schema)
+  basemap.pmtiles    # Vektor, OpenMapTiles-Schema (Planetiler)
+  outdoor.pmtiles    # Vektor-Overlay: Wege (sac_scale, mtb:scale …), Routen, Pisten, Gipfel, Hütten
   dem.pmtiles        # Terrarium, WebP
   slope.pmtiles      # Hangneigung, Raster
   routing.tar        # Valhalla tile_extract
 ```
+
+Stand M3: `scripts/build-region.sh <id>` liest `regions/<id>.json` und erzeugt `basemap`,
+`outdoor`, `dem` und das Manifest sowie `catalog.json` (Liste aller Pakete; Ordner oder URL
+davon ist der „Katalog“ der App). Testregion `isarwinkel-achensee`: 62 MB (Basiskarte 14 MB,
+Overlay 5 MB, DEM bis Zoom 13 43 MB). Installierte Regionen stehen nicht in der Datenbank,
+sondern werden aus den Verzeichnissen mit gültigem Manifest gelesen (eine Quelle der Wahrheit).
 
 `scripts/build-region.sh <name> <bbox|polygon>` erzeugt das Paket auf dem Desktop
 (Geofabrik-PBF → Planetiler; Mapterhorn → `pmtiles extract`; `slope-tiles`; Valhalla-Docker).
@@ -399,7 +407,7 @@ Speicherbedarfsanzeige vor und nach dem Download, Löschen.
 
 ## 5. Datenmodell (sync-fähig)
 
-SQLite, Migrationen ab der ersten Version (eigener Runner über `PRAGMA user_version`; Tabellen für Routen und Regionen kommen als weitere Migrationen mit M3/M5).
+SQLite, Migrationen ab der ersten Version (eigener Runner über `PRAGMA user_version`; Tabellen für Routen kommen als weitere Migration mit M5; Regionen brauchen keine Tabelle, siehe 4.4).
 
 Gemeinsam für alle synchronisierbaren Tabellen: `id` (UUIDv7, als 16-Byte-BLOB),
 `created_at`, `updated_at` (UTC, Millisekunden), `deleted_at` (Soft-Delete, sonst NULL),
@@ -502,7 +510,7 @@ liegen bei 64,5 km/h).
 1. Höhenquelle wählen: GPS-Höhe oder – wenn Option aktiv und DEM für den Punkt vorhanden –
    **DEM-Höhe** (bilinear interpoliert aus der höchsten verfügbaren Zoomstufe). Mischung
    innerhalb eines Tracks wird vermieden: DEM nur, wenn es für ≥ 99 % der Punkte verfügbar
-   ist. (DEM-Korrektur folgt mit M3/M6; M1 rechnet mit den Höhen aus dem Track.)
+   ist. (DEM-Korrektur folgt mit M6; M1 rechnet mit den Höhen aus dem Track.)
 2. Glätten: gleitender Mittelwert über eine **Wegstrecke** (nicht Punktanzahl), Standard
    `ele_smooth_m` je Aktivität. Das ist unabhängig vom Aufzeichnungsintervall; Punkte im
    Stand liegen auf derselben Wegmarke und werden gemeinsam gemittelt.
@@ -690,7 +698,7 @@ Nach jedem Meilenstein: anhalten, zeigen, Freigabe abwarten.
 | R6 | **Plattenplatz:** 89 GB frei (96 % belegt). DEM bis Zoom 17 für große Alpenregionen, Planetiler-Zwischendateien und Valhalla-Kacheln können das sprengen | mittel | Testregion klein halten; DEM-Maxzoom je Region begrenzen (z. B. 14); Größen mit `--dry-run` vorab anzeigen |
 | R7 | Mapterhorn ist jung (v0.0.x), URLs/Struktur können sich ändern | niedrig–mittel | nur im Build-Skript verwendet, nicht in der App; Copernicus GLO-30 direkt als Rückfallquelle |
 | R8 | Höhenlinien-Plugin nur für GL JS | niedrig (Phase 2) | vorberechnete Höhenlinien-Kacheln im Regions-Build ergänzen |
-| R9 | MapLibre GL JS 6 ist neu (Juli 2026, ESM-only, WebGL2-Pflicht); `maplibre-contour` 0.1.1 muss dazu passen | niedrig | in M3 prüfen; notfalls MapLibre 5.x |
+| R9 | MapLibre GL JS 6 ist neu (Juli 2026, ESM-only, WebGL2-Pflicht); `maplibre-contour` 0.1.1 muss dazu passen | erledigt (M3) | funktioniert mit MapLibre 6.18 im Tauri-WebView über `addProtocol` und eigenen Worker |
 | R10 | gpsd ohne echte Hardware nur gegen `gpsfake` testbar | niedrig | Protokolltests mit aufgezeichneten gpsd-Strömen |
 
 ---

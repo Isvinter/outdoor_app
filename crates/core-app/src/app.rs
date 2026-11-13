@@ -62,23 +62,26 @@ pub trait AppListener: Send + Sync {
     fn on_source_status(&self, status: &SourceStatus);
     /// A background operation failed, e.g. a fix could not be stored.
     fn on_error(&self, message: &str);
+    /// Download progress of a map region.
+    fn on_region_progress(&self, _progress: &core_maps::Progress) {}
 }
 
 /// The application. One instance per database.
 pub struct App {
-    shared: Arc<Shared>,
+    pub(crate) shared: Arc<Shared>,
 }
 
-struct Shared {
+pub(crate) struct Shared {
     inner: Mutex<Inner>,
+    pub(crate) maps: crate::regions::Maps,
     /// Separate from `inner`: stopping a source joins its thread, which may be
     /// waiting for `inner` to deliver a fix.
     source: Mutex<Option<Box<dyn LocationSource>>>,
-    listener: Arc<dyn AppListener>,
+    pub(crate) listener: Arc<dyn AppListener>,
 }
 
-struct Inner {
-    storage: Storage,
+pub(crate) struct Inner {
+    pub(crate) storage: Storage,
     last_fix: Option<Fix>,
     recording: Option<ActiveRecording>,
 }
@@ -135,7 +138,7 @@ const IDLE: RecordingStatus = RecordingStatus {
     appended: Vec::new(),
 };
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
@@ -150,7 +153,7 @@ fn line_of(track: &Track) -> Vec<Vec<[f64; 2]>> {
 }
 
 impl Shared {
-    fn inner(&self) -> MutexGuard<'_, Inner> {
+    pub(crate) fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -246,7 +249,9 @@ impl FixSink for SinkAdapter {
 
 impl App {
     /// Opens the database at `db_path`, creating or migrating it as needed.
+    /// Map regions are kept in the directory `regions` next to the database.
     pub fn open(db_path: &Path, listener: Arc<dyn AppListener>) -> Result<Self, AppError> {
+        let regions_dir = db_path.parent().unwrap_or(Path::new(".")).join("regions");
         let inner = Inner {
             storage: Storage::open(db_path)?,
             last_fix: None,
@@ -255,6 +260,7 @@ impl App {
         Ok(Self {
             shared: Arc::new(Shared {
                 inner: Mutex::new(inner),
+                maps: crate::regions::Maps::open(&regions_dir)?,
                 source: Mutex::new(None),
                 listener,
             }),

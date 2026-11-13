@@ -2,6 +2,9 @@
  * Developer diagnostics, inactive unless requested through environment
  * variables of the host process (see README):
  *  - OUTDOOR_FPS_PROBE: animate the map, report frame timing, exit.
+ *  - OUTDOOR_SNAPSHOT=<png file>: save a picture of the map, exit.
+ *  - OUTDOOR_SELFTEST_REGIONS=<catalog>: download, show and delete the first
+ *    region of a catalog through the real controls, report, exit.
  *  - OUTDOOR_SELFTEST=<gpx file>: drive the real controls through a recording
  *    with a simulated receiver, report what the page shows, exit.
  */
@@ -104,7 +107,61 @@ async function selfTest(view: MapView, gpxPath: string): Promise<void> {
   await api.probeReport(report);
 }
 
+async function regionsSelfTest(view: MapView, catalog: string): Promise<void> {
+  const el = (id: string) => document.getElementById(id) as HTMLElement;
+  const firstRegion = () => document.querySelector<HTMLElement>("#region-list li");
+  const meta = () => firstRegion()?.querySelector(".meta")?.textContent ?? "";
+  const press = (label: string) =>
+    [...(firstRegion()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === label)?.click();
+  // While a style is being replaced there is none.
+  const sources = () => Object.keys(view.map.getStyle()?.sources ?? {});
+  const report: Record<string, unknown> = {};
+  try {
+    (el("catalog-source") as HTMLInputElement).value = catalog;
+    el("catalog-apply").click();
+    await until("catalog listed", () => firstRegion() !== null);
+    report.offered = `${firstRegion()?.querySelector(".name")?.textContent} – ${meta()}`;
+    report.sources_before = sources();
+    press("Herunterladen");
+    await until("region installed", () => meta().includes("installiert"), 120_000);
+    await until("offline sources", () => sources().includes("basemap"));
+    report.installed = meta();
+    report.sources_installed = sources();
+    report.message_installed = el("message").textContent;
+    press("Löschen");
+    await until("region deleted", () => meta().includes("nicht geladen"));
+    await until("sources gone", () => !sources().includes("basemap"));
+    report.after_delete = meta();
+    report.ok = true;
+  } catch (e) {
+    report.ok = false;
+    report.error = String(e);
+    report.message = el("message").textContent;
+    report.hint = el("catalog-hint").textContent;
+  }
+  await api.probeReport(report);
+}
+
+/** Saves a picture of the map once everything in view is drawn (OUTDOOR_SNAPSHOT). */
+async function snapshot(view: MapView, target: [number, number, number] | null): Promise<void> {
+  const map = view.map;
+  if (target) map.jumpTo({ center: [target[0], target[1]], zoom: target[2] });
+  await sleep(500);
+  await until("map drawn", () => map.loaded() && map.areTilesLoaded(), 30_000).catch(() => undefined);
+  await sleep(1500);
+  // The drawing buffer is only readable while a frame is being presented.
+  const blob = await new Promise<Blob | null>((resolve) => {
+    map.once("render", () => map.getCanvas().toBlob(resolve, "image/png"));
+    map.triggerRepaint();
+  });
+  await api.snapshotSave(blob ? Array.from(new Uint8Array(await blob.arrayBuffer())) : []);
+}
+
 export async function runDiagnostics(view: MapView): Promise<void> {
+  const shot = await api.snapshotRequest();
+  if (shot) await snapshot(view, shot.view);
+  const catalog = await invoke<string | null>("selftest_regions");
+  if (catalog) await regionsSelfTest(view, catalog);
   if (await api.probeEnabled()) await fpsProbe(view);
   const gpx = await invoke<string | null>("selftest_gpx");
   if (gpx) await selfTest(view, gpx);

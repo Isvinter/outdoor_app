@@ -4,6 +4,8 @@
 
 mod app;
 mod error;
+mod regions;
 
 pub use app::{App, AppListener, LinePoint, RecordingPhase, RecordingStatus, TrackDetail};
 pub use error::AppError;
+pub use regions::{RegionInfo, RegionState, RegionsOverview};

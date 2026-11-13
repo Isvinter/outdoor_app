@@ -33,6 +33,10 @@ impl AppListener for EventForwarder {
         self.emit("location:status", status.clone());
     }
 
+    fn on_region_progress(&self, progress: &core_maps::Progress) {
+        self.emit("regions:progress", progress.clone());
+    }
+
     fn on_error(&self, message: &str) {
         eprintln!("error: {message}");
         self.emit("app:error", message.to_owned());

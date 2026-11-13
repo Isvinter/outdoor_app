@@ -13,7 +13,12 @@ core-track = { path = "crates/core-track" }
 core-app = { path = "crates/core-app" }
 core-gpx = { path = "crates/core-gpx" }
 core-location = { path = "crates/core-location" }
+core-maps = { path = "crates/core-maps" }
 core-storage = { path = "crates/core-storage" }
+
+flate2 = "1.1"
+sha2 = "0.11"
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 
 clap = { version = "4.6", features = ["derive"] }
 proptest = "1.12"

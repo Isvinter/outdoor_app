@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "regions": [
+    {
+      "id": "mini",
+      "name": "Sylvenstein (Test)",
+      "bbox": [
+        11.54,
+        47.57,
+        11.56,
+        47.58
+      ],
+      "version": "202611130000",
+      "size": 842866,
+      "path": "mini"
+    }
+  ]
+}

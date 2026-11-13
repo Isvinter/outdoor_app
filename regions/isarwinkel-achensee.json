@@ -1,0 +1,16 @@
+{
+  "id": "isarwinkel-achensee",
+  "name": "Isarwinkel – Achensee – Tegernsee (Testregion)",
+  "bbox": [11.35, 47.35, 11.95, 47.80],
+  "osm": [
+    "https://download.geofabrik.de/europe/germany/bayern/oberbayern-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/austria-latest.osm.pbf"
+  ],
+  "basemap_maxzoom": 14,
+  "dem_maxzoom": 13,
+  "attribution": [
+    "© OpenStreetMap-Mitwirkende (ODbL)",
+    "© OpenMapTiles",
+    "Höhendaten: Mapterhorn; Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0); Land Kärnten/geoland.at – data.gv.at (CC BY 4.0); © DLR e.V. 2010–2014 und © Airbus Defence and Space GmbH 2014–2018, bereitgestellt unter COPERNICUS durch die Europäische Union und ESA"
+  ]
+}

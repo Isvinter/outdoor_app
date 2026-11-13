@@ -23,6 +23,12 @@ export function elevation(metres: number | null): string {
   return metres === null ? "–" : `${number(metres, 0)} m`;
 }
 
+/** Storage size in megabytes (or gigabytes from 1000 MB on). */
+export function bytes(count: number): string {
+  const mb = count / 1e6;
+  return mb < 1000 ? `${number(mb, mb < 10 ? 1 : 0)} MB` : `${number(mb / 1000, 1)} GB`;
+}
+
 export function dateTime(ms: number): string {
   return new Date(ms).toLocaleString(currentLocale(), { dateStyle: "medium", timeStyle: "short" });
 }

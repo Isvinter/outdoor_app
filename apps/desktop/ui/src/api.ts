@@ -69,6 +69,39 @@ export type SourceStatus =
   | { state: "finished" }
   | { state: "lost"; reason: string };
 
+export type RegionState = "available" | "installed" | "update_available" | "downloading";
+
+export interface RegionInfo {
+  id: string;
+  name: string;
+  /** West, south, east, north in degrees. */
+  bbox: [number, number, number, number];
+  size: number;
+  version: string;
+  installed_version: string | null;
+  state: RegionState;
+}
+
+export interface RegionsOverview {
+  source: string;
+  catalog_error: string | null;
+  regions: RegionInfo[];
+  attribution: string[];
+  installed_bounds: [number, number, number, number] | null;
+}
+
+export interface RegionProgress {
+  region: string;
+  done: number;
+  total: number;
+}
+
+export interface SnapshotRequest {
+  path: string;
+  /** Longitude, latitude and zoom to show, if given. */
+  view: [number, number, number] | null;
+}
+
 export interface CommandError {
   code: string;
   message: string;
@@ -95,6 +128,14 @@ export const api = {
   locationStartGpsd: () => invoke<void>("location_start_gpsd", { address: null }),
   locationStop: () => invoke<void>("location_stop"),
 
+  regionsOverview: () => invoke<RegionsOverview>("regions_overview"),
+  regionsSetSource: (source: string) => invoke<void>("regions_set_source", { source }),
+  regionInstall: (id: string) => invoke<unknown>("region_install", { id }),
+  regionCancel: (id: string) => invoke<void>("region_cancel", { id }),
+  regionDelete: (id: string) => invoke<void>("region_delete", { id }),
+
+  snapshotRequest: () => invoke<SnapshotRequest | null>("snapshot_request"),
+  snapshotSave: (png: number[]) => invoke<void>("snapshot_save", { png }),
   probeEnabled: () => invoke<boolean>("probe_enabled"),
   probeReport: (report: unknown) => invoke<void>("probe_report", { report }),
   log: (level: "info" | "error", message: string) => void invoke("ui_log", { level, message }),
@@ -107,6 +148,8 @@ export const events = {
     listen<RecordingStatus>("recording:update", (e) => handler(e.payload)),
   onSourceStatus: (handler: (status: SourceStatus) => void): Promise<UnlistenFn> =>
     listen<SourceStatus>("location:status", (e) => handler(e.payload)),
+  onRegionProgress: (handler: (progress: RegionProgress) => void): Promise<UnlistenFn> =>
+    listen<RegionProgress>("regions:progress", (e) => handler(e.payload)),
   onError: (handler: (message: string) => void): Promise<UnlistenFn> =>
     listen<string>("app:error", (e) => handler(e.payload)),
 };

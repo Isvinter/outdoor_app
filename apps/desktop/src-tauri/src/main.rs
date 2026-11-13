@@ -3,6 +3,7 @@
 mod commands;
 mod error;
 mod events;
+mod tiles;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -26,6 +27,13 @@ fn data_dir(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
 fn main() -> ExitCode {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol(tiles::SCHEME, |context, request, responder| {
+            // Tiles are read from disk; keep that off the UI thread.
+            let handle = context.app_handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(tiles::respond(&handle, &request));
+            });
+        })
         .setup(|app| {
             let listener = Arc::new(events::EventForwarder::new(app.handle().clone()));
             let core = App::open(&data_dir(app)?.join("outdoor.sqlite"), listener)?;
@@ -49,8 +57,16 @@ fn main() -> ExitCode {
             commands::location_start_replay,
             commands::location_start_gpsd,
             commands::location_stop,
+            commands::regions_overview,
+            commands::regions_set_source,
+            commands::region_install,
+            commands::region_cancel,
+            commands::region_delete,
             commands::probe_enabled,
+            commands::snapshot_request,
+            commands::snapshot_save,
             commands::selftest_gpx,
+            commands::selftest_regions,
             commands::probe_report,
             commands::ui_log,
         ])

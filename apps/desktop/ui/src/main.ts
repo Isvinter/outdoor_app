@@ -7,12 +7,14 @@ import {
   isCommandError,
   type Activity,
   type RecordingStatus,
+  type RegionsOverview,
   type SourceStatus,
   type TrackRecord,
 } from "./api";
 import { dateTime, distance, renderStats } from "./format";
 import { t, translateDocument, type MessageKey } from "./i18n";
-import { MapView } from "./map";
+import { MapView, type BaseStyle } from "./map";
+import { RegionsPanel } from "./regions";
 import { runDiagnostics } from "./diagnostics";
 import "./style.css";
 
@@ -52,6 +54,15 @@ const errorKeys: Partial<Record<MessageKey, true>> = {
   "error.nothing_interrupted": true,
   "error.activity_required": true,
   "error.io": true,
+  "error.no_catalog": true,
+  "error.region_io": true,
+  "error.region_archive": true,
+  "error.region_manifest": true,
+  "error.region_download": true,
+  "error.region_checksum": true,
+  "error.region_unknown": true,
+  "error.region_not_installed": true,
+  "error.region_busy": true,
 };
 
 /** Runs a user action and reports failures in the message line. */
@@ -162,6 +173,36 @@ function renderSourceStatus(status: SourceStatus | null): void {
 
 const gpxFilter = () => [{ name: t("dialog.gpx"), extensions: ["gpx"] }];
 
+// --- maps -------------------------------------------------------------------
+
+const STYLE_KEY = "outdoor.map-style";
+let overview: RegionsOverview | null = null;
+
+function selectedStyle(): BaseStyle {
+  return $<HTMLSelectElement>("map-style").value === "online" ? "online" : "topo";
+}
+
+/** Applies the chosen base map; the offline style depends on what is installed. */
+function applyStyle(): void {
+  const base = selectedStyle();
+  localStorage.setItem(STYLE_KEY, base);
+  view.setBaseStyle(base, overview).catch(showError);
+  if (base === "topo" && overview && overview.installed_bounds === null) showMessage(t("maps.no_region"));
+}
+
+const regions = new RegionsPanel({
+  onOverview: (next) => {
+    const changed = JSON.stringify(next.installed_bounds) !== JSON.stringify(overview?.installed_bounds);
+    const first = overview === null;
+    overview = next;
+    // Reload the offline style when regions were added or removed.
+    if (first || (changed && selectedStyle() === "topo")) applyStyle();
+  },
+  showRegion: (region) => view.showBounds(region.bbox),
+  showMessage: (text) => showMessage(text),
+  showError,
+});
+
 // --- wiring -----------------------------------------------------------------
 
 function fillSelect(select: HTMLSelectElement, options: [string, string][]): void {
@@ -187,6 +228,12 @@ async function start(): Promise<void> {
   );
   $<HTMLSelectElement>("loc-speed").value = "20";
   renderSourceStatus(null);
+  fillSelect($<HTMLSelectElement>("map-style"), [
+    ["topo", t("maps.style.topo")],
+    ["online", t("maps.style.online")],
+  ]);
+  $<HTMLSelectElement>("map-style").value = localStorage.getItem(STYLE_KEY) === "online" ? "online" : "topo";
+  $<HTMLSelectElement>("map-style").addEventListener("change", applyStyle);
 
   window.addEventListener("error", (e) => api.log("error", `${e.message} (${e.filename}:${e.lineno})`));
   window.addEventListener("unhandledrejection", (e) => api.log("error", `unhandled: ${String(e.reason)}`));
@@ -199,6 +246,7 @@ async function start(): Promise<void> {
   });
   await events.onSourceStatus(renderSourceStatus);
   await events.onError((message) => showMessage(message, "error"));
+  await events.onRegionProgress((progress) => regions.onProgress(progress));
 
   $("rec-start").addEventListener(
     "click",
@@ -312,6 +360,8 @@ async function start(): Promise<void> {
     }),
   );
 
+  const initial = await regions.refresh();
+  if (initial?.installed_bounds) view.showBounds(initial.installed_bounds);
   await loadRecordingState();
   await refreshTracks();
   await runDiagnostics(view);
