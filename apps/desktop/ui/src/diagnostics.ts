@@ -19,6 +19,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { LngLat, LngLatBounds } from "maplibre-gl";
 import { api, events, type Bbox } from "./api";
+import { t } from "./i18n";
 import type { MapView } from "./map";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -204,8 +205,11 @@ async function buildSelfTest(view: MapView, spec: string): Promise<void> {
     report.layout_problems = layoutProblems();
     el("build-start").click();
     await until("build started", () => row() !== undefined, 60_000);
-    // A real build of a large area takes a long time.
-    await until("region built", () => row()?.querySelector(".meta")?.textContent?.includes("installiert") ?? false, 4 * 3600_000);
+    // A real build of a large area takes a long time; a failed one ends the test at once.
+    const installed = () => row()?.querySelector(".meta")?.textContent?.includes("installiert") ?? false;
+    const ended = () => [t("error.build_failed"), t("maps.build.cancelled")].some((s) => text("message").startsWith(s));
+    await until("region built", () => installed() || ended(), 4 * 3600_000);
+    if (!installed()) throw new Error("build ended without an installed region");
     report.id = row()?.dataset.id;
     report.meta = row()?.querySelector(".meta")?.textContent;
     report.buttons = [...(row()?.querySelectorAll("button") ?? [])].map((b) => b.textContent);

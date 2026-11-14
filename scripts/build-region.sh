@@ -133,8 +133,15 @@ step_osm() {
     clips+=("$BUILD/clip-$name")
   done < <(config osm)
   log "merging ${#clips[@]} extract(s)"
-  osmium merge --overwrite --output "$REGION_PBF" "${clips[@]}"
-  rm -f "${clips[@]}"
+  if [ "${#clips[@]}" -eq 1 ]; then
+    mv "${clips[0]}" "$REGION_PBF"
+  else
+    # Extracts downloaded on different days can hold the same object in two versions;
+    # Planetiler rejects that. time-filter keeps only the newest version of each object.
+    osmium merge --overwrite --output "$BUILD/merged.osm.pbf" "${clips[@]}"
+    osmium time-filter --overwrite --output "$REGION_PBF" "$BUILD/merged.osm.pbf"
+    rm -f "${clips[@]}" "$BUILD/merged.osm.pbf"
+  fi
 }
 
 step_basemap() {

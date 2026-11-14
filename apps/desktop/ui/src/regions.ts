@@ -46,7 +46,8 @@ function missingName(code: string): string {
 export class RegionsPanel {
   private overview: RegionsOverview | null = null;
   private readonly progress = new Map<string, RegionProgress>();
-  private status: BuildStatus = { missing: [], running: null };
+  /** `null` until the first check is back; building waits for it. */
+  private status: BuildStatus | null = null;
   /** The build in progress; also set before its first event arrives. */
   private building: StepProgress | null = null;
   private selecting = false;
@@ -71,11 +72,18 @@ export class RegionsPanel {
 
   /** Reads the overview and the build status from the core and renders them. */
   async refresh(): Promise<RegionsOverview | null> {
+    // The build check starts programs (docker, java); the list must not wait for it.
+    api
+      .regionBuildCheck()
+      .then((status) => {
+        this.status = status;
+        if (status.running) this.building = status.running;
+        this.render();
+      })
+      .catch((e) => this.host.showError(e));
     try {
-      const [overview, status] = await Promise.all([api.regionsOverview(), api.regionBuildCheck()]);
+      const overview = await api.regionsOverview();
       this.overview = overview;
-      this.status = status;
-      if (status.running) this.building = status.running;
       $<HTMLInputElement>("catalog-source").value = overview.source;
       this.render();
       this.host.onOverview(overview);
@@ -254,7 +262,7 @@ export class RegionsPanel {
   }
 
   private canBuild(): boolean {
-    return this.building === null && this.status.missing.length === 0;
+    return this.building === null && this.status !== null && this.status.missing.length === 0;
   }
 
   private renderForm(): void {
@@ -264,7 +272,7 @@ export class RegionsPanel {
     $<HTMLButtonElement>("build-start").disabled =
       !this.canBuild() || this.area === null || name === "" || this.estimate === null;
     $("build-hint").textContent =
-      this.status.missing.length > 0
+      this.status && this.status.missing.length > 0
         ? t("maps.build.missing", { list: this.status.missing.map(missingName).join(", ") })
         : this.selecting && this.area === null
           ? t("maps.build.pick_hint")
