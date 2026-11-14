@@ -47,6 +47,28 @@ Darstellung und Netz in eigene Prozesse aus); Speicher ist der anteilige Verbrau
 - Nicht gemessen: Akkuverbrauch (Desktop-Rechner) und das Verhalten mit GPS-Hardware; das
   gehört zu Phase 2.
 
+## Regionen in der App bauen
+
+Gemessen am 2026-11-14 über die Oberfläche (`OUTDOOR_SELFTEST_BUILD`), gleicher Rechner.
+Die Dauer gilt mit schon heruntergeladenen OSM-Auszügen; Höhendaten wurden während des
+Baus geladen.
+
+| Gebiet | Rechteck | OSM-Auszüge | Dauer | Paket | Schätzung |
+|---|---|---|---|---|---|
+| Testgebiet Lenggries | 11,60/47,60 – 11,75/47,70 (11 × 11 km) | oberbayern, austria | 41 s | 10 MB | 5 MB |
+| Südtirol | 10,38/46,22 – 12,48/47,09 (160 × 97 km) | italy/nord-est, austria, italy/nord-ovest, switzerland | 1:28 min | 545 MB | 620 MB |
+
+- Südtirol im Einzelnen: Grundkarte 82 MB, Outdoor-Ebene 28 MB, Gelände 283 MB, Hangneigung
+  76 MB, Routing 76 MB. Höchster Speicherbedarf 5 GB (Planetiler).
+- Rohdaten im Zwischenspeicher `data/sources`: die vier OSM-Auszüge zusammen 2,6 GB, dazu je
+  Grad-Kachel 26 MB Höhendaten (Südtirol: 6 Kacheln). Sie bleiben für weitere Bauten liegen.
+- Der Schätzfaktor (40 MB je 1 000 km²) trifft große Gebiete auf 12 %; kleine Gebiete werden
+  größer als geschätzt, weil Grundkarte und Routing einen festen Anteil haben. Er bleibt.
+- **Befund beim ersten Versuch:** Auszüge von verschiedenen Tagen (Österreich aus dem
+  Zwischenspeicher vom Vortag, Italien frisch) enthielten dieselben Knoten in zwei Versionen;
+  Planetiler brach mit „Nodes must be sorted ascending by ID“ ab. Seitdem behält
+  `build-region.sh` nach dem Zusammenführen mit `osmium time-filter` nur die neueste Version.
+
 ## Rohdaten
 
 ```
