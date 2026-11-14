@@ -68,10 +68,7 @@ pub async fn region_cancel(app: State<'_, App>, id: String) -> CommandResult<()>
     Ok(())
 }
 
-#[tauri::command]
-pub async fn region_delete(app: State<'_, App>, id: String) -> CommandResult<()> {
-    Ok(app.delete_region(&id)?)
-}
+// `region_delete` is in `build`: it also removes what a build left behind.
 
 // --- routes -----------------------------------------------------------------
 

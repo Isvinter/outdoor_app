@@ -23,6 +23,7 @@ core-maps.workspace = true
 core-routing.workspace = true
 core-storage.workspace = true
 core-track.workspace = true
+region-builder.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12", features = ["custom-protocol"] }

@@ -1,5 +1,6 @@
 //! Desktop shell. Contains wiring only; all logic lives in the `core-*` crates.
 
+mod build;
 mod commands;
 mod error;
 mod events;
@@ -36,8 +37,10 @@ fn main() -> ExitCode {
         })
         .setup(|app| {
             let listener = Arc::new(events::EventForwarder::new(app.handle().clone()));
-            let core = App::open(&data_dir(app)?.join("outdoor.sqlite"), listener)?;
+            let dir = data_dir(app)?;
+            let core = App::open(&dir.join("outdoor.sqlite"), listener)?;
             app.manage(core);
+            app.manage(build::Builds::new(&dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -61,7 +64,12 @@ fn main() -> ExitCode {
             commands::regions_set_source,
             commands::region_install,
             commands::region_cancel,
-            commands::region_delete,
+            build::region_delete,
+            build::region_build_check,
+            build::region_build_plan,
+            build::region_build_start,
+            build::region_build_cancel,
+            build::selftest_build,
             commands::route_profiles,
             commands::route_plan,
             commands::route_clear,
@@ -81,9 +89,16 @@ fn main() -> ExitCode {
             commands::probe_report,
             commands::ui_log,
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(app) => {
+            app.run(|handle, event| {
+                if let tauri::RunEvent::ExitRequested { .. } = event {
+                    build::shutdown(handle);
+                }
+            });
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             eprintln!("error: {e}");
             ExitCode::FAILURE

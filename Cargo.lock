@@ -2678,6 +2678,7 @@ dependencies = [
  "core-routing",
  "core-storage",
  "core-track",
+ "region-builder",
  "serde",
  "serde_json",
  "tauri",

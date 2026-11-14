@@ -17,6 +17,15 @@ impl From<AppError> for CommandError {
     }
 }
 
+impl From<region_builder::BuildError> for CommandError {
+    fn from(e: region_builder::BuildError) -> Self {
+        Self {
+            code: e.code(),
+            message: e.to_string(),
+        }
+    }
+}
+
 impl CommandError {
     /// A background task of a command did not run to completion.
     pub fn task(e: &dyn std::fmt::Display) -> Self {
