@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 core-track = { path = "crates/core-track" }
+region-builder = { path = "crates/region-builder" }
 core-app = { path = "crates/core-app" }
 core-gpx = { path = "crates/core-gpx" }
 core-location = { path = "crates/core-location" }

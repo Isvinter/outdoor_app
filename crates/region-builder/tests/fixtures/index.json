@@ -1,0 +1,221 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "a",
+    "name": "a",
+    "urls": {
+     "pbf": "https://example.org/a-latest.osm.pbf"
+    }
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       10,
+       46
+      ],
+      [
+       12,
+       46
+      ],
+      [
+       12,
+       48
+      ],
+      [
+       10,
+       48
+      ],
+      [
+       10,
+       46
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "b",
+    "name": "b",
+    "urls": {
+     "pbf": "https://example.org/b-latest.osm.pbf"
+    }
+   },
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        12,
+        46
+       ],
+       [
+        14,
+        46
+       ],
+       [
+        14,
+        48
+       ],
+       [
+        12,
+        48
+       ],
+       [
+        12,
+        46
+       ]
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "big",
+    "name": "big",
+    "urls": {
+     "pbf": "https://example.org/big-latest.osm.pbf"
+    }
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       0,
+       40
+      ],
+      [
+       20,
+       40
+      ],
+      [
+       20,
+       50
+      ],
+      [
+       0,
+       50
+      ],
+      [
+       0,
+       40
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "nourl",
+    "name": "nourl"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -10,
+       30
+      ],
+      [
+       40,
+       30
+      ],
+      [
+       40,
+       60
+      ],
+      [
+       -10,
+       60
+      ],
+      [
+       -10,
+       30
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "ring",
+    "name": "ring",
+    "urls": {
+     "pbf": "https://example.org/ring-latest.osm.pbf"
+    }
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       24,
+       44
+      ],
+      [
+       26,
+       44
+      ],
+      [
+       26,
+       46
+      ],
+      [
+       24,
+       46
+      ],
+      [
+       24,
+       44
+      ]
+     ],
+     [
+      [
+       24.5,
+       44.5
+      ],
+      [
+       25.5,
+       44.5
+      ],
+      [
+       25.5,
+       45.5
+      ],
+      [
+       24.5,
+       45.5
+      ],
+      [
+       24.5,
+       44.5
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "nogeom",
+    "urls": {
+     "pbf": "https://example.org/x.pbf"
+    }
+   },
+   "geometry": null
+  }
+ ]
+}
