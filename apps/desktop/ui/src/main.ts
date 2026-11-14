@@ -58,6 +58,15 @@ const errorKeys: Partial<Record<MessageKey, true>> = {
   "error.io": true,
   "error.no_catalog": true,
   "error.region_io": true,
+  "error.build_prerequisites": true,
+  "error.build_area": true,
+  "error.build_no_extract": true,
+  "error.build_index": true,
+  "error.build_failed": true,
+  "error.build_cancelled": true,
+  "error.build_busy": true,
+  "error.build_unknown_region": true,
+  "error.build_io": true,
   "error.region_archive": true,
   "error.region_manifest": true,
   "error.region_download": true,
@@ -211,7 +220,10 @@ function applyStyle(): void {
   if (base !== "online" && overview && overview.installed_bounds === null) showMessage(t("maps.no_region"));
 }
 
-const regions = new RegionsPanel({
+/** The map style chosen before the area selection switched to the online map. */
+let styleBeforeSelection: BaseStyle | null = null;
+
+const regions = new RegionsPanel(view, {
   onOverview: (next) => {
     const changed = JSON.stringify(next.installed_bounds) !== JSON.stringify(overview?.installed_bounds);
     const first = overview === null;
@@ -227,6 +239,23 @@ const regions = new RegionsPanel({
     if (first || (changed && selectedStyle() !== "online")) applyStyle();
   },
   showRegion: (region) => view.showBounds(region.bbox),
+  // Outside the installed regions the offline styles show nothing to choose from.
+  useOnlineMap: (on) => {
+    const select = $<HTMLSelectElement>("map-style");
+    if (on && styleBeforeSelection === null) {
+      styleBeforeSelection = selectedStyle();
+      if (styleBeforeSelection === "online") return;
+      select.value = "online";
+      applyStyle();
+    } else if (!on && styleBeforeSelection !== null) {
+      const previous = styleBeforeSelection;
+      styleBeforeSelection = null;
+      if (select.value === "online" && previous !== "online") {
+        select.value = previous;
+        applyStyle();
+      }
+    }
+  },
   showMessage: (text) => showMessage(text),
   showError,
 });
@@ -282,6 +311,7 @@ async function start(): Promise<void> {
   await events.onSourceStatus(renderSourceStatus);
   await events.onError((message) => showMessage(message, "error"));
   await events.onRegionProgress((progress) => regions.onProgress(progress));
+  await events.onBuildProgress((progress) => regions.onBuildProgress(progress));
 
   $("rec-start").addEventListener(
     "click",

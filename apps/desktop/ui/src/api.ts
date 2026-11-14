@@ -71,7 +71,7 @@ export type SourceStatus =
   | { state: "finished" }
   | { state: "lost"; reason: string };
 
-export type RegionState = "available" | "installed" | "update_available" | "downloading";
+export type RegionState = "available" | "installed" | "update_available" | "downloading" | "not_built";
 
 export interface RegionInfo {
   id: string;
@@ -82,6 +82,8 @@ export interface RegionInfo {
   version: string;
   installed_version: string | null;
   state: RegionState;
+  /** This device has the definition of the region and can build it. */
+  buildable: boolean;
 }
 
 export interface RegionsOverview {
@@ -96,6 +98,37 @@ export interface RegionProgress {
   region: string;
   done: number;
   total: number;
+}
+
+/** West, south, east, north in degrees. */
+export type Bbox = [number, number, number, number];
+
+/** A region build started a step; `index` 0 means it is still being prepared. */
+export interface StepProgress {
+  region: string;
+  step: string;
+  index: number;
+  total: number;
+}
+
+export interface BuildStatus {
+  /** Codes of what this machine lacks for a build; empty if it can build. */
+  missing: string[];
+  running: StepProgress | null;
+}
+
+export interface BuildPlan {
+  width_km: number;
+  height_km: number;
+  estimated_bytes: number;
+  extracts: string[];
+}
+
+export interface BuildRequest {
+  name: string | null;
+  bbox: Bbox | null;
+  id: string | null;
+  refresh: boolean;
 }
 
 export type Profile = "road_bike" | "trekking" | "mtb" | "hike" | "car" | "manual";
@@ -204,6 +237,10 @@ export const api = {
   regionInstall: (id: string) => invoke<unknown>("region_install", { id }),
   regionCancel: (id: string) => invoke<void>("region_cancel", { id }),
   regionDelete: (id: string) => invoke<void>("region_delete", { id }),
+  regionBuildCheck: () => invoke<BuildStatus>("region_build_check"),
+  regionBuildPlan: (bbox: Bbox) => invoke<BuildPlan>("region_build_plan", { bbox }),
+  regionBuildStart: (request: BuildRequest) => invoke<unknown>("region_build_start", { ...request }),
+  regionBuildCancel: () => invoke<void>("region_build_cancel"),
 
   routeProfiles: () => invoke<ProfileInfo[]>("route_profiles"),
   routePlan: (request: RouteRequest) => invoke<RoutePlan>("route_plan", { request }),
@@ -230,6 +267,8 @@ export const events = {
     listen<SourceStatus>("location:status", (e) => handler(e.payload)),
   onRegionProgress: (handler: (progress: RegionProgress) => void): Promise<UnlistenFn> =>
     listen<RegionProgress>("regions:progress", (e) => handler(e.payload)),
+  onBuildProgress: (handler: (progress: StepProgress) => void): Promise<UnlistenFn> =>
+    listen<StepProgress>("regions:build", (e) => handler(e.payload)),
   onError: (handler: (message: string) => void): Promise<UnlistenFn> =>
     listen<string>("app:error", (e) => handler(e.payload)),
 };

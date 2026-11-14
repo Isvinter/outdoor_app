@@ -7,6 +7,9 @@
  *  - OUTDOOR_SNAPSHOT=<png file>: save a picture of the map, exit.
  *  - OUTDOOR_SELFTEST_REGIONS=<catalog>: download, show and delete the first
  *    region of a catalog through the real controls, report, exit.
+ *  - OUTDOOR_SELFTEST_BUILD=<west>,<south>,<east>,<north>;<name>: choose the
+ *    area on the map, build it as a region through the real controls, report,
+ *    exit.
  *  - OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]: plan a hike through
  *    these points with the real controls, save it, report, exit. Together with
  *    OUTDOOR_SNAPSHOT the picture shows the route.
@@ -15,7 +18,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { LngLat, LngLatBounds } from "maplibre-gl";
-import { api } from "./api";
+import { api, events, type Bbox } from "./api";
 import type { MapView } from "./map";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -172,6 +175,55 @@ async function regionsSelfTest(view: MapView, catalog: string): Promise<void> {
   await api.probeReport(report);
 }
 
+async function buildSelfTest(view: MapView, spec: string): Promise<void> {
+  const el = (id: string) => document.getElementById(id) as HTMLElement;
+  const text = (id: string) => el(id).textContent ?? "";
+  const report: Record<string, unknown> = {};
+  const steps: string[] = [];
+  let id = "";
+  const unlisten = await events.onBuildProgress((progress) => {
+    id = progress.region;
+    if (progress.index > 0) steps.push(`${progress.index}/${progress.total} ${progress.step}`);
+  });
+  // The id is made from the name; the list shows the name of the built package.
+  const row = () => (id ? document.querySelector<HTMLElement>(`#region-list li[data-id="${id}"]`) : null) ?? undefined;
+  try {
+    const [box, name] = spec.split(";");
+    const bbox = (box ?? "").split(",").map(Number) as Bbox;
+    if (bbox.length !== 4 || bbox.some(Number.isNaN) || !name) throw new Error("expected <w>,<s>,<e>,<n>;<name>");
+    await until("build status", () => !(el("build-pick") as HTMLButtonElement).disabled || text("build-hint") !== "");
+    report.hint_before = text("build-hint");
+    el("build-pick").click();
+    view.showBounds(bbox);
+    view.setArea(bbox);
+    const input = el("build-name") as HTMLInputElement;
+    input.value = name;
+    input.dispatchEvent(new Event("input"));
+    await until("estimate", () => text("build-estimate").startsWith("ca."), 60_000);
+    report.estimate = text("build-estimate");
+    report.layout_problems = layoutProblems();
+    el("build-start").click();
+    await until("build started", () => row() !== undefined, 60_000);
+    // A real build of a large area takes a long time.
+    await until("region built", () => row()?.querySelector(".meta")?.textContent?.includes("installiert") ?? false, 4 * 3600_000);
+    report.id = row()?.dataset.id;
+    report.meta = row()?.querySelector(".meta")?.textContent;
+    report.buttons = [...(row()?.querySelectorAll("button") ?? [])].map((b) => b.textContent);
+    report.message = text("message");
+    report.layout_problems_after = layoutProblems();
+    report.ok = true;
+  } catch (e) {
+    report.ok = false;
+    report.error = String(e);
+    report.message = text("message");
+    report.hint = text("build-hint");
+    report.estimate = text("build-estimate");
+  }
+  unlisten();
+  report.steps_seen = steps;
+  await api.probeReport(report);
+}
+
 async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promise<void> {
   const el = (id: string) => document.getElementById(id) as HTMLElement;
   const text = (id: string) => el(id).textContent ?? "";
@@ -272,6 +324,8 @@ export async function runDiagnostics(view: MapView): Promise<void> {
   const route = await invoke<string | null>("selftest_route");
   if (route) await routeSelfTest(view, route, shot === null);
   if (shot) await snapshot(view, shot.view, shot.style);
+  const build = await invoke<string | null>("selftest_build");
+  if (build) await buildSelfTest(view, build);
   const catalog = await invoke<string | null>("selftest_regions");
   if (catalog) await regionsSelfTest(view, catalog);
   if (await api.probeEnabled()) await fpsProbe(view);

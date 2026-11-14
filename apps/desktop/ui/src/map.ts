@@ -9,11 +9,12 @@ import {
   ScaleControl,
   setWorkerUrl,
   type GeoJSONSource,
+  type MapMouseEvent,
   type StyleSpecification,
 } from "maplibre-gl";
 import mlcontour from "maplibre-contour";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { Fix, LatLon, Line, RegionsOverview } from "./api";
+import type { Bbox, Fix, LatLon, Line, RegionsOverview } from "./api";
 
 // The worker files are copied next to the bundle by vite.config.ts.
 setWorkerUrl(new URL("maplibre/maplibre-gl-worker.mjs", document.baseURI).href);
@@ -32,6 +33,30 @@ const FOLLOW_GLIDE_PX = 60;
 const LIVE = "live-track";
 const SELECTED = "selected-track";
 const ROUTE = "planned-route";
+/** The area chosen for a new region. */
+const AREA = "build-area";
+/** Which edges of the area a handle moves: west or east, south or north. */
+const AREA_HANDLES: ["w" | "e" | null, "s" | "n" | null][] = [
+  ["w", "n"], [null, "n"], ["e", "n"], ["e", null], ["e", "s"], [null, "s"], ["w", "s"], ["w", null],
+];
+
+/** Corners in order: west < east, south < north. */
+function normalize([a, b, c, d]: Bbox): Bbox {
+  return [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
+}
+
+function areaData(area: Bbox | null) {
+  if (!area) return { type: "FeatureCollection" as const, features: [] };
+  const [w, s, e, n] = area;
+  const ring = [[w, s], [e, s], [e, n], [w, n], [w, s]];
+  return {
+    type: "FeatureCollection" as const,
+    features: [
+      { type: "Feature" as const, properties: {}, geometry: { type: "Polygon" as const, coordinates: [ring] } },
+    ],
+  };
+}
+
 const OVERLAYS = [
   [SELECTED, "#7b3fb5"],
   [ROUTE, "#0b63ce"],
@@ -152,6 +177,10 @@ export class MapView {
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
   private slopeOpacity = 0.6;
+  private area: Bbox | null = null;
+  private areaHandles: Marker[] = [];
+  private areaListener: ((area: Bbox | null) => void) | null = null;
+  private drawStart: [number, number] | null = null;
   followPosition = true;
 
   constructor(container: string) {
@@ -191,6 +220,16 @@ export class MapView {
   }
 
   private addOverlays(): void {
+    if (!this.map.getSource(AREA)) {
+      this.map.addSource(AREA, { type: "geojson", data: areaData(this.area) });
+      this.map.addLayer({ id: `${AREA}-fill`, type: "fill", source: AREA, paint: { "fill-color": "#0b63ce", "fill-opacity": 0.12 } });
+      this.map.addLayer({
+        id: `${AREA}-line`,
+        type: "line",
+        source: AREA,
+        paint: { "line-color": "#0b63ce", "line-width": 2, "line-dasharray": [3, 2] },
+      });
+    }
     for (const [id, color] of OVERLAYS) {
       if (this.map.getSource(id)) continue;
       this.map.addSource(id, { type: "geojson", data: multiLine(this.lines[id] ?? []) });
@@ -302,6 +341,115 @@ export class MapView {
   showProfileCursor(at: LatLon | null): void {
     if (at) this.cursor.setLngLat([at.lon, at.lat]).addTo(this.map);
     else this.cursor.remove();
+  }
+
+  /**
+   * Lets the user draw a rectangle on the map (press, drag, release) and then
+   * adjust it at its corners and edges. `onChange` hears of every finished
+   * change, always with west < east and south < north.
+   */
+  startAreaSelection(onChange: (area: Bbox | null) => void): void {
+    this.stopAreaSelection();
+    this.areaListener = onChange;
+    this.map.dragPan.disable();
+    this.map.getCanvas().style.cursor = "crosshair";
+    this.map.on("mousedown", this.onAreaDown);
+    this.map.on("mousemove", this.onAreaMove);
+    this.map.on("mouseup", this.onAreaUp);
+  }
+
+  /** Ends the area selection and removes the rectangle. */
+  stopAreaSelection(): void {
+    this.map.off("mousedown", this.onAreaDown);
+    this.map.off("mousemove", this.onAreaMove);
+    this.map.off("mouseup", this.onAreaUp);
+    this.drawStart = null;
+    this.areaListener = null;
+    this.setAreaShape(null);
+    this.map.dragPan.enable();
+    this.map.getCanvas().style.cursor = "";
+  }
+
+  /** Sets the chosen area as if the user had drawn it. */
+  setArea(area: Bbox): void {
+    this.finishArea(normalize(area));
+  }
+
+  private readonly onAreaDown = (e: MapMouseEvent): void => {
+    if (this.area) return;
+    this.drawStart = [e.lngLat.lng, e.lngLat.lat];
+  };
+
+  private readonly onAreaMove = (e: MapMouseEvent): void => {
+    if (!this.drawStart) return;
+    this.setAreaShape(normalize([...this.drawStart, e.lngLat.lng, e.lngLat.lat]));
+  };
+
+  private readonly onAreaUp = (): void => {
+    if (!this.drawStart) return;
+    this.drawStart = null;
+    if (this.area) this.finishArea(this.area);
+  };
+
+  private finishArea(area: Bbox): void {
+    this.setAreaShape(area);
+    this.map.dragPan.enable();
+    this.map.getCanvas().style.cursor = "";
+    this.placeAreaHandles();
+    this.areaListener?.(area);
+  }
+
+  private setAreaShape(area: Bbox | null): void {
+    this.area = area;
+    this.map.getSource<GeoJSONSource>(AREA)?.setData(areaData(area));
+    if (!area) {
+      for (const handle of this.areaHandles) handle.remove();
+      this.areaHandles = [];
+    }
+  }
+
+  /** Puts a handle on every corner and edge of the area; dragging one moves its edges. */
+  private placeAreaHandles(dragged: Marker | null = null): void {
+    const area = this.area;
+    if (!area) return;
+    const [w, s, e, n] = area;
+    const position = ([x, y]: (typeof AREA_HANDLES)[number]): [number, number] => [
+      x === "w" ? w : x === "e" ? e : (w + e) / 2,
+      y === "s" ? s : y === "n" ? n : (s + n) / 2,
+    ];
+    if (this.areaHandles.length === 0) {
+      this.areaHandles = AREA_HANDLES.map((edges) => {
+        const element = document.createElement("div");
+        element.className = "area-handle";
+        const marker = new Marker({ element, draggable: true }).setLngLat(position(edges)).addTo(this.map);
+        const moved = () => {
+          const current = this.area;
+          if (!current) return;
+          const { lng, lat } = marker.getLngLat();
+          const next: Bbox = [...current];
+          if (edges[0] === "w") next[0] = lng;
+          if (edges[0] === "e") next[2] = lng;
+          if (edges[1] === "s") next[1] = lat;
+          if (edges[1] === "n") next[3] = lat;
+          this.setAreaShape(normalize(next));
+        };
+        marker.on("drag", () => {
+          moved();
+          this.placeAreaHandles(marker);
+        });
+        marker.on("dragend", () => {
+          moved();
+          this.placeAreaHandles();
+          if (this.area) this.areaListener?.(this.area);
+        });
+        return marker;
+      });
+    } else {
+      this.areaHandles.forEach((marker, i) => {
+        const edges = AREA_HANDLES[i];
+        if (marker !== dragged && edges) marker.setLngLat(position(edges));
+      });
+    }
   }
 
   /** Zooms to a box given as west, south, east, north. */
