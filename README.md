@@ -97,6 +97,11 @@ Ergebnis: `data/regions/<id>/` (vier `.pmtiles`-Dateien, `routing.tar` und `mani
 `data/regions/catalog.json` mit allen gebauten Regionen. Weitere Regionen entstehen aus einer
 Beschreibung in `regions/<id>.json` (Name, Begrenzung, OSM-Auszüge, Zoomstufen).
 
+Weitere Schalter: `--config <datei>` nimmt die Beschreibung von dort, `--package-dir <ordner>`
+schreibt das Paket nach `<ordner>/<id>/` (ohne den Katalog in `data/regions` zu ändern),
+`--refresh-osm` lädt die OSM-Auszüge neu. Jeder Schritt wird als
+`== step <name> (<n>/<gesamt>)` angekündigt.
+
 ### Region in der App laden
 
 1. Unter **Karten → Katalog** den Ordner `data/regions` wählen („Ordner …“) oder die Adresse

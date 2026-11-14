@@ -3,8 +3,10 @@
 #
 #   scripts/build-region.sh <region-id> [--steps osm,basemap,outdoor,dem,slope,routing,manifest]
 #                                       [--max-mtb-scale N] [--force]
+#                                       [--config FILE] [--package-dir DIR] [--refresh-osm]
 #
-# Reads regions/<region-id>.json and writes data/regions/<region-id>/ with
+# Reads regions/<region-id>.json (or FILE) and writes data/regions/<region-id>/
+# (or DIR/<region-id>/) with
 #   basemap.pmtiles   vector base map (OpenMapTiles schema, built with Planetiler)
 #   outdoor.pmtiles   vector overlay: trails, routes, pistes, peaks, huts
 #   dem.pmtiles       elevation tiles (Terrarium encoding, from Mapterhorn)
@@ -14,6 +16,8 @@
 #   manifest.json     name, bounds, files with size and SHA-256, attribution
 # and data/regions/catalog.json listing all built regions. That directory (or
 # a web server publishing it) is what the app takes as its catalog.
+# --refresh-osm downloads the OSM extracts again instead of using the cached ones.
+# Every step is announced on stderr as "== step <name> (<n>/<total>)".
 #
 # Needs: bash, curl, python3, java >= 21, docker, cargo. Downloads are cached in
 # data/sources and data/tools; set OUTDOOR_DATA to move the data directory.
@@ -26,7 +30,7 @@ PMTILES_VERSION="1.31.2"
 MAPTERHORN="https://download.mapterhorn.com"
 JAVA_HEAP="${JAVA_HEAP:-8g}"
 
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 log() { printf '\n== %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
@@ -36,17 +40,23 @@ ID="$1"; shift
 STEPS="osm,basemap,outdoor,dem,slope,routing,manifest"
 MAX_MTB_SCALE=2
 FORCE=0
+CONFIG=""
+PACKAGE_DIR=""
+REFRESH_OSM=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --steps) STEPS="${2:?--steps needs a value}"; shift 2 ;;
     --max-mtb-scale) MAX_MTB_SCALE="${2:?--max-mtb-scale needs a value}"; shift 2 ;;
     --force) FORCE=1; shift ;;
+    --config) CONFIG="${2:?--config needs a value}"; shift 2 ;;
+    --package-dir) PACKAGE_DIR="${2:?--package-dir needs a value}"; shift 2 ;;
+    --refresh-osm) REFRESH_OSM=1; shift ;;
     -h|--help) usage ;;
     *) die "unknown option: $1" ;;
   esac
 done
 
-CONFIG="$ROOT/regions/$ID.json"
+[ -n "$CONFIG" ] || CONFIG="$ROOT/regions/$ID.json"
 [ -f "$CONFIG" ] || die "no region definition $CONFIG"
 for tool in curl python3 java docker cargo; do
   command -v "$tool" >/dev/null || die "$tool is required"
@@ -63,11 +73,19 @@ else:
     print(value)' "$CONFIG" "$1"
 }
 
+[ "$(config id)" = "$ID" ] || die "$CONFIG describes region $(config id), not $ID"
 BBOX="$(config bbox | paste -sd, -)"            # west,south,east,north
 BASEMAP_MAXZOOM="$(config basemap_maxzoom)"
 DEM_MAXZOOM="$(config dem_maxzoom)"
 
-TOOLS="$DATA/tools"; SOURCES="$DATA/sources"; BUILD="$DATA/build/$ID"; OUT="$DATA/regions/$ID"
+TOOLS="$DATA/tools"; SOURCES="$DATA/sources"; BUILD="$DATA/build/$ID"
+if [ -n "$PACKAGE_DIR" ]; then
+  mkdir -p "$PACKAGE_DIR"
+  PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
+  OUT="$PACKAGE_DIR/$ID"
+else
+  OUT="$DATA/regions/$ID"
+fi
 mkdir -p "$TOOLS" "$SOURCES/osm" "$SOURCES/planetiler" "$BUILD" "$OUT"
 
 wants() { case ",$STEPS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
@@ -103,10 +121,11 @@ planetiler() { java "-Xmx$JAVA_HEAP" "$@"; }
 REGION_PBF="$BUILD/region.osm.pbf"
 
 step_osm() {
-  stale "$REGION_PBF" || return 0
+  [ "$REFRESH_OSM" = 1 ] || stale "$REGION_PBF" || return 0
   local clips=() url name
   while read -r url; do
     name="$(basename "$url")"
+    [ "$REFRESH_OSM" = 1 ] && rm -f "$SOURCES/osm/$name"
     fetch "$url" "$SOURCES/osm/$name"
     log "clipping $name to $BBOX"
     osmium extract --bbox "$BBOX" --strategy smart --overwrite \
@@ -198,8 +217,10 @@ step_slope() {
 }
 
 step_routing() {
-  local args=("$ID" --max-mtb-scale "$MAX_MTB_SCALE")
-  [ "$FORCE" = 1 ] && args+=(--force)
+  local args=("$ID" --max-mtb-scale "$MAX_MTB_SCALE" --config "$CONFIG")
+  [ -n "$PACKAGE_DIR" ] && args+=(--package-dir "$PACKAGE_DIR")
+  # Fresh OSM data makes the existing routing tiles stale as well.
+  if [ "$FORCE" = 1 ] || [ "$REFRESH_OSM" = 1 ]; then args+=(--force); fi
   "$ROOT/scripts/build-valhalla-tiles.sh" "${args[@]}"
 }
 
@@ -257,7 +278,17 @@ PY
 }
 
 ensure_tools
-for step in osm basemap outdoor dem slope routing manifest; do
-  if wants "$step"; then "step_$step"; fi
+ALL_STEPS="osm basemap outdoor dem slope routing manifest"
+TOTAL=0
+for step in $ALL_STEPS; do
+  if wants "$step"; then TOTAL=$((TOTAL + 1)); fi
+done
+N=0
+for step in $ALL_STEPS; do
+  if wants "$step"; then
+    N=$((N + 1))
+    log "step $step ($N/$TOTAL)"
+    "step_$step"
+  fi
 done
 log "region package: $OUT"

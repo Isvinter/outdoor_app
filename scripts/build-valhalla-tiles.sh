@@ -2,6 +2,7 @@
 # Builds the routing tiles (Valhalla) of a region.
 #
 #   scripts/build-valhalla-tiles.sh <region-id> [--max-mtb-scale N] [--force]
+#                                           [--config FILE] [--package-dir DIR]
 #
 # Reads the clipped OSM extract written by build-region.sh (step "osm") and
 # writes data/regions/<region-id>/routing.tar plus routing.json next to it.
@@ -10,6 +11,9 @@
 #                     (default 2: S0-S2 rideable, S3 and harder on foot only).
 #                     Valhalla keeps no per-way MTB difficulty, so the limit is
 #                     fixed when the tiles are built, not per route.
+#
+# --config FILE       Region definition instead of regions/<region-id>.json.
+# --package-dir DIR   Write to DIR/<region-id>/ instead of data/regions/<region-id>/.
 #
 # Needs: bash, curl, docker. Uses the official Valhalla image; set
 # OUTDOOR_DATA to move the data directory.
@@ -20,7 +24,7 @@ DATA="${OUTDOOR_DATA:-$ROOT/data}"
 VALHALLA_VERSION="3.9.1"
 IMAGE="ghcr.io/valhalla/valhalla:$VALHALLA_VERSION"
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 log() { printf '\n== %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
@@ -29,23 +33,27 @@ case "$1" in -h|--help) usage ;; esac
 ID="$1"; shift
 MAX_MTB_SCALE=2
 FORCE=0
+CONFIG=""
+PACKAGE_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --max-mtb-scale) MAX_MTB_SCALE="${2:?--max-mtb-scale needs a value}"; shift 2 ;;
     --force) FORCE=1; shift ;;
+    --config) CONFIG="${2:?--config needs a value}"; shift 2 ;;
+    --package-dir) PACKAGE_DIR="${2:?--package-dir needs a value}"; shift 2 ;;
     -h|--help) usage ;;
     *) die "unknown option: $1" ;;
   esac
 done
 case "$MAX_MTB_SCALE" in [0-6]) ;; *) die "--max-mtb-scale must be 0 to 6" ;; esac
 
-CONFIG="$ROOT/regions/$ID.json"
+[ -n "$CONFIG" ] || CONFIG="$ROOT/regions/$ID.json"
 [ -f "$CONFIG" ] || die "no region definition $CONFIG"
 for tool in curl docker python3; do
   command -v "$tool" >/dev/null || die "$tool is required"
 done
 
-BUILD="$DATA/build/$ID"; OUT="$DATA/regions/$ID"; WORK="$BUILD/valhalla"
+BUILD="$DATA/build/$ID"; OUT="${PACKAGE_DIR:-$DATA/regions}/$ID"; WORK="$BUILD/valhalla"
 PBF="$BUILD/region.osm.pbf"
 [ -s "$PBF" ] || die "$PBF is missing; run scripts/build-region.sh $ID --steps osm first"
 if [ "$FORCE" = 0 ] && [ -s "$OUT/routing.tar" ] && \
