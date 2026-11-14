@@ -181,6 +181,8 @@ export class MapView {
   private areaHandles: Marker[] = [];
   private areaListener: ((area: Bbox | null) => void) | null = null;
   private drawStart: [number, number] | null = null;
+  /** Where the rectangle was grabbed for moving, and where it was then. */
+  private grab: { at: [number, number]; area: Bbox } | null = null;
   followPosition = true;
 
   constructor(container: string) {
@@ -329,7 +331,10 @@ export class MapView {
 
   /** Calls `handler` with the position of every click on the map. */
   onClick(handler: (at: LatLon) => void): void {
-    this.map.on("click", (e) => handler({ lat: e.lngLat.lat, lon: e.lngLat.lng }));
+    // While an area is being chosen, clicks belong to the area selection.
+    this.map.on("click", (e) => {
+      if (this.areaListener === null) handler({ lat: e.lngLat.lat, lon: e.lngLat.lng });
+    });
   }
 
   /** Cross-hair cursor while clicks set waypoints. */
@@ -344,26 +349,32 @@ export class MapView {
   }
 
   /**
-   * Lets the user draw a rectangle on the map (press, drag, release) and then
-   * adjust it at its corners and edges. `onChange` hears of every finished
-   * change, always with west < east and south < north.
+   * Lets the user choose a rectangle on the map: a click sets one corner, the
+   * rectangle follows the pointer, a second click sets the opposite corner.
+   * Dragging keeps moving the map. A finished rectangle is moved by dragging
+   * inside it and resized at its corner and edge handles. `onChange` hears of
+   * every finished change, always with west < east and south < north.
    */
   startAreaSelection(onChange: (area: Bbox | null) => void): void {
     this.stopAreaSelection();
     this.areaListener = onChange;
-    this.map.dragPan.disable();
     this.map.getCanvas().style.cursor = "crosshair";
-    this.map.on("mousedown", this.onAreaDown);
+    this.map.on("click", this.onAreaClick);
     this.map.on("mousemove", this.onAreaMove);
-    this.map.on("mouseup", this.onAreaUp);
+    this.map.on("mousedown", `${AREA}-fill`, this.onAreaGrab);
+    this.map.on("mouseenter", `${AREA}-fill`, this.onAreaEnter);
+    this.map.on("mouseleave", `${AREA}-fill`, this.onAreaLeave);
   }
 
   /** Ends the area selection and removes the rectangle. */
   stopAreaSelection(): void {
-    this.map.off("mousedown", this.onAreaDown);
+    this.map.off("click", this.onAreaClick);
     this.map.off("mousemove", this.onAreaMove);
-    this.map.off("mouseup", this.onAreaUp);
+    this.map.off("mousedown", `${AREA}-fill`, this.onAreaGrab);
+    this.map.off("mouseenter", `${AREA}-fill`, this.onAreaEnter);
+    this.map.off("mouseleave", `${AREA}-fill`, this.onAreaLeave);
     this.drawStart = null;
+    this.grab = null;
     this.areaListener = null;
     this.setAreaShape(null);
     this.map.dragPan.enable();
@@ -372,28 +383,76 @@ export class MapView {
 
   /** Sets the chosen area as if the user had drawn it. */
   setArea(area: Bbox): void {
+    this.drawStart = null;
     this.finishArea(normalize(area));
   }
 
-  private readonly onAreaDown = (e: MapMouseEvent): void => {
-    if (this.area) return;
-    this.drawStart = [e.lngLat.lng, e.lngLat.lat];
+  /** The rectangle as it is drawn now, finished or not. */
+  currentArea(): Bbox | null {
+    return this.area;
+  }
+
+  /** Whether the first corner of a new rectangle is set and the second is awaited. */
+  isDrawingArea(): boolean {
+    return this.drawStart !== null;
+  }
+
+  private readonly onAreaClick = (e: MapMouseEvent): void => {
+    const at: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+    if (this.drawStart) {
+      const area = normalize([...this.drawStart, ...at]);
+      this.drawStart = null;
+      // Two clicks on the same spot give no area; start over.
+      if (area[0] === area[2] || area[1] === area[3]) {
+        this.setAreaShape(null);
+        this.areaListener?.(null);
+      } else this.finishArea(area);
+    } else if (!this.area) {
+      this.drawStart = at;
+      this.setAreaShape(normalize([...at, ...at]));
+      this.areaListener?.(null);
+    }
   };
 
   private readonly onAreaMove = (e: MapMouseEvent): void => {
-    if (!this.drawStart) return;
-    this.setAreaShape(normalize([...this.drawStart, e.lngLat.lng, e.lngLat.lat]));
+    if (this.drawStart) {
+      this.setAreaShape(normalize([...this.drawStart, e.lngLat.lng, e.lngLat.lat]));
+    } else if (this.grab && this.area) {
+      const dx = e.lngLat.lng - this.grab.at[0];
+      const dy = e.lngLat.lat - this.grab.at[1];
+      const [w, s, east, n] = this.grab.area;
+      this.setAreaShape([w + dx, s + dy, east + dx, n + dy]);
+      this.placeAreaHandles();
+    }
   };
 
-  private readonly onAreaUp = (): void => {
-    if (!this.drawStart) return;
-    this.drawStart = null;
-    if (this.area) this.finishArea(this.area);
+  /** Pressing inside a finished rectangle drags the rectangle instead of the map. */
+  private readonly onAreaGrab = (e: MapMouseEvent): void => {
+    if (this.drawStart || !this.area) return;
+    e.preventDefault();
+    this.grab = { at: [e.lngLat.lng, e.lngLat.lat], area: this.area };
+    this.map.getCanvas().style.cursor = "grabbing";
+    window.addEventListener(
+      "mouseup",
+      () => {
+        this.grab = null;
+        this.map.getCanvas().style.cursor = "move";
+        if (this.area) this.areaListener?.(this.area);
+      },
+      { once: true },
+    );
+  };
+
+  private readonly onAreaEnter = (): void => {
+    if (!this.drawStart && this.area && !this.grab) this.map.getCanvas().style.cursor = "move";
+  };
+
+  private readonly onAreaLeave = (): void => {
+    if (!this.grab) this.map.getCanvas().style.cursor = this.area ? "" : "crosshair";
   };
 
   private finishArea(area: Bbox): void {
     this.setAreaShape(area);
-    this.map.dragPan.enable();
     this.map.getCanvas().style.cursor = "";
     this.placeAreaHandles();
     this.areaListener?.(area);

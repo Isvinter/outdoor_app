@@ -176,6 +176,69 @@ async function regionsSelfTest(view: MapView, catalog: string): Promise<void> {
   await api.probeReport(report);
 }
 
+/**
+ * Chooses `bbox` with real mouse events, as a user would: a drag first (must
+ * move the map, not set a corner), two corner clicks, then moving the finished
+ * rectangle by dragging inside it and back. Notes what happened in `report`.
+ */
+async function chooseArea(view: MapView, bbox: Bbox, report: Record<string, unknown>): Promise<void> {
+  const map = view.map;
+  const canvas = map.getCanvas();
+  const mouse = (type: string, x: number, y: number) => {
+    const box = canvas.getBoundingClientRect();
+    const init = { clientX: box.left + x, clientY: box.top + y, bubbles: true, button: 0, buttons: type === "mouseup" || type === "click" ? 0 : 1 };
+    canvas.dispatchEvent(new MouseEvent(type, init));
+  };
+  const drag = async (from: [number, number], to: [number, number]) => {
+    mouse("mousedown", ...from);
+    for (let i = 1; i <= 5; i++) {
+      mouse("mousemove", from[0] + ((to[0] - from[0]) * i) / 5, from[1] + ((to[1] - from[1]) * i) / 5);
+      await sleep(30);
+    }
+    mouse("mouseup", ...to);
+    mouse("click", ...to);
+    await sleep(300);
+  };
+  const click = async ([x, y]: [number, number]) => {
+    mouse("mousedown", x, y);
+    mouse("mouseup", x, y);
+    mouse("click", x, y);
+    await sleep(150);
+  };
+  const point = (lng: number, lat: number): [number, number] => {
+    const { x, y } = map.project([lng, lat]);
+    return [x, y];
+  };
+  const [w, s, e, n] = bbox;
+
+  map.jumpTo({ center: [(w + e) / 2, (s + n) / 2] });
+  const before = map.getCenter();
+  await drag([200, 200], [300, 260]);
+  report.drag_moved_map = map.getCenter().distanceTo(before) > 1;
+  report.drag_set_corner = view.isDrawingArea() || view.currentArea() !== null;
+
+  map.fitBounds([w, s, e, n], { padding: 60, duration: 0 });
+  await sleep(300);
+  await click(point(w, n));
+  report.after_first_click = text("build-hint");
+  await click(point(e, s));
+  const drawn = view.currentArea();
+  report.drawn_area = drawn?.map((v) => v.toFixed(3));
+
+  const centre = point((w + e) / 2, (s + n) / 2);
+  const mapBefore = map.getCenter();
+  await drag(centre, [centre[0] + 40, centre[1]]);
+  const moved = view.currentArea();
+  report.area_moved = drawn !== null && moved !== null && moved[0] > drawn[0] && moved[2] > drawn[2];
+  report.map_kept_still = map.getCenter().distanceTo(mapBefore) < 1;
+  await drag([centre[0] + 40, centre[1]], centre);
+  report.hint_with_area = text("build-hint");
+}
+
+function text(id: string): string {
+  return document.getElementById(id)?.textContent ?? "";
+}
+
 async function buildSelfTest(view: MapView, spec: string): Promise<void> {
   const el = (id: string) => document.getElementById(id) as HTMLElement;
   const text = (id: string) => el(id).textContent ?? "";
@@ -195,8 +258,7 @@ async function buildSelfTest(view: MapView, spec: string): Promise<void> {
     await until("build status", () => !(el("build-pick") as HTMLButtonElement).disabled || text("build-hint") !== "");
     report.hint_before = text("build-hint");
     el("build-pick").click();
-    view.showBounds(bbox);
-    view.setArea(bbox);
+    await chooseArea(view, bbox, report);
     const input = el("build-name") as HTMLInputElement;
     input.value = name;
     input.dispatchEvent(new Event("input"));

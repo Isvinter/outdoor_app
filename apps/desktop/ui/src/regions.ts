@@ -274,9 +274,11 @@ export class RegionsPanel {
     $("build-hint").textContent =
       this.status && this.status.missing.length > 0
         ? t("maps.build.missing", { list: this.status.missing.map(missingName).join(", ") })
-        : this.selecting && this.area === null
-          ? t("maps.build.pick_hint")
-          : "";
+        : !this.selecting
+          ? ""
+          : this.area === null
+            ? t(this.view.isDrawingArea() ? "maps.build.pick_second" : "maps.build.pick_hint")
+            : [t("maps.build.adjust_hint"), name === "" ? t("maps.build.name_hint") : ""].join(" ").trim();
   }
 
   private render(): void {
