@@ -37,6 +37,15 @@ in seiner `attribution.json`. Wer eine neue Region anlegt, trägt die zutreffend
 In der Testregion wird das Höhenmodell bis Zoom 13 ausgeliefert (etwa 6,5 m je Pixel); die
 1-m-Daten Bayerns sind darin also gemittelt.
 
+### In der App gebaute Regionen
+
+Die App wählt die OSM-Auszüge anhand der Umrisse im Geofabrik-Index
+(`https://download.geofabrik.de/index-v1.json`). Welche Landesämter die Höhendaten eines
+beliebigen Gebiets liefern, lässt sich nicht sicher automatisch ableiten; solche Regionen
+nennen deshalb Mapterhorn mit Verweis auf dessen Quellenliste
+(„Höhendaten: Mapterhorn und dessen Datenquellen – mapterhorn.com/attribution“) statt der
+Tabelle oben.
+
 ### Online-Karte
 
 Der Stil „OpenFreeMap (online)“ lädt gehostete OpenMapTiles-Kacheln von openfreemap.org

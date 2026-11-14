@@ -56,12 +56,14 @@ In der App:
 - **Tracks** – Liste, Statistik, Umbenennen, GPX-Import und -Export, Löschen. Liegt der Track
   in einer installierten Region, erscheinen zusätzlich Auf- und Abstieg mit Höhen aus dem
   Geländemodell („Gelände“) – GPS-Höhen rauschen; der Track selbst bleibt unverändert.
-- **Karten** – Kartenstil wählen, Legende, Katalog einstellen, Regionen herunterladen,
-  anzeigen und löschen (siehe [Offline-Karten](#offline-karten)).
+- **Karten** – Kartenstil wählen, Legende, neue Region auf der Karte wählen und bauen,
+  Katalog einstellen, Regionen herunterladen, anzeigen und löschen
+  (siehe [Offline-Karten](#offline-karten)).
 - **Über / Datenquellen** – Attribution der installierten Regionen und der Software.
 
 Die Daten liegen unter `~/.local/share/de.outdoor-app.desktop/`: Datenbank `outdoor.sqlite`,
-Kartenregionen in `regions/`.
+Kartenregionen in `regions/`, Beschreibungen der in der App gebauten Regionen in
+`region-defs/`, das Protokoll des letzten Baus je Region in `region-build/<id>/build.log`.
 
 | Umgebungsvariable | Wirkung |
 |---|---|
@@ -70,6 +72,9 @@ Kartenregionen in `regions/`.
 | `OUTDOOR_STARTUP_PROBE=1` | gibt aus, wann die Seite bereit und die Karte gezeichnet war, beendet die App |
 | `OUTDOOR_SELFTEST=<datei.gpx>` | bedient die Oberfläche selbst (Simulation, Start, Pause, Fortsetzen, Stopp), gibt das Ergebnis als JSON aus, beendet die App; `OUTDOOR_SELFTEST_SPEED=<faktor>` stellt das Tempo der Simulation ein (Standard 100) |
 | `OUTDOOR_SELFTEST_REGIONS=<katalog>` | lädt die erste Region des Katalogs über die Oberfläche, prüft die Karte, löscht die Region wieder, gibt das Ergebnis als JSON aus, beendet die App |
+| `OUTDOOR_SELFTEST_BUILD=<west>,<süd>,<ost>,<nord>;<name>` | wählt das Gebiet über die Oberfläche, baut und installiert es, gibt das Ergebnis als JSON aus, beendet die App |
+| `OUTDOOR_REPO=<ordner>` | Projektordner mit `scripts/build-region.sh` für „Region bauen“ (Standard: der Ordner, aus dem die App gebaut wurde) |
+| `OUTDOOR_BUILD_SCRIPT=<datei>` | anderes Bauskript (Tests, z. B. `crates/region-builder/tests/fixtures/fake-build.sh`) |
 | `OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>` | plant über die Oberfläche eine Wanderroute durch die Punkte, speichert sie, gibt das Ergebnis als JSON aus, beendet die App (zusammen mit `OUTDOOR_SNAPSHOT` zeigt das Bild die Route) |
 | `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt und `OUTDOOR_SNAPSHOT_STYLE=topo\|winter\|online` für einen Stil |
 
@@ -101,6 +106,25 @@ Weitere Schalter: `--config <datei>` nimmt die Beschreibung von dort, `--package
 schreibt das Paket nach `<ordner>/<id>/` (ohne den Katalog in `data/regions` zu ändern),
 `--refresh-osm` lädt die OSM-Auszüge neu. Jeder Schritt wird als
 `== step <name> (<n>/<gesamt>)` angekündigt.
+
+### Region in der App bauen
+
+Am Desktop geht das auch ohne Terminal, solange die App aus diesem Projektordner gebaut wurde
+und Docker, Java ≥ 21, python3, curl und cargo vorhanden sind (sonst nennt die App, was fehlt):
+
+1. **Karten → Neue Region → Gebiet auf Karte wählen.** Die Karte wechselt dafür auf den
+   Online-Stil. Rechteck aufziehen, danach an Ecken und Kanten anpassen.
+2. Namen eintragen. Die App zeigt Kantenlängen, geschätzte Paketgröße und wie viele
+   OSM-Auszüge sie lädt; die passenden Geofabrik-Auszüge sucht sie selbst, auch über
+   Ländergrenzen. Ab geschätzten 5 GB fragt sie nach.
+3. **Bauen.** Die Region steht mit „Schritt n/7“ in der Liste und lässt sich abbrechen; ein
+   neuer Versuch setzt bei den fertigen Schritten fort. Am Ende wird das Paket geprüft, in
+   `regions/` verschoben (nicht kopiert) und angezeigt.
+
+Selbst gebaute Regionen haben zusätzlich **Neu bauen** (frische OSM-Daten); **Löschen**
+entfernt auch ihre Beschreibung. Downloads und Zwischendateien teilt die App mit dem Skript
+(`data/` im Projektordner). Schlägt ein Bau fehl, zeigt die Liste die letzten Zeilen der
+Ausgabe; das ganze Protokoll liegt in `region-build/<id>/build.log`.
 
 ### Region in der App laden
 
@@ -217,6 +241,7 @@ Abweichung geprüft.
 | `crates/core-app` | Anwendungsdienste; einzige Schnittstelle für Oberflächen |
 | `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
 | `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
+| `crates/region-builder` | nur Desktop: Regionen in der App bauen – Beschreibung, Wahl der Geofabrik-Auszüge, Lauf des Bauskripts mit Fortschritt und Abbruch |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |
 | `regions/` | Beschreibungen der baubaren Regionen |

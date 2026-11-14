@@ -755,6 +755,16 @@ Bekannte Grenzen, die in Phase 1 bleiben:
 - Kein öffentlicher Katalog: Regionen werden lokal gebaut (Phase 3).
 - Die Oberfläche ist nur deutsch; die Texte liegen vollständig in `i18n/de.ts`.
 
+### Region in der App bauen (2026-11-14)
+
+Entwurf: `docs/superpowers/specs/2026-11-14-region-in-app-bauen-design.md`, Plan daneben unter
+`docs/superpowers/plans/`. Am Desktop wird ein Rechteck auf der Karte gewählt, benannt und
+gebaut; die App startet dafür `scripts/build-region.sh` (neue Schalter `--config`,
+`--package-dir`, `--refresh-osm`), wählt die Geofabrik-Auszüge selbst (`crates/region-builder`,
+nur Desktop) und installiert das Paket mit `RegionStore::install_local` (prüfen, verschieben).
+Nächster Schritt (Vorhaben 2): installierte Regionen im Heimnetz als Katalog freigeben, damit
+die mobilen Apps sie ohne Server laden.
+
 ## 11. Risiken
 
 | | Risiko | Einschätzung | Gegenmaßnahme |
