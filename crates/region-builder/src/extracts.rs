@@ -80,7 +80,7 @@ impl GeofabrikIndex {
                     Geometry::Other => return None,
                 };
                 let area_km2: f64 = polygons.iter().map(polygon_area_km2).sum();
-                (area_km2 > 0.0).then(|| Entry {
+                (area_km2 > 0.0).then_some(Entry {
                     extract: Extract {
                         id: feature.properties.id,
                         url,
