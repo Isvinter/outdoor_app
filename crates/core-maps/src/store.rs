@@ -237,6 +237,53 @@ impl RegionStore {
         self.activate(id, &staging)
     }
 
+    /// Installs a region package that was built on this machine: a directory
+    /// holding `manifest.json` and the files it lists. The files are verified
+    /// and then moved, not copied; afterwards the package directory is gone.
+    /// A package that fails verification is left untouched.
+    pub fn install_local(&self, package: &Path) -> Result<InstalledRegion, MapsError> {
+        let manifest_path = package.join(MANIFEST);
+        let manifest_json =
+            fs::read_to_string(&manifest_path).map_err(MapsError::io(&manifest_path))?;
+        let manifest = RegionManifest::parse(&manifest_json, &manifest_path.to_string_lossy())?;
+        let id = manifest.id.as_str();
+        let _guard = BusyGuard::acquire(&self.busy, id)?;
+
+        for file in &manifest.files {
+            let path = package.join(&file.name);
+            let len = fs::metadata(&path).map_err(MapsError::io(&path))?.len();
+            if len != file.size || sha256_of(&path)? != file.sha256 {
+                return Err(MapsError::Checksum {
+                    region: id.to_string(),
+                    file: file.name.clone(),
+                });
+            }
+        }
+
+        let staging = self.dir.join(STAGING).join(id);
+        if staging.exists() {
+            fs::remove_dir_all(&staging).map_err(MapsError::io(&staging))?;
+        }
+        fs::create_dir_all(&staging).map_err(MapsError::io(&staging))?;
+        for name in manifest
+            .files
+            .iter()
+            .map(|file| file.name.as_str())
+            .chain([MANIFEST])
+        {
+            let target = staging.join(name);
+            move_file(&package.join(name), &target, |from, to| {
+                fs::rename(from, to)
+            })
+            .map_err(MapsError::io(&target))?;
+        }
+        // Whatever else the build left there (notes, logs) is not part of the region.
+        let _ = fs::remove_dir_all(package);
+
+        drop(load_region(&staging)?);
+        self.activate(id, &staging)
+    }
+
     /// Moves a verified download into place, replacing an older version.
     fn activate(&self, id: &str, staging: &Path) -> Result<InstalledRegion, MapsError> {
         let target = self.dir.join(id);
@@ -471,6 +518,20 @@ fn prepare_staging(staging: &Path, manifest_json: &str) -> Result<(), MapsError>
     fs::write(&manifest_path, manifest_json).map_err(MapsError::io(&manifest_path))
 }
 
+/// Moves a file; copies and deletes where renaming is impossible, as it is
+/// across file systems.
+fn move_file(
+    from: &Path,
+    to: &Path,
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    if rename(from, to).is_ok() {
+        return Ok(());
+    }
+    fs::copy(from, to)?;
+    fs::remove_file(from)
+}
+
 fn part_path(staging: &Path, name: &str) -> PathBuf {
     staging.join(format!("{name}.part"))
 }
@@ -553,4 +614,27 @@ fn tile_bounds(z: u8, x: u32, y: u32) -> Option<[f64; 4]> {
 
 fn intersects(a: &[f64; 4], b: &[f64; 4]) -> bool {
     a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3]
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn move_file_copies_when_rename_fails() {
+        let dir = std::env::temp_dir().join(format!("core-maps-move-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        fs::write(&from, b"tile").unwrap();
+
+        move_file(&from, &to, |_, _| {
+            Err(std::io::ErrorKind::CrossesDevices.into())
+        })
+        .unwrap();
+
+        assert_eq!(fs::read(&to).unwrap(), b"tile");
+        assert!(!from.exists());
+    }
 }

@@ -457,3 +457,85 @@ fn routing_tiles_are_found_for_points_inside_one_region() {
     install(&plain, &source()).unwrap();
     assert!(plain.routing_tiles(&[(47.575, 11.55)]).is_none());
 }
+
+#[test]
+fn local_package_is_installed_and_moved() {
+    let package = catalog_copy("local-pkg").join("mini");
+    let store = RegionStore::open(&temp_dir("local")).unwrap();
+
+    let region = store.install_local(&package).unwrap();
+
+    assert_eq!(region.manifest.id, "mini");
+    assert_eq!(region.bytes, REGION_SIZE);
+    let tile = store.tile(Layer::Outdoor, 13, 4358, 2862).unwrap().unwrap();
+    assert_eq!(sha256_hex(&tile.data), OUTDOOR_TILE_SHA);
+    assert!(!package.exists(), "the package was moved, not copied");
+}
+
+#[test]
+fn local_package_with_wrong_checksum_is_rejected() {
+    use std::io::Write;
+    let package = catalog_copy("local-bad-pkg").join("mini");
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(package.join("basemap.pmtiles"))
+        .unwrap()
+        .write_all(b"x")
+        .unwrap();
+    let store = RegionStore::open(&temp_dir("local-bad")).unwrap();
+
+    let result = store.install_local(&package);
+
+    assert!(
+        matches!(result, Err(MapsError::Checksum { .. })),
+        "{result:?}"
+    );
+    assert!(store.installed().is_empty());
+    assert!(package.join("basemap.pmtiles").is_file());
+    assert!(package.join("manifest.json").is_file());
+}
+
+#[test]
+fn local_package_replaces_installed_region() {
+    let store = RegionStore::open(&temp_dir("local-replace")).unwrap();
+    install(&store, &source()).unwrap();
+    let package = catalog_copy("local-replace-pkg").join("mini");
+    let manifest = std::fs::read_to_string(package.join("manifest.json")).unwrap();
+    let old_version = store.installed()[0].manifest.version.clone();
+    assert!(manifest.contains(&old_version));
+    std::fs::write(
+        package.join("manifest.json"),
+        manifest.replace(&old_version, "209901010000"),
+    )
+    .unwrap();
+
+    store.install_local(&package).unwrap();
+
+    let installed = store.installed();
+    assert_eq!(installed.len(), 1);
+    assert_eq!(installed[0].manifest.version, "209901010000");
+    assert!(store.tile(Layer::Basemap, 0, 0, 0).unwrap().is_some());
+}
+
+#[test]
+fn local_install_ignores_leftovers_in_staging() {
+    let dir = temp_dir("local-leftover");
+    let staging = dir.join(".staging").join("mini");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::write(staging.join("junk.part"), b"junk").unwrap();
+    let store = RegionStore::open(&dir).unwrap();
+
+    store
+        .install_local(&catalog_copy("local-leftover-pkg").join("mini"))
+        .unwrap();
+
+    assert!(!dir.join("mini").join("junk.part").exists());
+    assert!(dir.join("mini").join("basemap.pmtiles").is_file());
+}
+
+#[test]
+fn local_package_without_manifest_is_an_error() {
+    let store = RegionStore::open(&temp_dir("local-empty")).unwrap();
+    let result = store.install_local(&temp_dir("local-empty-pkg"));
+    assert!(matches!(result, Err(MapsError::Io { .. })), "{result:?}");
+}
