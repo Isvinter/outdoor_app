@@ -262,9 +262,12 @@ impl FixSink for SinkAdapter {
 
 impl App {
     /// Opens the database at `db_path`, creating or migrating it as needed.
-    /// Map regions are kept in the directory `regions` next to the database.
+    /// Map regions are kept in the directory `regions` next to the database,
+    /// definitions of regions built on this device in `region-defs`.
     pub fn open(db_path: &Path, listener: Arc<dyn AppListener>) -> Result<Self, AppError> {
-        let regions_dir = db_path.parent().unwrap_or(Path::new(".")).join("regions");
+        let data_dir = db_path.parent().unwrap_or(Path::new("."));
+        let regions_dir = data_dir.join("regions");
+        let definitions_dir = data_dir.join("region-defs");
         let inner = Inner {
             storage: Storage::open(db_path)?,
             last_fix: None,
@@ -273,7 +276,7 @@ impl App {
         Ok(Self {
             shared: Arc::new(Shared {
                 inner: Mutex::new(inner),
-                maps: crate::regions::Maps::open(&regions_dir)?,
+                maps: crate::regions::Maps::open(&regions_dir, &definitions_dir)?,
                 routing: crate::routes::Routing::default(),
                 source: Mutex::new(None),
                 listener,

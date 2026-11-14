@@ -1,13 +1,14 @@
 //! Offline map regions: what the catalog offers, what is installed, downloads.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use core_maps::{DefaultFetcher, InstalledRegion, Layer, MapsError, Progress, RegionStore, Tile};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::AppError;
 use crate::app::{App, now_ms};
@@ -23,11 +24,15 @@ pub(crate) struct Maps {
     fetcher: DefaultFetcher,
     /// Cancel flags of the downloads in progress, by region id.
     downloads: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Directory with the definitions (`<id>.json`) of regions that can be
+    /// built on this device. The desktop writes them; nothing does on mobile.
+    definitions: PathBuf,
 }
 
 impl Maps {
-    pub(crate) fn open(dir: &Path) -> Result<Self, MapsError> {
+    pub(crate) fn open(dir: &Path, definitions: &Path) -> Result<Self, MapsError> {
         Ok(Maps {
+            definitions: definitions.to_path_buf(),
             store: RegionStore::open(dir)?,
             fetcher: DefaultFetcher::new(),
             downloads: Mutex::default(),
@@ -38,6 +43,27 @@ impl Maps {
         &self.store
     }
 
+    fn definition_path(&self, id: &str) -> PathBuf {
+        self.definitions.join(format!("{id}.json"))
+    }
+
+    /// The regions that have a definition. Files that cannot be read as one
+    /// are skipped.
+    fn defined(&self) -> Vec<Definition> {
+        let Ok(entries) = fs::read_dir(&self.definitions) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let definition: Definition =
+                    serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()?;
+                // The file name is what a build is started with.
+                (path == self.definition_path(&definition.id)).then_some(definition)
+            })
+            .collect()
+    }
+
     fn downloads(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
         self.downloads
             .lock()
@@ -45,9 +71,19 @@ impl Maps {
     }
 }
 
+/// The part of a region definition the region list shows.
+#[derive(Deserialize)]
+struct Definition {
+    id: String,
+    name: String,
+    bbox: [f64; 4],
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RegionState {
+    /// Defined on this device, but not built yet (or the build did not finish).
+    NotBuilt,
     /// In the catalog, not on this device.
     Available,
     /// On this device and up to date (or the catalog does not list it).
@@ -71,6 +107,8 @@ pub struct RegionInfo {
     pub version: String,
     pub installed_version: Option<String>,
     pub state: RegionState,
+    /// This device has the definition of the region and can build it.
+    pub buildable: bool,
 }
 
 /// Everything the region list needs.
@@ -157,6 +195,7 @@ impl App {
                 version: manifest.version.clone(),
                 installed_version: Some(manifest.version),
                 state: RegionState::Installed,
+                buildable: false,
             };
             regions.insert(manifest.id, info);
         }
@@ -177,10 +216,26 @@ impl App {
                         version: entry.version,
                         installed_version: None,
                         state: RegionState::Available,
+                        buildable: false,
                     };
                     regions.insert(entry.id, info);
                 }
             }
+        }
+        for definition in maps.defined() {
+            regions
+                .entry(definition.id.clone())
+                .or_insert(RegionInfo {
+                    id: definition.id,
+                    name: definition.name,
+                    bbox: definition.bbox,
+                    size: 0,
+                    version: String::new(),
+                    installed_version: None,
+                    state: RegionState::NotBuilt,
+                    buildable: false,
+                })
+                .buildable = true;
         }
         for info in regions
             .values_mut()
@@ -240,10 +295,31 @@ impl App {
         }
     }
 
-    /// Removes an installed region from this device.
+    /// Installs a region package built on this device (a directory with
+    /// `manifest.json` and its files). The package is moved, not copied.
+    pub fn install_local_region(&self, package: &Path) -> Result<InstalledRegion, AppError> {
+        let region = self.shared.maps.store.install_local(package)?;
+        // A rebuild replaced the routing data the open router reads.
+        self.shared.routing.forget_region(&region.manifest.id);
+        Ok(region)
+    }
+
+    /// Removes an installed region from this device, and its definition if it
+    /// was defined here. A region that was defined but never built only loses
+    /// the definition.
     pub fn delete_region(&self, id: &str) -> Result<(), AppError> {
+        let maps = &self.shared.maps;
         self.shared.routing.forget_region(id);
-        Ok(self.shared.maps.store.delete(id)?)
+        let defined = maps.defined().iter().any(|definition| definition.id == id);
+        match maps.store.delete(id) {
+            Err(MapsError::NotInstalled(_)) if defined => {}
+            result => result?,
+        }
+        if defined {
+            let path = maps.definition_path(id);
+            fs::remove_file(&path).map_err(|source| MapsError::Io { path, source })?;
+        }
+        Ok(())
     }
 
     /// A map tile from the installed regions; `None` if no region covers it.

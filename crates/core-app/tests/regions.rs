@@ -188,3 +188,110 @@ fn cancelling_without_a_download_is_harmless() {
     let (app, _, _) = open("cancel");
     app.cancel_region_download("mini");
 }
+
+/// Writes a region definition next to the database, as the desktop does for
+/// regions chosen on the map.
+fn define(db: &std::path::Path, id: &str, json: &str) -> PathBuf {
+    let dir = db.parent().unwrap().join("region-defs");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{id}.json"));
+    std::fs::write(&path, json).unwrap();
+    path
+}
+
+const MINI_DEFINITION: &str = r#"{"id": "mini", "name": "Sylvenstein (selbst gebaut)", "bbox": [11.54, 47.57, 11.56, 47.58], "osm": []}"#;
+
+/// A copy of the fixture region, as a freshly built package.
+fn package(name: &str) -> PathBuf {
+    let dir = temp_db(name).parent().unwrap().join("mini");
+    std::fs::create_dir_all(&dir).unwrap();
+    let fixture = PathBuf::from(fixtures()).join("mini");
+    for entry in std::fs::read_dir(fixture).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), dir.join(entry.file_name())).unwrap();
+    }
+    dir
+}
+
+#[test]
+fn defined_region_is_listed_as_not_built() {
+    let (app, _, db) = open("defined");
+    define(&db, "mini", MINI_DEFINITION);
+
+    let overview = app.regions().unwrap();
+
+    assert_eq!(overview.regions.len(), 1);
+    let region = &overview.regions[0];
+    assert_eq!(region.id, "mini");
+    assert_eq!(region.name, "Sylvenstein (selbst gebaut)");
+    assert_eq!(region.bbox, [11.54, 47.57, 11.56, 47.58]);
+    assert_eq!(region.state, RegionState::NotBuilt);
+    assert_eq!(region.size, 0);
+    assert!(region.buildable);
+    assert_eq!(overview.installed_bounds, None);
+}
+
+#[test]
+fn local_package_is_installed() {
+    let (app, _, db) = open("local");
+    define(&db, "mini", MINI_DEFINITION);
+
+    let installed = app.install_local_region(&package("local-pkg")).unwrap();
+
+    assert_eq!(installed.manifest.id, "mini");
+    let overview = app.regions().unwrap();
+    assert_eq!(overview.regions.len(), 1);
+    assert_eq!(overview.regions[0].state, RegionState::Installed);
+    assert!(overview.regions[0].buildable);
+    assert!(app.map_tile(Layer::Basemap, 0, 0, 0).unwrap().is_some());
+}
+
+#[test]
+fn region_without_definition_is_not_buildable() {
+    let (app, _, _) = open("not-buildable");
+    app.set_catalog_source(&fixtures()).unwrap();
+    assert!(!app.regions().unwrap().regions[0].buildable);
+    app.install_region("mini").unwrap();
+    assert!(!app.regions().unwrap().regions[0].buildable);
+}
+
+#[test]
+fn deleting_removes_the_definition() {
+    let (app, _, db) = open("delete-def");
+    let definition = define(&db, "mini", MINI_DEFINITION);
+    app.install_local_region(&package("delete-def-pkg"))
+        .unwrap();
+
+    app.delete_region("mini").unwrap();
+
+    assert!(!definition.exists());
+    assert!(app.regions().unwrap().regions.is_empty());
+}
+
+#[test]
+fn deleting_a_region_that_was_never_built_removes_its_definition() {
+    let (app, _, db) = open("delete-unbuilt");
+    let definition = define(&db, "mini", MINI_DEFINITION);
+
+    app.delete_region("mini").unwrap();
+
+    assert!(!definition.exists());
+    assert!(matches!(
+        app.delete_region("mini"),
+        Err(AppError::Maps(core_maps::MapsError::NotInstalled(_)))
+    ));
+}
+
+#[test]
+fn broken_definitions_are_ignored() {
+    let (app, _, db) = open("broken-def");
+    define(&db, "broken", "{");
+    define(
+        &db,
+        "other",
+        r#"{"id": "mismatch", "name": "x", "bbox": [1, 2, 3, 4]}"#,
+    );
+    define(&db, "nobox", r#"{"id": "nobox", "name": "x"}"#);
+    std::fs::write(db.parent().unwrap().join("region-defs/notes.txt"), "x").unwrap();
+    assert!(app.regions().unwrap().regions.is_empty());
+}
