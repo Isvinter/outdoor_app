@@ -19,14 +19,21 @@ struct MapStatus {
 }
 
 extension XCUIApplication {
-    /// Starts the app in self-test mode without regions, or with the fixture `mini`.
-    static func selftest(withMini: Bool, beforeLaunch: (XCUIApplication) -> Void = { _ in }) -> XCUIApplication {
+    /// Starts the app in self-test mode without regions, or with a fixture
+    /// (`mini`, or `mini-contours` with contour lines), at zoom 11 or `zoom`.
+    static func selftest(
+        withMini: Bool, fixture: String = "mini", zoom: Double? = nil,
+        beforeLaunch: (XCUIApplication) -> Void = { _ in }
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         beforeLaunch(app)
         app.launchArguments = ["-selftest", "-resetData"]
-        if withMini, let mini = Bundle(for: MapUITests.self).url(forResource: "mini", withExtension: nil) {
+        if withMini, let package = Bundle(for: MapUITests.self).url(forResource: fixture, withExtension: nil) {
             // The simulator shares the Mac's file system, so the app can copy from here.
-            app.launchArguments += ["-importFixture", mini.path]
+            app.launchArguments += ["-importFixture", package.path]
+        }
+        if let zoom {
+            app.launchArguments += ["-startZoom", String(zoom)]
         }
         app.launch()
         return app
@@ -82,6 +89,32 @@ final class MapUITests: XCTestCase {
         let hint = app.staticTexts["no-region-hint"]
         XCTAssertTrue(hint.exists)
         XCTAssertTrue(hint.label.contains("Noch keine Region installiert"))
+    }
+
+    /// The package brings contour lines: the map draws them, in both styles.
+    func testContoursRendered() throws {
+        let app = XCUIApplication.selftest(withMini: true, fixture: "mini-contours", zoom: 13)
+
+        let summer = app.waitForStatus("contour lines drawn") { $0.rendered && $0.int("contours") > 0 }
+        XCTAssertEqual(summer.int("regions"), 1)
+        XCTAssertEqual(summer.int("failed"), 0)
+        XCTAssertEqual(try XCTUnwrap(summer.double("zoom")), 13, accuracy: 0.01)
+
+        app.buttons["base-winter"].tap()
+        let winter = app.waitForStatus("contour lines drawn in winter") {
+            $0.values["base"] == "topo-winter" && $0.rendered && $0.int("contours") > 0
+        }
+        XCTAssertEqual(winter.int("failed"), 0)
+    }
+
+    /// A package without contour lines still works; the map just has none.
+    func testNoContoursWithoutContourTiles() {
+        let app = XCUIApplication.selftest(withMini: true, zoom: 13)
+
+        let status = app.waitForStatus("map rendered") { $0.rendered && $0.values["contours"] != nil }
+
+        XCTAssertEqual(status.int("contours"), 0)
+        XCTAssertEqual(status.int("failed"), 0)
     }
 
     private func switchTo(_ base: String, in app: XCUIApplication) -> MapStatus {

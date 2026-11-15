@@ -45,7 +45,7 @@ private struct RootView: View {
         }.value
         switch result {
         case .success(let start):
-            phase = .ready(start, MapController(core: start.host.core, bounds: start.bounds))
+            phase = .ready(start, MapController(core: start.host.core, bounds: start.bounds, zoom: start.options.startZoom ?? 11))
         case .failure(let error):
             phase = .failed(describe(error))
         }

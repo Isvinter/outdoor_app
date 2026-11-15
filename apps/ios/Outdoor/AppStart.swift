@@ -10,6 +10,8 @@ enum AppStart {
         var resetData = false
         /// `-importFixture <folder>`: a region package to copy to `Documents/Import` first.
         var importFixture: String?
+        /// `-startZoom <zoom>`: the zoom the map starts at.
+        var startZoom: Double?
 
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             guard arguments.contains("-selftest") else { return }
@@ -19,6 +21,9 @@ enum AppStart {
             resetData = arguments.contains("-resetData")
             if let flag = arguments.firstIndex(of: "-importFixture"), flag + 1 < arguments.count {
                 importFixture = arguments[flag + 1]
+            }
+            if let flag = arguments.firstIndex(of: "-startZoom"), flag + 1 < arguments.count {
+                startZoom = Double(arguments[flag + 1])
             }
             #endif
         }

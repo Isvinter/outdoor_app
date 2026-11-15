@@ -42,7 +42,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     /// Where the map starts while no region is installed (as on the desktop).
     private static let fallbackCentre = CLLocationCoordinate2D(latitude: 47.68, longitude: 11.57)
 
-    init(core: CoreApp, bounds: [Double]?) {
+    init(core: CoreApp, bounds: [Double]?, zoom: Double = 11) {
         self.core = core
         mapView = MLNMapView(frame: .zero)
         super.init()
@@ -53,7 +53,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         if let bounds, bounds.count == 4 {
             centre = CLLocationCoordinate2D(latitude: (bounds[1] + bounds[3]) / 2, longitude: (bounds[0] + bounds[2]) / 2)
         }
-        mapView.setCenter(centre, zoomLevel: 11, animated: false)
+        mapView.setCenter(centre, zoomLevel: zoom, animated: false)
         show(.summer)
         locationManager.delegate = self
         showLocationIfAllowed()
@@ -156,6 +156,14 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     /// The opacity the map really draws the slope shading with; for the self-test.
     var slopeOpacityOnMap: Double? {
         (slopeLayer?.rasterOpacity.constantValue as? NSNumber)?.doubleValue
+    }
+
+    /// How many contour lines the map shows at the moment; for the self-test.
+    /// Zero as well when the installed regions bring no contour lines.
+    var contoursOnMap: Int {
+        let layers = Set(["contour-minor", "contour-major"].filter { mapView.style?.layer(withIdentifier: $0) != nil })
+        guard !layers.isEmpty else { return 0 }
+        return mapView.visibleFeatures(in: mapView.bounds, styleLayerIdentifiers: layers).count
     }
 
     private func fail(_ error: Error) {
