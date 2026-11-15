@@ -53,6 +53,27 @@ final class RegionImportTests: XCTestCase {
         XCTAssertEqual(try sandbox.host.core.overview().regions.count, 1)
     }
 
+    /// The files of a package may lie in `Import` itself instead of a folder of their own.
+    func testImportOfFilesDirectlyInImportFolder() throws {
+        let folder = try sandbox.stageMini()
+        for file in try FileManager.default.contentsOfDirectory(atPath: folder.path) {
+            try FileManager.default.moveItem(
+                at: folder.appendingPathComponent(file), to: sandbox.host.importDirectory.appendingPathComponent(file))
+        }
+        try FileManager.default.removeItem(at: folder)
+
+        let results = sandbox.host.importPendingRegions()
+
+        XCTAssertEqual(results.count, 1)
+        guard case .installed(let region) = try XCTUnwrap(results.first) else {
+            return XCTFail("not installed: \(results)")
+        }
+        XCTAssertEqual(region.id, "mini")
+        XCTAssertEqual(try sandbox.host.core.overview().regions.count, 1)
+        // The folder is there again, empty, for the next package.
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: sandbox.host.importDirectory.path), [])
+    }
+
     func testBrokenImportReportsErrorAndKeepsFolder() throws {
         let folder = try sandbox.stageMini()
         let basemap = try FileHandle(forWritingTo: folder.appendingPathComponent("basemap.pmtiles"))

@@ -94,6 +94,7 @@ private struct SelfTestStatus: View {
         if let slope = controller.slopeOpacityOnMap {
             parts.append(String(format: "slope=%.2f", slope))
         }
+        parts.append("import_failed=\(start.failedImports.count)")
         parts.append(String(format: "import_ms=%.0f", start.importSeconds * 1000))
         if let rendered = controller.firstRenderedAfter {
             parts.append(String(format: "rendered_ms=%.0f", rendered * 1000))

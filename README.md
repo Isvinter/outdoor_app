@@ -239,8 +239,8 @@ muss der Entwickler einmal unter Einstellungen → Allgemein → VPN & Geräteve
 werden.
 
 **Region aufs iPhone bringen:** Das iPhone anschließen und im Finder unter dem Gerät →
-Dateien → Outdoor den Regionsordner (mit `manifest.json` und den `.pmtiles`) in den Ordner
-`Import` ziehen. Das geht auch in der App „Dateien“ unter Auf meinem iPhone → Outdoor → Import.
+Dateien → Outdoor den Regionsordner (mit `manifest.json` und allen dort genannten Dateien)
+in den Ordner `Import` ziehen, oder die Dateien direkt hinein. Das geht auch in der App „Dateien“ unter Auf meinem iPhone → Outdoor → Import.
 Dann die App neu starten: Sie prüft die Dateien, installiert die Region und entfernt den
 Ordner. Schlägt die Prüfung fehl, meldet die App das, und der Ordner bleibt liegen.
 

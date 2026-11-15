@@ -102,15 +102,20 @@ Stand 2026-11-15, MacBook Air (Xcode 27.2), MapLibre Native 7.0.0, Release-Build
 | App-Größe (Release, arm64, unkomprimiert, ohne Regionen) | 14 MB: 7,9 MB MapLibre, 5,0 MB Programm mit Rust-Kern, 1,4 MB Schriften |
 | Simulator (iPhone 17, iOS 27.2), Region `mini` (0,8 MB): Import | 5 ms |
 | Simulator, Region `mini`: App-Start bis Karte vollständig gezeichnet | 290–320 ms (3 Läufe) |
-| iPhone 13 Pro Max, `isarwinkel-achensee`: Import | offen |
-| iPhone 13 Pro Max, `isarwinkel-achensee`: App-Start bis Karte gezeichnet | offen |
+| iPhone 13 Pro Max (iOS 27.2), `isarwinkel-achensee` (107 MB): Import | 92 ms |
+| iPhone, `isarwinkel-achensee`: erster Start mit Import bis Karte vollständig gezeichnet | 1 205 ms |
+| iPhone, `isarwinkel-achensee`: weitere Starts bis Karte gezeichnet | 162–174 ms (3 Läufe) |
+| iPhone, ohne Region: Start bis Hintergrund gezeichnet | 154 ms |
 
 - Gemessen ab dem Start des App-Codes (`OutdoorApp.init`), nicht ab dem Antippen des Symbols.
 - Die Werte liefert der Selbsttest:
   `xcrun devicectl device process launch --console --device <id> de.zeibig.outdoor -- -selftest`
   schreibt nach dem ersten vollständigen Bild eine Zeile mit `import_ms` und `rendered_ms`.
-- Die iPhone-Werte stehen aus: Die App ist installiert, ließ sich aber nicht starten, weil
-  das Gerät gesperrt war, und das Regionspaket liegt noch auf dem Linux-Rechner.
+- Der Import prüft die SHA-256-Summen aller Dateien (rund 1 GB/s) und verschiebt sie dann
+  nur. Für das erste Bild holte die Karte 23 Kacheln und Schriftbereiche aus dem Kern.
+- **Befund:** Das Paket lag zuerst direkt in `Import` statt in einem Unterordner, und die App
+  übersah es. Sie nimmt jetzt beides. Danach lehnte sie das Paket zu Recht ab, weil die im
+  Manifest genannte `routing.tar` fehlte; mit der Datei lief der Import durch.
 
 ## Rohdaten
 

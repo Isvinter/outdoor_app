@@ -50,18 +50,22 @@ final class CoreHost {
         core = try CoreApp.open(dataDir: dataDirectory.path, listener: LogListener())
     }
 
-    /// Installs every folder in `Documents/Import` that holds a `manifest.json`.
-    /// The core verifies and moves the files and removes the folder; a package
-    /// it rejects stays where it is, to be fixed.
+    /// Installs every folder in `Documents/Import` that holds a `manifest.json`,
+    /// and a package whose files lie in `Import` itself. The core verifies and
+    /// moves the files and removes the folder; a package it rejects stays where
+    /// it is, to be fixed.
     func importPendingRegions() -> [ImportResult] {
         let files = FileManager.default
         // Also makes the folder show up in the Files app before the first import.
         try? files.createDirectory(at: importDirectory, withIntermediateDirectories: true)
-        let folders = (try? files.contentsOfDirectory(
+        defer { try? files.createDirectory(at: importDirectory, withIntermediateDirectories: true) }
+        var folders = (try? files.contentsOfDirectory(
             at: importDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        folders = folders.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        // Last, because the core removes the folder of an installed package.
+        folders.append(importDirectory)
         return folders
             .filter { files.fileExists(atPath: $0.appendingPathComponent("manifest.json").path) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .map { folder in
                 do {
                     return .installed(try core.installLocalRegion(packageDir: folder.path))
