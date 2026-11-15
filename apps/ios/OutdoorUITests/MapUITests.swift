@@ -79,4 +79,57 @@ final class MapUITests: XCTestCase {
         XCTAssertTrue(hint.exists)
         XCTAssertTrue(hint.label.contains("Noch keine Region installiert"))
     }
+
+    private func switchTo(_ base: String, in app: XCUIApplication) -> MapStatus {
+        app.buttons["base-\(base)"].tap()
+        return app.waitForStatus("\(base) map rendered") { $0.values["base"] == "topo-\(base)" && $0.rendered }
+    }
+
+    func testSwitchToWinterShowsSlopeSlider() {
+        let app = XCUIApplication.selftest(withMini: true)
+        app.waitForStatus("map rendered") { $0.rendered }
+        let slider = app.sliders["slope-opacity"]
+        XCTAssertFalse(slider.exists)
+
+        let winter = switchTo("winter", in: app)
+        XCTAssertEqual(winter.int("failed"), 0)
+        XCTAssertTrue(slider.exists)
+
+        let summer = switchTo("summer", in: app)
+        XCTAssertEqual(summer.int("failed"), 0)
+        XCTAssertFalse(slider.exists)
+    }
+
+    /// The fixture has no slope tiles: the winter map still loads, its slope layer stays empty.
+    func testWinterWithoutSlopeTiles() {
+        let app = XCUIApplication.selftest(withMini: true)
+        app.waitForStatus("map rendered") { $0.rendered }
+
+        let winter = switchTo("winter", in: app)
+
+        XCTAssertEqual(winter.int("failed"), 0)
+        XCTAssertEqual(try XCTUnwrap(winter.double("slope")), 0.6, accuracy: 0.001)
+    }
+
+    func testSlopeOpacityDrag() throws {
+        let app = XCUIApplication.selftest(withMini: true)
+        app.waitForStatus("map rendered") { $0.rendered }
+        _ = switchTo("winter", in: app)
+
+        let slider = app.sliders["slope-opacity"]
+        slider.adjust(toNormalizedSliderPosition: 0.2)
+
+        // XCUITest drags only roughly to the position; the layer has to follow the slider exactly.
+        let position = Double(slider.normalizedSliderPosition)
+        XCTAssertEqual(position, 0.2, accuracy: 0.1)
+        let dragged = app.waitForStatus("slope opacity follows the slider", timeout: 5) {
+            abs(($0.double("slope") ?? -1) - position) <= 0.02
+        }
+        XCTAssertEqual(dragged.int("failed"), 0)
+
+        // The opacity survives a change of style.
+        _ = switchTo("summer", in: app)
+        let back = switchTo("winter", in: app)
+        XCTAssertEqual(try XCTUnwrap(back.double("slope")), try XCTUnwrap(dragged.double("slope")), accuracy: 0.001)
+    }
 }

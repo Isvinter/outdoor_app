@@ -10,6 +10,11 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     @Published private(set) var base: MapBase = .summer
     /// True once the current style is drawn completely.
     @Published private(set) var rendered = false
+    /// How strongly the slope shading of the winter map shows, 0…1. Kept across
+    /// style changes and set again after each, because a style starts with its own.
+    @Published var slopeOpacity = 0.6 {
+        didSet { applySlopeOpacity() }
+    }
     /// A failure worth telling the user, in German.
     @Published var message: String?
     /// Styles that could not be loaded; for the self-test.
@@ -45,6 +50,19 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         }
     }
 
+    private var slopeLayer: MLNRasterStyleLayer? {
+        mapView.style?.layer(withIdentifier: "slope") as? MLNRasterStyleLayer
+    }
+
+    private func applySlopeOpacity() {
+        slopeLayer?.rasterOpacity = NSExpression(forConstantValue: slopeOpacity)
+    }
+
+    /// The opacity the map really draws the slope shading with; for the self-test.
+    var slopeOpacityOnMap: Double? {
+        (slopeLayer?.rasterOpacity.constantValue as? NSNumber)?.doubleValue
+    }
+
     private func fail(_ error: Error) {
         loadFailures += 1
         message = "Die Karte konnte nicht geladen werden: \(error.localizedDescription)"
@@ -54,6 +72,11 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
         styleLoaded = true
+        applySlopeOpacity()
+    }
+
+    func mapView(_ mapView: MLNMapView, didFailToLoadImage imageName: String) -> UIImage? {
+        Icons.image(named: imageName)
     }
 
     func mapViewDidFinishRenderingMap(_ mapView: MLNMapView, fullyRendered: Bool) {

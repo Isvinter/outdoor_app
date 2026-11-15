@@ -9,6 +9,7 @@ struct MapScreen: View {
             MapView(controller: controller)
                 .ignoresSafeArea()
             VStack(spacing: 8) {
+                MapToolbar(controller: controller)
                 if start.regions.isEmpty {
                     Notice(text: "Noch keine Region installiert. Lege einen Regionsordner per Finder unter "
                         + "Dateien → Outdoor → Import ab und starte die App neu.")
@@ -67,12 +68,16 @@ private struct SelfTestStatus: View {
 
     private var status: String {
         let stats = TileURLProtocol.stats
-        return [
+        var parts = [
             "rendered=\(controller.rendered ? 1 : 0)",
             "served=\(stats.served)",
             "failed=\(stats.failed + controller.loadFailures)",
             "base=\(controller.base.rawValue)",
             "regions=\(start.regions.count)",
-        ].joined(separator: " ")
+        ]
+        if let slope = controller.slopeOpacityOnMap {
+            parts.append(String(format: "slope=%.2f", slope))
+        }
+        return parts.joined(separator: " ")
     }
 }
