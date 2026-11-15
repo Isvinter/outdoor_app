@@ -29,6 +29,8 @@ pub enum MapsError {
     Busy(String),
     #[error("the download was cancelled")]
     Cancelled,
+    #[error("invalid map style: {0}")]
+    Style(String),
 }
 
 impl MapsError {
@@ -45,6 +47,7 @@ impl MapsError {
             MapsError::NotInstalled(_) => "region_not_installed",
             MapsError::Busy(_) => "region_busy",
             MapsError::Cancelled => "region_cancelled",
+            MapsError::Style(_) => "map_style",
         }
     }
 
