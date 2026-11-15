@@ -47,7 +47,7 @@ private struct RootView: View {
         case .success(let start):
             phase = .ready(start, MapController(core: start.host.core, bounds: start.bounds))
         case .failure(let error):
-            phase = .failed(error.localizedDescription)
+            phase = .failed(describe(error))
         }
     }
 }

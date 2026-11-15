@@ -14,10 +14,13 @@ enum AppStart {
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             guard arguments.contains("-selftest") else { return }
             selftest = true
+            // Wiping the data is for the UI tests only, never for a released app.
+            #if DEBUG
             resetData = arguments.contains("-resetData")
             if let flag = arguments.firstIndex(of: "-importFixture"), flag + 1 < arguments.count {
                 importFixture = arguments[flag + 1]
             }
+            #endif
         }
     }
 

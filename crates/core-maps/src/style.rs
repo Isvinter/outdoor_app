@@ -45,6 +45,9 @@ pub fn offline_style(style_json: &str, options: &StyleOptions) -> Result<String,
     if let Some(Value::Object(metadata)) = root.get_mut("metadata") {
         metadata.remove("placeholders");
     }
+    if let Some(Value::String(glyphs)) = root.get_mut("glyphs") {
+        *glyphs = glyphs.replace("__FONTS__", &format!("{}fonts/", options.tiles_base));
+    }
     let Some(bounds) = options.bounds else {
         root.insert("sources".into(), json!({}));
         if let Some(Value::Array(layers)) = root.get_mut("layers") {
@@ -52,9 +55,6 @@ pub fn offline_style(style_json: &str, options: &StyleOptions) -> Result<String,
         }
         return Ok(style.to_string());
     };
-    if let Some(Value::String(glyphs)) = root.get_mut("glyphs") {
-        *glyphs = glyphs.replace("__FONTS__", &format!("{}fonts/", options.tiles_base));
-    }
     if options.contours == Contours::Omit {
         if let Some(Value::Object(sources)) = root.get_mut("sources") {
             sources.remove(CONTOURS);

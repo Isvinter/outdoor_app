@@ -74,6 +74,26 @@ final class RegionImportTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: sandbox.host.importDirectory.path), [])
     }
 
+    /// A package in `Import` itself must not take a rejected package beside it along.
+    func testLooseImportKeepsOtherFolders() throws {
+        let files = FileManager.default
+        let broken = try sandbox.stageMini()
+        let loose = sandbox.host.importDirectory
+        for file in try files.contentsOfDirectory(atPath: broken.path) {
+            try files.copyItem(at: broken.appendingPathComponent(file), to: loose.appendingPathComponent(file))
+        }
+        let basemap = try FileHandle(forWritingTo: broken.appendingPathComponent("basemap.pmtiles"))
+        try basemap.truncate(atOffset: 1000)
+        try basemap.close()
+
+        let results = sandbox.host.importPendingRegions()
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(try sandbox.host.core.overview().regions.map(\.id), ["mini"])
+        XCTAssertEqual(try files.contentsOfDirectory(atPath: loose.path), ["mini"])
+        XCTAssertTrue(files.fileExists(atPath: broken.appendingPathComponent("manifest.json").path))
+    }
+
     func testBrokenImportReportsErrorAndKeepsFolder() throws {
         let folder = try sandbox.stageMini()
         let basemap = try FileHandle(forWritingTo: folder.appendingPathComponent("basemap.pmtiles"))

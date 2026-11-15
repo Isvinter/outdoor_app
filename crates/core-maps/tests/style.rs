@@ -78,6 +78,13 @@ fn style_without_regions_keeps_only_background() {
     let layers = filled["layers"].as_array().unwrap();
     assert!(!layers.is_empty());
     assert!(layers.iter().all(|layer| layer["type"] == "background"));
+    // No placeholder is left either.
+    let text = filled.to_string();
+    assert!(
+        !text.contains("__TILES__")
+            && !text.contains("__FONTS__")
+            && !text.contains("__CONTOURS__")
+    );
 }
 
 #[test]

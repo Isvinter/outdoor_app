@@ -42,6 +42,7 @@ final class LocationUITests: XCTestCase {
             return CLLocation(latitude: centre[0], longitude: centre[1]).distance(from: self.place) < 50
         }
         XCTAssertEqual(status.int("failed"), 0)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(status.double("zoom")), 14)
         XCTAssertFalse(app.staticTexts["location-hint"].exists)
         // Beside the button: how uncertain the position is.
         let accuracy = app.staticTexts["location-accuracy"]
@@ -62,7 +63,9 @@ final class LocationUITests: XCTestCase {
         XCTAssertEqual(app.mapStatus.values["center"], before)
         XCTAssertFalse(app.staticTexts["location-accuracy"].exists)
 
-        // Asking again does not bring the dialog back, the hint stays.
+        // Asking again does not bring the dialog back, but the hint.
+        hint.tap()
+        XCTAssertFalse(hint.exists)
         app.buttons["center-location"].tap()
         XCTAssertTrue(hint.waitForExistence(timeout: 5))
     }

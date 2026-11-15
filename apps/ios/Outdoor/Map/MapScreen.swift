@@ -85,11 +85,13 @@ private struct SelfTestStatus: View {
         var parts = [
             "rendered=\(controller.rendered ? 1 : 0)",
             "served=\(stats.served)",
+            "empty=\(stats.empty)",
             "failed=\(stats.failed + controller.loadFailures)",
             "base=\(controller.base.rawValue)",
             "regions=\(start.regions.count)",
         ]
         let centre = controller.mapView.centerCoordinate
+        parts.append(String(format: "zoom=%.2f", controller.mapView.zoomLevel))
         parts.append(String(format: "center=%.5f,%.5f", centre.latitude, centre.longitude))
         if let slope = controller.slopeOpacityOnMap {
             parts.append(String(format: "slope=%.2f", slope))

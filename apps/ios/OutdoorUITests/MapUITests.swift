@@ -76,6 +76,9 @@ final class MapUITests: XCTestCase {
 
         XCTAssertEqual(status.int("regions"), 0)
         XCTAssertEqual(status.int("failed"), 0)
+        // Nothing is installed, so nothing is asked for.
+        XCTAssertEqual(status.int("served"), 0)
+        XCTAssertEqual(status.int("empty"), 0)
         let hint = app.staticTexts["no-region-hint"]
         XCTAssertTrue(hint.exists)
         XCTAssertTrue(hint.label.contains("Noch keine Region installiert"))

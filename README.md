@@ -241,8 +241,8 @@ werden.
 **Region aufs iPhone bringen:** Das iPhone anschließen und im Finder unter dem Gerät →
 Dateien → Outdoor den Regionsordner (mit `manifest.json` und allen dort genannten Dateien)
 in den Ordner `Import` ziehen, oder die Dateien direkt hinein. Das geht auch in der App „Dateien“ unter Auf meinem iPhone → Outdoor → Import.
-Dann die App neu starten: Sie prüft die Dateien, installiert die Region und entfernt den
-Ordner. Schlägt die Prüfung fehl, meldet die App das, und der Ordner bleibt liegen.
+Dann die App beenden (im App-Umschalter wegwischen) und neu starten: Sie prüft die Dateien,
+installiert die Region und entfernt den Ordner. Schlägt die Prüfung fehl, meldet die App das, und der Ordner bleibt liegen.
 
 ## Entwickeln
 

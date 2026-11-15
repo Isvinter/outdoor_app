@@ -93,7 +93,9 @@ final class TileURLProtocolTests: XCTestCase {
     }
 
     func testFontPathCannotLeaveTheFonts() async throws {
-        let (data, response) = try await get("fonts/..%2FInfo.plist")
+        // Info.plist lies next to the fonts folder in the bundle.
+        XCTAssertNotNil(Bundle.main.url(forResource: "Info", withExtension: "plist"))
+        let (data, response) = try await get("fonts/../Info.plist")
         XCTAssertEqual(response.statusCode, 200)
         XCTAssertTrue(data.isEmpty)
     }

@@ -33,6 +33,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     private let locationManager = CLLocationManager()
     /// The user asked for their position and it is not known yet.
     private var centreWhenLocated = false
+    /// Counts the waits for a position, so that an old wait cannot end a newer one.
+    private var fixRequest = 0
 
     static let noPermissionHint = "Position nicht verfügbar – Standortzugriff in den Einstellungen erlauben."
     static let noFixHint = "Position noch nicht verfügbar."
@@ -83,11 +85,21 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
             centre(on: location)
         } else {
             mapView.showsUserLocation = true
-            centreWhenLocated = true
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                if let self, self.centreWhenLocated { self.locationHint = Self.noFixHint }
-            }
+            waitForFix()
+        }
+    }
+
+    /// Centres as soon as a position arrives; says so if none comes within 10 s.
+    /// After that the map stays where the user has moved it.
+    private func waitForFix() {
+        centreWhenLocated = true
+        fixRequest += 1
+        let request = fixRequest
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard let self, self.centreWhenLocated, self.fixRequest == request else { return }
+            self.centreWhenLocated = false
+            self.locationHint = Self.noFixHint
         }
     }
 
@@ -99,7 +111,9 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         showLocationIfAllowed()
-        if centreWhenLocated && !mayLocate && manager.authorizationStatus != .notDetermined {
+        if centreWhenLocated && mayLocate {
+            waitForFix()
+        } else if centreWhenLocated && manager.authorizationStatus != .notDetermined {
             centreWhenLocated = false
             locationHint = Self.noPermissionHint
         }
@@ -146,7 +160,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
 
     private func fail(_ error: Error) {
         loadFailures += 1
-        message = "Die Karte konnte nicht geladen werden: \(error.localizedDescription)"
+        message = "Die Karte konnte nicht geladen werden: \(describe(error))"
     }
 
     // MARK: MLNMapViewDelegate
