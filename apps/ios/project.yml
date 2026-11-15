@@ -1,0 +1,92 @@
+# The iOS app. Before generating the project, build the Rust core once:
+#   scripts/build-core.sh && xcodegen generate
+name: Outdoor
+options:
+  bundleIdPrefix: de.zeibig.outdoor
+  deploymentTarget:
+    iOS: "16.4"
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    exactVersion: 7.0.0
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: 29WG4SD523
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Outdoor:
+    type: application
+    platform: iOS
+    sources:
+      - Outdoor
+      # The Swift side of the core's bindings, written by scripts/build-core.sh.
+      - Generated/outdoor_core.swift
+      # Map styles and glyphs are shared with the desktop app.
+      - path: ../../styles
+        type: folder
+        buildPhase: resources
+      - path: ../../assets/map/fonts
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - framework: build/OutdoorCore.xcframework
+        embed: false
+      - package: MapLibre
+        product: MapLibre
+    info:
+      path: Outdoor/Info.plist
+      properties:
+        CFBundleDisplayName: Outdoor
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSLocationWhenInUseUsageDescription: Zeigt deine Position auf der Karte.
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.zeibig.outdoor
+  OutdoorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - OutdoorTests
+      - path: ../../fixtures/regions/mini
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: Outdoor
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  OutdoorUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - OutdoorUITests
+      - path: ../../fixtures/regions/mini
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: Outdoor
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Outdoor:
+    build:
+      targets:
+        Outdoor: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - OutdoorTests
+        - OutdoorUITests
