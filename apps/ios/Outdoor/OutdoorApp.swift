@@ -19,7 +19,7 @@ struct OutdoorApp: App {
 private struct RootView: View {
     private enum Phase {
         case starting
-        case ready(AppStart.Ready, MapController)
+        case ready(AppStart.Ready, MapController, PlanController)
         case failed(String)
     }
 
@@ -30,8 +30,8 @@ private struct RootView: View {
         case .starting:
             ProgressView("Karte wird vorbereitet …")
                 .task { await start() }
-        case .ready(let start, let controller):
-            MapScreen(controller: controller, start: start)
+        case .ready(let start, let controller, let plan):
+            MapScreen(controller: controller, plan: plan, start: start)
         case .failed(let message):
             Text("Die App kann nicht starten: \(message)")
                 .padding()
@@ -45,7 +45,8 @@ private struct RootView: View {
         }.value
         switch result {
         case .success(let start):
-            phase = .ready(start, MapController(core: start.host.core, bounds: start.bounds, zoom: start.options.startZoom ?? 11))
+            let map = MapController(core: start.host.core, bounds: start.bounds, zoom: start.options.startZoom ?? 11)
+            phase = .ready(start, map, PlanController(core: start.host.core, map: map))
         case .failure(let error):
             phase = .failed(describe(error))
         }

@@ -8,6 +8,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     @preconcurrency CLLocationManagerDelegate
 {
     let mapView: MLNMapView
+    /// The planned route on this map.
+    let route: RouteOverlay
     private let core: CoreApp
 
     @Published private(set) var base: MapBase = .summer
@@ -45,6 +47,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     init(core: CoreApp, bounds: [Double]?, zoom: Double = 11) {
         self.core = core
         mapView = MLNMapView(frame: .zero)
+        route = RouteOverlay(mapView: mapView)
         super.init()
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.maximumZoomLevel = 19
@@ -176,6 +179,11 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
         styleLoaded = true
         applySlopeOpacity()
+        route.styleLoaded(style)
+    }
+
+    func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {
+        route.view(for: annotation)
     }
 
     func mapView(_ mapView: MLNMapView, didFailToLoadImage imageName: String) -> UIImage? {

@@ -65,8 +65,8 @@ final class ValhallaMobileEngine: ValhallaEngine, @unchecked Sendable {
             throw EngineFailure.Failed(message: "routing tiles are missing: \(tilesPath)")
         }
         var config = try ValhallaConfig(tileExtractTar: URL(fileURLWithPath: tilesPath))
-        // Valhalla writes every request to the console otherwise; "" is its silent logger.
-        config.logging = Logging(color: false, fileName: nil, type: "")
+        // Valhalla still writes a line per request to the console: valhalla-mobile
+        // never hands the `logging` section of the configuration to Valhalla.
         // The default names a traffic archive that does not exist, and Valhalla warns about it.
         config.mjolnir?.trafficExtract = nil
         return try Valhalla(config, configName: configName)

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MapScreen: View {
     @ObservedObject var controller: MapController
+    @ObservedObject var plan: PlanController
     let start: AppStart.Ready
 
     var body: some View {
@@ -27,16 +28,28 @@ struct MapScreen: View {
                     Notice(text: message, warning: true)
                         .onTapGesture { controller.message = nil }
                 }
+                if let message = plan.message {
+                    Notice(text: message, warning: true)
+                        .accessibilityIdentifier("plan-message")
+                        .onTapGesture { plan.message = nil }
+                }
             }
             .padding()
-            LocationButton(accuracy: controller.locationAccuracy) { controller.centreOnLocation() }
-                .padding(.trailing, 12)
-                .padding(.bottom, 56)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            VStack(alignment: .trailing, spacing: 12) {
+                LocationButton(accuracy: controller.locationAccuracy) { controller.centreOnLocation() }
+                    .padding(.trailing, 12)
+                PlanBar(plan: plan)
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .padding(.horizontal, 8)
+            }
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             if start.options.selftest {
-                SelfTestStatus(controller: controller, start: start)
+                SelfTestStatus(controller: controller, plan: plan, start: start)
             }
         }
+        .modifier(WaypointMenu(plan: plan))
     }
 }
 
@@ -61,6 +74,7 @@ struct Notice: View {
 /// `rendered=<0|1> served=<n> failed=<n> …`, refreshed while the app runs.
 private struct SelfTestStatus: View {
     @ObservedObject var controller: MapController
+    @ObservedObject var plan: PlanController
     let start: AppStart.Ready
 
     var body: some View {
@@ -104,6 +118,7 @@ private struct SelfTestStatus: View {
         if let rendered = controller.firstRenderedAfter {
             parts.append(String(format: "rendered_ms=%.0f", rendered * 1000))
         }
+        parts += plan.status
         return parts.joined(separator: " ")
     }
 }
