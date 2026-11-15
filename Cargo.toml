@@ -51,3 +51,9 @@ unimplemented = "deny"
 lto = "fat"
 codegen-units = 1
 strip = "debuginfo"
+
+# The contour tests build whole archives; unoptimised they take a minute.
+[profile.dev.package.contour-tiles]
+opt-level = 2
+[profile.dev.package.core-maps]
+opt-level = 2

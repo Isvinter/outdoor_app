@@ -621,6 +621,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "core-maps",
+ "png",
  "rayon",
  "thiserror 2.0.21",
 ]

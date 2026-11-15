@@ -1,8 +1,10 @@
 //! Contour lines from elevation tiles, as Mapbox Vector Tiles.
 
+mod build;
 mod isolines;
 mod mvt;
 
+pub use build::{ContourError, Options, Summary, run};
 pub use isolines::{Grid, Isoline, isolines, simplify};
 pub use mvt::{EXTENT, encode_tile};
 
