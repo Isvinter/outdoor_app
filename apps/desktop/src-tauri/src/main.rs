@@ -73,6 +73,7 @@ fn main() -> ExitCode {
             commands::route_profiles,
             commands::route_plan,
             commands::route_clear,
+            commands::route_new,
             commands::route_save,
             commands::route_save_new,
             commands::routes_list,

@@ -293,7 +293,10 @@ export const api = {
 
   routeProfiles: () => invoke<ProfileInfo[]>("route_profiles"),
   routePlan: (request: PlanRequest) => invoke<RoutePlan>("route_plan", { request }),
+  /** No plan (fewer than two points); "save" still overwrites the loaded route. */
   routeClear: () => invoke<void>("route_clear"),
+  /** Starts afresh: the next "save" stores a new route. */
+  routeNew: () => invoke<void>("route_new"),
   /** Overwrites the route loaded or saved last; otherwise stores a new one. */
   routeSave: (name: string) => invoke<RouteRecord>("route_save", { name }),
   routeSaveNew: (name: string) => invoke<RouteRecord>("route_save_new", { name }),

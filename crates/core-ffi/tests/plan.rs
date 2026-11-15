@@ -267,6 +267,12 @@ fn save_load_overwrite_via_ffi() {
     assert_eq!(core.loaded_route_id(), Some(first.id.clone()));
 
     core.clear_planned_route();
+    assert_eq!(
+        core.loaded_route_id(),
+        Some(first.id.clone()),
+        "only cleared"
+    );
+    core.start_new_route();
     assert_eq!(core.loaded_route_id(), None);
     let loaded = core.load_route(first.id.clone()).unwrap();
     assert_eq!(loaded.request.waypoints.len(), 2);

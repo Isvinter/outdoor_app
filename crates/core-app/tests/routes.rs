@@ -726,11 +726,12 @@ fn save_as_new_keeps_old() {
 }
 
 #[test]
-fn clear_then_save_creates_new() {
+fn new_route_then_save_creates_new() {
     let app = app_with_ramp("clear-save");
     app.plan_route(&uphill()).unwrap();
     let first = app.save_planned_route("Eins").unwrap();
-    app.clear_planned_route();
+    app.start_new_route();
+    assert!(app.planned_route().is_none());
     assert_eq!(app.loaded_route(), None);
     app.plan_route(&longer()).unwrap();
 
@@ -762,4 +763,110 @@ fn deleting_another_route_keeps_the_loaded_one() {
     let loaded = app.save_planned_route_as_new("Geladen").unwrap();
     app.delete_route(other.id).unwrap();
     assert_eq!(app.loaded_route(), Some(loaded.id));
+}
+
+/// Fewer than two points leave nothing to plan, but the route being edited
+/// is still the loaded one (e.g. while its start is set anew).
+#[test]
+fn clearing_the_plan_keeps_the_loaded_route() {
+    let app = app_with_ramp("clear-keeps");
+    app.plan_route(&uphill()).unwrap();
+    let first = app.save_planned_route("Eins").unwrap();
+    app.clear_planned_route();
+    assert!(app.planned_route().is_none());
+    assert_eq!(app.loaded_route(), Some(first.id));
+    app.plan_route(&longer()).unwrap();
+
+    let saved = app.save_planned_route("Eins").unwrap();
+
+    assert_eq!(saved.id, first.id);
+    assert_eq!(app.saved_routes().unwrap().len(), 1);
+}
+
+/// Waits in `route` until told to go on, for a call that ends after a newer one.
+struct SlowRouter {
+    entered: std::sync::Mutex<bool>,
+    go: std::sync::Condvar,
+    released: std::sync::Mutex<bool>,
+    arrived: std::sync::Condvar,
+}
+
+impl Router for SlowRouter {
+    fn route(&self, request: &RouteRequest) -> Result<Route, RoutingError> {
+        *self.entered.lock().unwrap() = true;
+        self.arrived.notify_all();
+        let mut released = self.released.lock().unwrap();
+        while !*released {
+            released = self.go.wait(released).unwrap();
+        }
+        let mut route = core_routing::manual_route(&request.waypoints)?;
+        route.profile = request.profile;
+        Ok(route)
+    }
+
+    fn profiles(&self) -> Vec<Profile> {
+        vec![Profile::Hike]
+    }
+}
+
+#[test]
+fn an_older_plan_finishing_late_does_not_replace_a_newer_one() {
+    let app = app_with_ramp_routing("stale");
+    let router = Arc::new(SlowRouter {
+        entered: std::sync::Mutex::new(false),
+        go: std::sync::Condvar::new(),
+        released: std::sync::Mutex::new(false),
+        arrived: std::sync::Condvar::new(),
+    });
+    app.set_router_for_tests("ramp", router.clone());
+    let old = route(
+        Profile::Hike,
+        vec![position(10.0, 32.0), position(50.0, 32.0)],
+    );
+
+    std::thread::scope(|scope| {
+        let slow = scope.spawn(|| app.plan_route(&old).unwrap());
+        let mut entered = router.entered.lock().unwrap();
+        while !*entered {
+            entered = router.arrived.wait(entered).unwrap();
+        }
+        drop(entered);
+        // Meanwhile the user set another route (no routing needed).
+        let newer = app.plan_route(&longer()).unwrap();
+        *router.released.lock().unwrap() = true;
+        router.go.notify_all();
+        let late = slow.join().unwrap();
+        assert_eq!(late.request, old, "the caller still gets its answer");
+        assert_eq!(app.planned_route(), Some(newer));
+    });
+}
+
+#[test]
+fn a_plan_in_flight_does_not_bring_back_a_cleared_one() {
+    let app = app_with_ramp_routing("stale-clear");
+    let router = Arc::new(SlowRouter {
+        entered: std::sync::Mutex::new(false),
+        go: std::sync::Condvar::new(),
+        released: std::sync::Mutex::new(false),
+        arrived: std::sync::Condvar::new(),
+    });
+    app.set_router_for_tests("ramp", router.clone());
+    let old = route(
+        Profile::Hike,
+        vec![position(10.0, 32.0), position(50.0, 32.0)],
+    );
+
+    std::thread::scope(|scope| {
+        let slow = scope.spawn(|| app.plan_route(&old).unwrap());
+        let mut entered = router.entered.lock().unwrap();
+        while !*entered {
+            entered = router.arrived.wait(entered).unwrap();
+        }
+        drop(entered);
+        app.start_new_route();
+        *router.released.lock().unwrap() = true;
+        router.go.notify_all();
+        slow.join().unwrap();
+        assert_eq!(app.planned_route(), None);
+    });
 }

@@ -45,7 +45,9 @@ ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
 - **Swift-API** (aus den erzeugten Bindings, zur Probe auf Linux erzeugt):
   - `CoreApp`:
     - `setValhallaEngine(engine:)` und `routeProfiles() -> [ProfileChoice]`
-    - `planRoute(request:) throws -> PlanResult` (abseits des Main-Threads aufrufen) und `clearPlannedRoute()`
+    - `planRoute(request:) throws -> PlanResult` (abseits des Main-Threads aufrufen)
+    - `clearPlannedRoute()`: bei weniger als zwei Punkten. Die geladene Route bleibt, „Speichern“ überschreibt sie weiter.
+    - `startNewRoute()`: nur für „Leeren“. Danach legt „Speichern“ eine neue Route an.
     - `saveRoute(name:)`, `saveRouteAsNew(name:)`, `savedRoutes()`, `loadRoute(id:)`, `renameRoute(id:name:)` und `deleteRoute(id:)`
     - `loadedRouteId() -> String?`
   - Freie Funktionen:
@@ -57,7 +59,7 @@ ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
   Klasse.
   - Methoden: `version() -> String` und `route(tilesPath:requestJson:) throws -> String`.
   - Bei einem Fehler `throw EngineFailure.Failed(message:)`. Valhallas Meldungen „No path could
-    be found“ und „No suitable edges“ werden im Kern zu `route_not_found`, alles andere zu
+    be found“, „No suitable edges“ und „unreachable“ werden im Kern zu `route_not_found`, alles andere zu
     `routing`.
 - **Versionsprüfung:**
   - `version()` liefert `"3.9.1"`. Regionen mit `routing.valhalla` ≠ Engine-Version: das
@@ -78,8 +80,13 @@ ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
 - **Speichern:**
   - `saveRoute` überschreibt die zuletzt geladene oder gespeicherte Route (gleiche `id`,
     `rev + 1`).
-  - Nach `clearPlannedRoute()`, nach dem Löschen der geladenen Route und beim ersten Speichern
-    entsteht eine neue Route.
+  - Nach `startNewRoute()` („Leeren“), nach dem Löschen der geladenen Route und beim ersten
+    Speichern entsteht eine neue Route. `clearPlannedRoute()` (Rückgängig bis unter zwei Punkte,
+    Startpunkt neu setzen) löst die Verbindung **nicht**.
+  - Der Kern merkt sich nur die **neueste** Planung: Endet eine ältere `planRoute` nach einer
+    neueren oder nach `clearPlannedRoute`/`startNewRoute`/`loadRoute`, gilt sie nicht als
+    geplante Route. Ihr Ergebnis bekommt der Aufrufer trotzdem. Swift verwirft es ohnehin
+    über seinen eigenen Zähler.
   - `saveRouteAsNew` legt immer eine neue an, und `saveRoute` überschreibt danach diese.
 - **Desktop:** Der Knopf „Als neue Route speichern“ ist neu (Command `route_save_new`).
   `RouteRecord` hat jetzt `rev`.
@@ -359,7 +366,7 @@ Der Status `map-status` bekommt diese Felder:
   - `testTapOutsidePlanModeSetsNothing`.
   - `testDragMovesWaypoint`: Zieht man Punkt 2 um 80 pt, ändert sich `distance_m`, `waypoints` bleibt 3.
   - `testWaypointMenu`: Tippen auf Punkt 2 und „Etappenende hier“ ergibt `stage_ends=1`. „Entfernen“ ergibt `waypoints=2`.
-  - `testUndoAndClear`.
+  - `testUndoAndClear`: Nach „Leeren“ ruft die App `startNewRoute()` auf. Bei Rückgängig unter zwei Punkte ruft sie nur `clearPlannedRoute()` auf.
   - `testFastTapsKeepNewestPlan`: fünf Tipps ohne Warten. Wenn `planning=0`, gilt `waypoints=5` und `legs=4`.
   - Mit Profil `hike` und `mini` ohne Routingdaten: `failed_legs=1`, das Teilstück ist gestrichelt, und die Meldung „Keine Routingdaten …“ ist sichtbar.
 - [ ] **Step 2:** Ausführen. Erwartet: FAIL.

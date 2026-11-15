@@ -359,12 +359,14 @@ impl App {
             .insert(region.to_string(), router);
     }
 
-    /// Computes a route leg by leg and remembers it as the planned route.
+    /// Computes a route leg by leg and remembers it as the planned route,
+    /// unless a newer plan was begun meanwhile (or the plan was cleared).
     /// Legs computed before with the same inputs are reused. A leg that fails
     /// is marked in the plan; only an invalid request is an error. May take a
     /// moment; call it off the UI thread.
     pub fn plan_route(&self, request: &PlanRequest) -> Result<RoutePlan, AppError> {
         request.validate()?;
+        let generation = self.shared.routing.begin_plan();
         let mut legs = Vec::with_capacity(request.legs.len());
         let mut samples = Vec::with_capacity(request.legs.len());
         for (i, spec) in request.legs.iter().enumerate() {
@@ -383,7 +385,7 @@ impl App {
             }
         }
         let plan = assemble(request, legs, &samples);
-        *self.shared.routing.planned() = Some(plan.clone());
+        self.shared.routing.finish_plan(generation, plan.clone());
         Ok(plan)
     }
 

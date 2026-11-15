@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use core_gpx::{GpxDocument, GpxWaypoint, write_gpx};
@@ -60,6 +61,9 @@ pub(crate) struct Routing {
     /// Computed legs, reused while their inputs stay the same.
     legs: Mutex<LegCache>,
     planned: Mutex<Option<RoutePlan>>,
+    /// Counts the plans begun and the changes of `planned` by other means, so
+    /// that a plan finishing after a newer one does not replace it.
+    generation: AtomicU64,
     /// The saved route the planned route belongs to: loaded or saved last.
     loaded: Mutex<Option<Uuid>>,
 }
@@ -115,6 +119,27 @@ impl Routing {
 
     pub(crate) fn planned(&self) -> MutexGuard<'_, Option<RoutePlan>> {
         self.planned.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A plan is begun; its result counts if nothing newer happens meanwhile.
+    pub(crate) fn begin_plan(&self) -> u64 {
+        self.generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Keeps the result of the plan begun as `generation`, unless a newer plan
+    /// was begun or the planned route was replaced since.
+    pub(crate) fn finish_plan(&self, generation: u64, plan: RoutePlan) {
+        let mut planned = self.planned();
+        if self.generation.load(Ordering::SeqCst) == generation {
+            *planned = Some(plan);
+        }
+    }
+
+    /// Replaces the planned route; plans still being computed no longer count.
+    pub(crate) fn set_planned(&self, plan: Option<RoutePlan>) {
+        let mut planned = self.planned();
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        *planned = plan;
     }
 
     /// Closes the router of a region whose files are about to change.
@@ -252,9 +277,15 @@ impl App {
         self.shared.routing.planned().clone()
     }
 
-    /// Forgets the planned route and which saved route it was.
+    /// Forgets the planned route (fewer than two points are left). The saved
+    /// route it belongs to stays: "save" still overwrites it.
     pub fn clear_planned_route(&self) {
-        *self.shared.routing.planned() = None;
+        self.shared.routing.set_planned(None);
+    }
+
+    /// Starts afresh: no planned route, and "save" stores a new one.
+    pub fn start_new_route(&self) {
+        self.clear_planned_route();
         *self.shared.routing.loaded() = None;
     }
 
@@ -350,7 +381,7 @@ impl App {
     /// Loads a saved route; it becomes the planned route.
     pub fn saved_route(&self, id: Uuid) -> Result<RoutePlan, AppError> {
         let plan = self.load_plan(id)?;
-        *self.shared.routing.planned() = Some(plan.clone());
+        self.shared.routing.set_planned(Some(plan.clone()));
         *self.shared.routing.loaded() = Some(id);
         Ok(plan)
     }

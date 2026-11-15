@@ -413,9 +413,15 @@ impl CoreApp {
         Ok(result_to(&plan))
     }
 
-    /// Forgets the planned route and which saved route it was.
+    /// Forgets the planned route (fewer than two points are left); "save"
+    /// still overwrites the saved route it belongs to.
     pub fn clear_planned_route(&self) {
         self.app.clear_planned_route();
+    }
+
+    /// "Leeren": no planned route, and the next "save" stores a new route.
+    pub fn start_new_route(&self) {
+        self.app.start_new_route();
     }
 
     /// Overwrites the saved route loaded or saved last, or stores a new one.

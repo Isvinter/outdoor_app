@@ -96,6 +96,13 @@ pub async fn route_clear(app: State<'_, App>) -> CommandResult<()> {
     Ok(())
 }
 
+/// "Leeren": the next "save" stores a new route instead of the loaded one.
+#[tauri::command]
+pub async fn route_new(app: State<'_, App>) -> CommandResult<()> {
+    app.start_new_route();
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn route_save(app: State<'_, App>, name: String) -> CommandResult<RouteRecord> {
     Ok(app.save_planned_route(&name)?)

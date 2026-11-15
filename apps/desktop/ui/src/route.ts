@@ -84,6 +84,7 @@ export class RoutePanel {
       this.waypoints = [];
       this.legs = [];
       this.stageEnds = [];
+      void api.routeNew().catch(this.host.showError);
       this.changed();
     });
     $("route-save").addEventListener("click", () => void this.save(false));
