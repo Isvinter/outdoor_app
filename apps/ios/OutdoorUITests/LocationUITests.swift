@@ -43,6 +43,10 @@ final class LocationUITests: XCTestCase {
         }
         XCTAssertEqual(status.int("failed"), 0)
         XCTAssertFalse(app.staticTexts["location-hint"].exists)
+        // Beside the button: how uncertain the position is.
+        let accuracy = app.staticTexts["location-accuracy"]
+        XCTAssertTrue(accuracy.waitForExistence(timeout: 5))
+        XCTAssertTrue(accuracy.label.contains("±"), accuracy.label)
     }
 
     func testCenterWithoutPermissionShowsHint() {
@@ -56,6 +60,7 @@ final class LocationUITests: XCTestCase {
         XCTAssertTrue(hint.waitForExistence(timeout: 10))
         XCTAssertTrue(hint.label.contains("Position nicht verfügbar"))
         XCTAssertEqual(app.mapStatus.values["center"], before)
+        XCTAssertFalse(app.staticTexts["location-accuracy"].exists)
 
         // Asking again does not bring the dialog back, the hint stays.
         app.buttons["center-location"].tap()

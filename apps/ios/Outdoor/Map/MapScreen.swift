@@ -29,7 +29,7 @@ struct MapScreen: View {
                 }
             }
             .padding()
-            LocationButton { controller.centreOnLocation() }
+            LocationButton(accuracy: controller.locationAccuracy) { controller.centreOnLocation() }
                 .padding(.trailing, 12)
                 .padding(.bottom, 56)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)

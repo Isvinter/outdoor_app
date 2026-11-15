@@ -24,6 +24,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     @Published var message: String?
     /// Why the map could not be centred on the own position, if it could not.
     @Published var locationHint: String?
+    /// How uncertain the own position is, in metres; nil while it is unknown.
+    @Published private(set) var locationAccuracy: Double?
     /// Styles that could not be loaded; for the self-test.
     private(set) var loadFailures = 0
     private var styleLoaded = false
@@ -104,6 +106,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     }
 
     func mapView(_ mapView: MLNMapView, didUpdate userLocation: MLNUserLocation?) {
+        let accuracy = userLocation?.location?.horizontalAccuracy ?? -1
+        locationAccuracy = accuracy >= 0 ? accuracy : nil
         if centreWhenLocated, let location = userLocation?.location {
             centre(on: location)
         }
