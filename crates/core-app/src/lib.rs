@@ -12,4 +12,4 @@ pub use app::{App, AppListener, LinePoint, RecordingPhase, RecordingStatus, Trac
 pub use error::AppError;
 pub use plan::{Leg, LegError, LegSpec, PlanRequest, RoutePlan, RoutePoint, Stage, Totals};
 pub use regions::{RegionInfo, RegionState, RegionsOverview};
-pub use routes::ProfileInfo;
+pub use routes::{ProfileInfo, RouterFactory};

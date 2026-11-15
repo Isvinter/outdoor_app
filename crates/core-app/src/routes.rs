@@ -26,9 +26,35 @@ pub struct ProfileInfo {
     pub available: bool,
 }
 
+/// Opens the router for the routing tiles of a region. The mobile apps give
+/// their own (Valhalla outside the core); otherwise the one built in with the
+/// feature `valhalla` is used.
+pub trait RouterFactory: Send + Sync {
+    fn open(&self, tiles: &Path) -> Result<Arc<dyn Router>, RoutingError>;
+    /// Version of Valhalla behind the routers; regions whose routing data name
+    /// another version are not routed. `None` skips the check.
+    fn engine_version(&self) -> Option<String>;
+}
+
+#[cfg(feature = "valhalla")]
+struct BuiltIn;
+
+#[cfg(feature = "valhalla")]
+impl RouterFactory for BuiltIn {
+    fn open(&self, tiles: &Path) -> Result<Arc<dyn Router>, RoutingError> {
+        Ok(Arc::new(core_routing::ValhallaRouter::open(tiles)?))
+    }
+
+    fn engine_version(&self) -> Option<String> {
+        None
+    }
+}
+
 /// Routing state owned by the app.
 #[derive(Default)]
 pub(crate) struct Routing {
+    /// Set by the app; otherwise the built-in factory, if there is one.
+    factory: Mutex<Option<Arc<dyn RouterFactory>>>,
     /// Open routers by region id.
     routers: Mutex<HashMap<String, Arc<dyn Router>>>,
     /// Computed legs, reused while their inputs stay the same.
@@ -45,6 +71,24 @@ impl Routing {
         self.legs.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    pub(crate) fn factory(&self) -> Option<Arc<dyn RouterFactory>> {
+        let set = self
+            .factory
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        #[cfg(feature = "valhalla")]
+        let set = set.or_else(|| Some(Arc::new(BuiltIn) as Arc<dyn RouterFactory>));
+        set
+    }
+
+    /// Replaces the factory; routers opened by the old one are closed.
+    pub(crate) fn set_factory(&self, factory: Arc<dyn RouterFactory>) {
+        *self.factory.lock().unwrap_or_else(PoisonError::into_inner) = Some(factory);
+        self.routers().clear();
+        self.legs().clear();
+    }
+
     /// The router of a region, opened on first use.
     pub(crate) fn router(
         &self,
@@ -55,7 +99,10 @@ impl Routing {
         if let Some(router) = routers.get(region) {
             return Ok(Arc::clone(router));
         }
-        let router = open_router(tiles)?;
+        let factory = self.factory().ok_or_else(|| {
+            RoutingError::Unavailable("this build has no routing engine".into())
+        })?;
+        let router = factory.open(tiles)?;
         routers.insert(region.to_string(), Arc::clone(&router));
         Ok(router)
     }
@@ -70,18 +117,6 @@ impl Routing {
         self.routers().remove(id);
         self.legs().clear();
     }
-}
-
-#[cfg(feature = "valhalla")]
-fn open_router(tiles: &Path) -> Result<Arc<dyn Router>, RoutingError> {
-    Ok(Arc::new(core_routing::ValhallaRouter::open(tiles)?))
-}
-
-#[cfg(not(feature = "valhalla"))]
-fn open_router(_tiles: &Path) -> Result<Arc<dyn Router>, RoutingError> {
-    Err(RoutingError::Unavailable(
-        "this build has no routing engine".into(),
-    ))
 }
 
 fn activity_of(profile: Profile) -> Option<Activity> {
@@ -188,14 +223,20 @@ struct OldRoute {
 }
 
 impl App {
+    /// Routes from now on with routers of `factory`, e.g. Valhalla in the app.
+    pub fn set_router_factory(&self, factory: Arc<dyn RouterFactory>) {
+        self.shared.routing.set_factory(factory);
+    }
+
     /// The routing profiles with their adjustable settings.
     pub fn route_profiles(&self) -> Vec<ProfileInfo> {
+        let routed = self.shared.routing.factory().is_some();
         Profile::ALL
             .into_iter()
             .map(|profile| ProfileInfo {
                 profile,
                 options: profile.options().to_vec(),
-                available: profile == Profile::Manual || cfg!(feature = "valhalla"),
+                available: profile == Profile::Manual || routed,
             })
             .collect()
     }

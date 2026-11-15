@@ -78,7 +78,18 @@ pub fn app_with_ramp_routing(name: &str) -> App {
     open(&ramp_region(name, true))
 }
 
+/// Like [`app_with_ramp_routing`], with routing data said to be built by
+/// Valhalla `version` in the manifest.
+#[allow(dead_code)]
+pub fn app_with_ramp_valhalla(name: &str, version: &str) -> App {
+    open(&ramp_region_with(name, true, Some(version)))
+}
+
 fn ramp_region(name: &str, routing: bool) -> PathBuf {
+    ramp_region_with(name, routing, None)
+}
+
+fn ramp_region_with(name: &str, routing: bool, valhalla: Option<&str>) -> PathBuf {
     let dir = temp_dir(name);
     let region = dir.join("regions/ramp");
     std::fs::create_dir_all(&region).unwrap();
@@ -106,10 +117,13 @@ fn ramp_region(name: &str, routing: bool) -> PathBuf {
             serde_json::json!({ "name": "routing.tar", "size": 5, "sha256": "0".repeat(64) }),
         );
     }
-    let manifest = serde_json::json!({
+    let mut manifest = serde_json::json!({
         "format": 1, "id": "ramp", "name": "Ramp", "bbox": bounds, "version": "1", "attribution": [],
         "files": files, "size": size,
     });
+    if let Some(version) = valhalla {
+        manifest["routing"] = serde_json::json!({ "valhalla": version, "max_mtb_scale": 2 });
+    }
     std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
     dir
 }

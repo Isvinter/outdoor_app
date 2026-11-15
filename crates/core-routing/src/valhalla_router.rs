@@ -8,7 +8,8 @@ use valhalla::proto::options::Action;
 use valhalla::{Actor, ConfigBuilder, Response};
 
 use crate::model::{Profile, Route, RouteRequest, Router, RoutingError};
-use crate::valhalla_api::{costing_json, parse_valhalla_route};
+use crate::valhalla_api::VALHALLA_PROFILES;
+use crate::valhalla_api::{costing_json, engine_error, parse_valhalla_route};
 
 /// Routes on the Valhalla tiles of one region (`routing.tar`).
 pub struct ValhallaRouter {
@@ -46,14 +47,6 @@ impl ValhallaRouter {
     }
 }
 
-/// Valhalla reports "no way there" as errors among all others; these are the
-/// messages of its codes 170, 171 and 442.
-fn is_no_route(message: &str) -> bool {
-    ["No suitable edges", "No path could be found", "unreachable"]
-        .iter()
-        .any(|part| message.contains(part))
-}
-
 impl Router for ValhallaRouter {
     fn route(&self, request: &RouteRequest) -> Result<Route, RoutingError> {
         let json = costing_json(request)?;
@@ -67,24 +60,11 @@ impl Router for ValhallaRouter {
         match response {
             Ok(Response::Json(answer)) => parse_valhalla_route(&answer, request),
             Ok(_) => Err(RoutingError::Engine("unexpected answer format".into())),
-            Err(e) => {
-                let message = e.to_string();
-                Err(if is_no_route(&message) {
-                    RoutingError::NoRoute(message)
-                } else {
-                    RoutingError::Engine(message)
-                })
-            }
+            Err(e) => Err(engine_error(&e.to_string())),
         }
     }
 
     fn profiles(&self) -> Vec<Profile> {
-        vec![
-            Profile::RoadBike,
-            Profile::Trekking,
-            Profile::Mtb,
-            Profile::Hike,
-            Profile::Car,
-        ]
+        VALHALLA_PROFILES.to_vec()
     }
 }

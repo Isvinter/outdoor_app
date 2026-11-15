@@ -44,6 +44,7 @@ impl AppError {
                 core_routing::RoutingError::TooFewWaypoints => "route_too_few_waypoints",
                 core_routing::RoutingError::NoRoute(_) => "route_not_found",
                 core_routing::RoutingError::Unavailable(_) => "routing_unavailable",
+                core_routing::RoutingError::Incompatible { .. } => "routing_incompatible",
                 _ => "routing",
             },
             AppError::RoutePlan(_) => "route_plan",

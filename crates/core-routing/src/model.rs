@@ -184,9 +184,12 @@ pub enum RoutingError {
     Unavailable(String),
     #[error("routing engine: {0}")]
     Engine(String),
+    #[error("routing data built with Valhalla {data}, this app has {engine}")]
+    Incompatible { data: String, engine: String },
 }
 
-/// Finds routes. Implemented by [`crate::ValhallaRouter`] (feature `valhalla`).
+/// Finds routes. Implemented by [`crate::JsonRouter`] and, with the feature
+/// `valhalla`, by `ValhallaRouter`.
 pub trait Router: Send + Sync {
     fn route(&self, request: &RouteRequest) -> Result<Route, RoutingError>;
     /// The profiles this router can compute.

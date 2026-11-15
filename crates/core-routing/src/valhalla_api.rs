@@ -6,6 +6,32 @@ use serde_json::{Map, Value, json};
 
 use crate::model::{LatLon, Profile, Route, RouteRequest, RoutingError};
 
+/// The profiles Valhalla computes.
+pub const VALHALLA_PROFILES: [Profile; 5] = [
+    Profile::RoadBike,
+    Profile::Trekking,
+    Profile::Mtb,
+    Profile::Hike,
+    Profile::Car,
+];
+
+/// Valhalla reports "no way there" as errors among all others; these are the
+/// messages of its codes 170, 171 and 442.
+fn is_no_route(message: &str) -> bool {
+    ["No suitable edges", "No path could be found", "unreachable"]
+        .iter()
+        .any(|part| message.contains(part))
+}
+
+/// The error for a message of the Valhalla engine.
+pub fn engine_error(message: &str) -> RoutingError {
+    if is_no_route(message) {
+        RoutingError::NoRoute(message.to_string())
+    } else {
+        RoutingError::Engine(message.to_string())
+    }
+}
+
 /// The Valhalla route request for `request` as JSON.
 pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
     if request.waypoints.len() < 2 {

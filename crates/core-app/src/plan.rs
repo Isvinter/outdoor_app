@@ -316,6 +316,20 @@ impl App {
         let route = match &tiles {
             None => manual_route(&[from, to])?,
             Some(tiles) => {
+                let engine = self
+                    .shared
+                    .routing
+                    .factory()
+                    .and_then(|factory| factory.engine_version());
+                if let (Some(info), Some(engine)) = (&tiles.info, engine)
+                    && info.valhalla != engine
+                {
+                    return Err(RoutingError::Incompatible {
+                        data: info.valhalla.clone(),
+                        engine,
+                    }
+                    .into());
+                }
                 let router = self.shared.routing.router(&tiles.region, &tiles.path)?;
                 router.route(&RouteRequest {
                     waypoints: vec![from, to],
