@@ -277,7 +277,9 @@ Deckkraft der Hangneigung und „Position zentrieren“.
   `contours.pmtiles` (Vektorkacheln, Quell-Ebene `contours`, Felder `ele` in Metern und
   `level` 0 = Neben-, 1 = Hauptlinie) aus `dem.pmtiles`. Dabei gelten dieselben Abstände wie
   am Desktop, Zoom 11: 100/500 m, 12: 50/250 m, 13: 20/100 m, ab 15: 10/50 m (`map.ts`,
-  `CONTOUR_TILES`). Höchster Zoom 15, darüber vergrößert die Karte.
+  `CONTOUR_TILES`). Höchster Zoom **14** (Nutzerentscheidung nach Messung in I2: z15 hätte
+  die Datei verdreifacht, ohne echtes Detail, weil die Höhendaten bei z13 enden). Darüber
+  vergrößert die Karte, also 20/100 m statt 10/50 m ab Zoom 15.
 - Das Werkzeug ist meine Wahl: ein Rust-Werkzeug `tools/contour-tiles` neben
   `tools/slope-tiles`. Es liest dieselben Terrarium-Kacheln, und die PMTiles schreibt
   `core-maps` (`writer.rs`), wie bei der Hangneigung. Keine neue Abhängigkeit im Bauskript.

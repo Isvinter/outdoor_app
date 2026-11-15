@@ -107,10 +107,8 @@ fn dem_archive(dir: &Path) -> (PathBuf, [f64; 4]) {
 
 fn options() -> Options {
     Options {
-        min_zoom: 11,
-        max_zoom: 15,
         threads: Some(2),
-        bounds: None,
+        ..Options::default()
     }
 }
 
@@ -145,11 +143,11 @@ fn tiles_at(archive: &Archive, bounds: &[f64; 4], z: u8) -> Vec<((u32, u32), com
 }
 
 #[test]
-fn writes_zooms_11_to_15() {
+fn writes_zooms_11_to_14() {
     let (archive, bounds) = build();
     let header = archive.header();
     assert_eq!(header.tile_type, TileType::Mvt);
-    assert_eq!((header.min_zoom, header.max_zoom), (11, 15));
+    assert_eq!((header.min_zoom, header.max_zoom), (11, 14));
     for (got, want) in header.bounds.iter().zip(bounds) {
         assert!(
             (got - want).abs() < 1e-6,
@@ -162,7 +160,7 @@ fn writes_zooms_11_to_15() {
 #[test]
 fn values_follow_intervals() {
     let (archive, bounds) = build();
-    for (z, minor, major) in [(13, 20, 100), (15, 10, 50)] {
+    for (z, minor, major) in [(11, 100, 500), (13, 20, 100), (14, 20, 100)] {
         let tiles = tiles_at(archive, bounds, z);
         assert!(!tiles.is_empty(), "no tiles at {z}");
         for (_, layer) in &tiles {
@@ -240,7 +238,7 @@ fn lines_continue_across_tile_edges() {
 fn edge_of_region_has_no_invented_lines() {
     let (archive, bounds) = build();
     let border = 8.0 * 16.0;
-    for z in 11..=15 {
+    for z in 11..=14 {
         for (_, layer) in tiles_at(archive, bounds, z) {
             for feature in &layer.features {
                 let ele = feature.int("ele");
@@ -261,7 +259,7 @@ fn edge_of_region_has_no_invented_lines() {
 #[test]
 fn empty_tiles_are_not_written() {
     let (archive, bounds) = build();
-    for z in 11..=15 {
+    for z in 11..=14 {
         for (tile, layer) in tiles_at(archive, bounds, z) {
             assert!(!layer.features.is_empty(), "z{z} {tile:?} is empty");
         }

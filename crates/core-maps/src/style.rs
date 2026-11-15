@@ -31,6 +31,11 @@ pub struct StyleOptions<'a> {
 
 const CONTOURS: &str = "contours";
 
+/// Highest zoom of the contour tiles in the region packages. Above it the map
+/// enlarges these tiles: the elevation data end at zoom 13, so finer contour
+/// tiles would only add interpolated lines at three times the size.
+pub const CONTOUR_MAX_ZOOM: u8 = 14;
+
 fn invalid(reason: impl Into<String>) -> MapsError {
     MapsError::Style(reason.into())
 }
@@ -92,6 +97,9 @@ pub fn offline_style(style_json: &str, options: &StyleOptions) -> Result<String,
         }
         // There are no tiles outside the installed regions; do not ask for them.
         source["bounds"] = json!(bounds);
+        if id == CONTOURS && options.contours == Contours::Tiles {
+            source["maxzoom"] = json!(CONTOUR_MAX_ZOOM);
+        }
         if id == "basemap" {
             source["attribution"] = json!(options.attribution.join(" · "));
         }

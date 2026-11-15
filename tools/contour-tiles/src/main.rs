@@ -19,11 +19,11 @@ struct Args {
     /// Lowest zoom level to write
     #[arg(long, default_value_t = 11)]
     min_zoom: u8,
-    /// Highest zoom level to write
-    #[arg(long, default_value_t = 15)]
+    /// Highest zoom level to write (the map styles expect 14 and enlarge above)
+    #[arg(long, default_value_t = core_maps::CONTOUR_MAX_ZOOM)]
     max_zoom: u8,
     /// Only this box: west,south,east,north
-    #[arg(long, value_delimiter = ',', num_args = 4)]
+    #[arg(long, value_delimiter = ',')]
     bounds: Option<Vec<f64>>,
     /// Worker threads (default: all cores)
     #[arg(long)]
@@ -33,7 +33,14 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
     let started = Instant::now();
-    let bounds = args.bounds.map(|b| [b[0], b[1], b[2], b[3]]);
+    let bounds = match args.bounds.as_deref() {
+        None => None,
+        Some(&[west, south, east, north]) => Some([west, south, east, north]),
+        Some(_) => {
+            eprintln!("error: --bounds needs four numbers: west,south,east,north");
+            return ExitCode::FAILURE;
+        }
+    };
     let options = Options {
         min_zoom: args.min_zoom,
         max_zoom: args.max_zoom,

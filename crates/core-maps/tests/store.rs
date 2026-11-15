@@ -546,31 +546,14 @@ fn contours_layer_name() {
     assert_eq!(Layer::Contours.file_name(), "contours.pmtiles");
 }
 
-/// A copy of `mini` with a small `contours.pmtiles` listed in its manifest.
+/// A copy of the fixture region `mini-contours` (`mini` with contour lines).
 fn package_with_contours(name: &str) -> std::path::PathBuf {
-    let package = common::catalog_copy(name).join("mini");
-    let archive = package.join("contours.pmtiles");
-    let info = core_maps::ArchiveInfo {
-        tile_type: core_maps::TileType::Mvt,
-        bounds: [11.54, 47.57, 11.56, 47.58],
-    };
-    core_maps::write_archive(
-        &archive,
-        vec![(13, 4358, 2862, b"contours".to_vec())],
-        &info,
-    )
-    .unwrap();
-    let data = std::fs::read(&archive).unwrap();
-    let manifest_path = package.join("manifest.json");
-    let mut manifest: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
-    manifest["files"]
-        .as_array_mut()
-        .unwrap()
-        .push(serde_json::json!({
-            "name": "contours.pmtiles", "size": data.len(), "sha256": common::sha256_hex(&data),
-        }));
-    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
+    let package = common::temp_dir(name).join("mini-contours");
+    std::fs::create_dir_all(&package).unwrap();
+    for entry in std::fs::read_dir(common::fixtures().join("mini-contours")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), package.join(entry.file_name())).unwrap();
+    }
     package
 }
 

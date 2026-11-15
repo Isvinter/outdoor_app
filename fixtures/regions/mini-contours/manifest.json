@@ -1,0 +1,40 @@
+{
+  "format": 1,
+  "id": "mini-contours",
+  "name": "Sylvenstein (Test, mit Höhenlinien)",
+  "bbox": [
+    11.54,
+    47.57,
+    11.56,
+    47.58
+  ],
+  "version": "202611130000",
+  "attribution": [
+    "© OpenStreetMap-Mitwirkende (ODbL)",
+    "© OpenMapTiles",
+    "Höhendaten: Mapterhorn"
+  ],
+  "files": [
+    {
+      "name": "basemap.pmtiles",
+      "size": 297815,
+      "sha256": "f76c08617eef44a57a5113f0595cc32cead171e158d9e616ecc943ccb8da875e"
+    },
+    {
+      "name": "outdoor.pmtiles",
+      "size": 98667,
+      "sha256": "f3d9716b21dc8b19472fb3857011885064a7cfbedb099a2d4931fbf5159ba04e"
+    },
+    {
+      "name": "dem.pmtiles",
+      "size": 446384,
+      "sha256": "1a6724ee06ce75b5a5d0a9acba37bc62c0cf6c6da6bcb31efc8e309f0dc20913"
+    },
+    {
+      "name": "contours.pmtiles",
+      "size": 211969,
+      "sha256": "679492607b3005c545afb55637979cf7451754bdd1540229e8e2dc24682643e9"
+    }
+  ],
+  "size": 1054835
+}

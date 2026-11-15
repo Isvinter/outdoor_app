@@ -51,6 +51,18 @@ pub struct Options {
     pub bounds: Option<[f64; 4]>,
 }
 
+impl Default for Options {
+    /// Zoom 11 up to the zoom the map styles expect, all cores, the whole archive.
+    fn default() -> Self {
+        Options {
+            min_zoom: 11,
+            max_zoom: core_maps::CONTOUR_MAX_ZOOM,
+            threads: None,
+            bounds: None,
+        }
+    }
+}
+
 /// What a run did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Summary {

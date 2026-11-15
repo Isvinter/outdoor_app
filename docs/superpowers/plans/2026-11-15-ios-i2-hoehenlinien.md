@@ -25,7 +25,7 @@ mit `maplibre-contour` und bleibt unverändert.
 ## Global Constraints
 
 - Quell-Ebene `contours`, Felder `ele` (ganze Meter, Integer) und `level` (`0` = Nebenlinie, `1` = Hauptlinie). Die Style-Ebenen filtern schon so (`contour-minor`: `level != 1`, `contour-major`/`contour-label`: `level == 1`).
-- Zoomstufen **11 bis 15** (der Style hat `"maxzoom": 15`). Abstände wie am Desktop (`apps/desktop/ui/src/map.ts`, `CONTOUR_TILES`): z11 100/500 m, z12 50/250 m, z13 20/100 m, z14 20/100 m, z15 10/50 m.
+- Zoomstufen **11 bis 14** (Nutzerentscheidung 2026-11-15, Variante A nach Größenmessung: z15 allein wären 34 von 51 MB bei `isarwinkel-achensee`, ohne echtes Detail, weil die Höhendaten bei z13 enden). `core_maps::CONTOUR_MAX_ZOOM = 14`. Der Kern setzt `maxzoom: 14` an die Quelle `contours`, darüber vergrößert MapLibre. Abstände wie am Desktop (`apps/desktop/ui/src/map.ts`, `CONTOUR_TILES`): z11 100/500 m, z12 50/250 m, z13 20/100 m, z14 20/100 m. Ab Zoom 15 also 20/100 m statt 10/50 m wie am Desktop.
 - `contours.pmtiles` ist **optional** wie `slope.pmtiles`. Ältere Pakete ohne die Datei funktionieren weiter, auf iOS dann ohne Höhenlinien.
 - Der Desktop bleibt bei `maplibre-contour`. Keine Änderung an `apps/desktop/ui`.
 - Workspace-Lints gelten. Keine neue Abhängigkeit, nur die aus `[workspace.dependencies]`.

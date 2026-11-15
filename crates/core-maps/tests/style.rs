@@ -134,6 +134,12 @@ fn tiles_contours_point_to_core() {
     let bounds: Vec<f64> =
         serde_json::from_value(filled["sources"]["contours"]["bounds"].clone()).unwrap();
     assert_eq!(bounds, BOUNDS);
+    // The packages carry contours up to this zoom; the map enlarges them above.
+    assert_eq!(
+        filled["sources"]["contours"]["maxzoom"],
+        core_maps::CONTOUR_MAX_ZOOM
+    );
+    assert_eq!(core_maps::CONTOUR_MAX_ZOOM, 14);
     let ids: Vec<&str> = layers_of(&filled, "contours")
         .iter()
         .map(|l| l["id"].as_str().unwrap())
