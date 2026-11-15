@@ -1,0 +1,82 @@
+import XCTest
+
+/// The self-test status of the app: `key=value` pairs.
+struct MapStatus {
+    let values: [String: String]
+
+    init(_ text: String) {
+        var values: [String: String] = [:]
+        for pair in text.split(separator: " ") {
+            let parts = pair.split(separator: "=", maxSplits: 1)
+            if parts.count == 2 { values[String(parts[0])] = String(parts[1]) }
+        }
+        self.values = values
+    }
+
+    func int(_ key: String) -> Int { values[key].flatMap(Int.init) ?? -1 }
+    func double(_ key: String) -> Double? { values[key].flatMap(Double.init) }
+    var rendered: Bool { values["rendered"] == "1" }
+}
+
+extension XCUIApplication {
+    /// Starts the app in self-test mode without regions, or with the fixture `mini`.
+    static func selftest(withMini: Bool) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-selftest", "-resetData"]
+        if withMini, let mini = Bundle(for: MapUITests.self).url(forResource: "mini", withExtension: nil) {
+            // The simulator shares the Mac's file system, so the app can copy from here.
+            app.launchArguments += ["-importFixture", mini.path]
+        }
+        app.launch()
+        return app
+    }
+
+    var mapStatus: MapStatus {
+        MapStatus(otherElements["map-status"].value as? String ?? "")
+    }
+
+    /// Waits until the status fulfils `condition` and returns it.
+    @discardableResult
+    func waitForStatus(
+        _ what: String, timeout: TimeInterval = 20, file: StaticString = #filePath, line: UInt = #line,
+        _ condition: (MapStatus) -> Bool
+    ) -> MapStatus {
+        let end = Date().addingTimeInterval(timeout)
+        var status = mapStatus
+        while !condition(status) && Date() < end {
+            Thread.sleep(forTimeInterval: 0.3)
+            status = mapStatus
+        }
+        XCTAssertTrue(condition(status), "\(what): \(status.values)", file: file, line: line)
+        return status
+    }
+}
+
+final class MapUITests: XCTestCase {
+    override func setUp() {
+        continueAfterFailure = false
+    }
+
+    func testMapRendersFromCore() {
+        let app = XCUIApplication.selftest(withMini: true)
+
+        let status = app.waitForStatus("map rendered") { $0.rendered }
+
+        XCTAssertEqual(status.int("regions"), 1)
+        XCTAssertGreaterThan(status.int("served"), 0, "MapLibre did not ask the URL protocol")
+        XCTAssertEqual(status.int("failed"), 0)
+        XCTAssertFalse(app.staticTexts["no-region-hint"].exists)
+    }
+
+    func testEmptyStartShowsHint() {
+        let app = XCUIApplication.selftest(withMini: false)
+
+        let status = app.waitForStatus("map rendered") { $0.rendered }
+
+        XCTAssertEqual(status.int("regions"), 0)
+        XCTAssertEqual(status.int("failed"), 0)
+        let hint = app.staticTexts["no-region-hint"]
+        XCTAssertTrue(hint.exists)
+        XCTAssertTrue(hint.label.contains("Noch keine Region installiert"))
+    }
+}
