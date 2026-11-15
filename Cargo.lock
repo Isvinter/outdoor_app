@@ -616,6 +616,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
+name = "contour-tiles"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "core-maps",
+ "rayon",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "cookie"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -650,6 +660,7 @@ dependencies = [
  "core-location",
  "core-maps",
  "serde_json",
+ "sha2 0.11.1",
  "uniffi",
 ]
 

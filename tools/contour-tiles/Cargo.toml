@@ -1,0 +1,16 @@
+[package]
+name = "contour-tiles"
+description = "Derives contour line vector tiles from elevation tiles"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+clap.workspace = true
+core-maps.workspace = true
+rayon.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
