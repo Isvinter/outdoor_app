@@ -157,10 +157,12 @@ impl Job<'_> {
                     .iter()
                     .map(|[px, py]| [(px - BORDER as f32) * unit, (py - BORDER as f32) * unit])
                     .collect();
-                let points: Vec<[i32; 2]> = simplify(&points, TOLERANCE)
+                let mut points: Vec<[i32; 2]> = simplify(&points, TOLERANCE)
                     .into_iter()
                     .map(|[px, py]| [px.round() as i32, py.round() as i32])
                     .collect();
+                // Rounding can merge neighbours; a tile of dots only would be empty.
+                points.dedup();
                 let level = u8::from(line.ele.rem_euclid(major as i32) == 0);
                 (points.len() >= 2).then_some((line.ele, level, points))
             })

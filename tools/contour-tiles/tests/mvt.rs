@@ -25,3 +25,15 @@ fn roundtrip() {
     assert_eq!((a.int("ele"), a.int("level")), (1200, 1));
     assert_eq!((b.int("ele"), b.int("level")), (1220, 0));
 }
+
+/// MVT 2.1 §4.3.3.2: a LineTo must not repeat the previous point. Repeated
+/// points are dropped, and a line left with a single point is not written.
+#[test]
+fn repeated_points_are_dropped() {
+    let line = vec![[10, 10], [10, 10], [20, 15], [20, 15], [10, 10]];
+    let dot = vec![[30, 30], [30, 30]];
+    let layers = common::decode(&encode_tile(&[(1200, 1, line), (1220, 0, dot)]));
+    let features = &layers[0].features;
+    assert_eq!(features.len(), 1);
+    assert_eq!(features[0].lines, vec![vec![[10, 10], [20, 15], [10, 10]]]);
+}

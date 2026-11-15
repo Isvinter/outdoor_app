@@ -33,7 +33,8 @@ fn uint(out: &mut Vec<u8>, field: u64, value: u64) {
 }
 
 /// Encodes lines `(ele, level, points)` given in tile coordinates; points may
-/// lie outside 0..EXTENT (the buffer around the tile).
+/// lie outside 0..EXTENT (the buffer around the tile). Repeated consecutive
+/// points are dropped (MVT 2.1 §4.3.3.2), and so are lines left with one point.
 pub fn encode_tile(lines: &[(i32, u8, Vec<[i32; 2]>)]) -> Vec<u8> {
     // Values: elevations as sint, levels as uint, each stored once.
     let mut values: Vec<(bool, i64)> = Vec::new();
@@ -46,6 +47,8 @@ pub fn encode_tile(lines: &[(i32, u8, Vec<[i32; 2]>)]) -> Vec<u8> {
     };
     let mut features: Vec<Vec<u8>> = Vec::new();
     for (ele, level, points) in lines {
+        let mut points = points.clone();
+        points.dedup();
         if points.len() < 2 {
             continue;
         }
