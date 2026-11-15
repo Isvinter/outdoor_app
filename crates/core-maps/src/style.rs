@@ -10,6 +10,8 @@ use crate::MapsError;
 pub enum Contours<'a> {
     /// Tile URL of a generator computing them from the elevation tiles.
     Generator(&'a str),
+    /// Contour tiles of the region packages, served like the other layers.
+    Tiles,
     /// None: the contour source and its layers are removed.
     Omit,
 }
@@ -63,8 +65,10 @@ pub fn offline_style(style_json: &str, options: &StyleOptions) -> Result<String,
             layers.retain(|layer| layer["source"] != CONTOURS);
         }
     }
+    let contour_tiles = format!("{}contours/{{z}}/{{x}}/{{y}}", options.tiles_base);
     let generator = match options.contours {
         Contours::Generator(url) => url,
+        Contours::Tiles => contour_tiles.as_str(),
         Contours::Omit => "",
     };
     let Some(Value::Object(sources)) = root.get_mut("sources") else {

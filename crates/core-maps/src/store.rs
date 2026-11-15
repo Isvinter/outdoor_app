@@ -322,6 +322,14 @@ impl RegionStore {
         fs::remove_dir_all(&target).map_err(MapsError::io(&target))
     }
 
+    /// Whether any installed region has the archive of `layer`.
+    pub fn has_layer(&self, layer: Layer) -> bool {
+        let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
+        regions
+            .values()
+            .any(|region| region.archives.iter().any(|(l, _)| *l == layer))
+    }
+
     /// Looks a tile up in the installed regions. `None` if no region has it.
     pub fn tile(&self, layer: Layer, z: u8, x: u32, y: u32) -> Result<Option<Tile>, MapsError> {
         let Some(bounds) = tile_bounds(z, x, y) else {

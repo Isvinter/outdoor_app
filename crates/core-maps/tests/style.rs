@@ -123,3 +123,20 @@ fn invalid_json_is_an_error() {
     let error = offline_style("{", &options).unwrap_err();
     assert_eq!(error.code(), "map_style");
 }
+
+#[test]
+fn tiles_contours_point_to_core() {
+    let filled = fill("topo-summer", Some(BOUNDS), &[], Contours::Tiles);
+    assert_eq!(
+        filled["sources"]["contours"]["tiles"][0],
+        "outdoor-tiles://localhost/contours/{z}/{x}/{y}"
+    );
+    let bounds: Vec<f64> =
+        serde_json::from_value(filled["sources"]["contours"]["bounds"].clone()).unwrap();
+    assert_eq!(bounds, BOUNDS);
+    let ids: Vec<&str> = layers_of(&filled, "contours")
+        .iter()
+        .map(|l| l["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 3, "{ids:?}");
+}

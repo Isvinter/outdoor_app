@@ -26,6 +26,7 @@ uniffi.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+sha2.workspace = true
 
 # Not the workspace lints: the code UniFFI generates needs `unsafe`, and the
 # workspace forbids it, which a crate cannot lift locally.

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use core_app::{App, AppError, AppListener, RecordingStatus};
 use core_location::{Fix, SourceStatus};
-use core_maps::{Contours, StyleOptions, TilePath};
+use core_maps::{Contours, Layer, StyleOptions, TilePath};
 
 uniffi::setup_scaffolding!();
 
@@ -147,8 +147,8 @@ impl CoreApp {
     }
 
     /// A style of `styles/` filled for the installed regions, with tile and
-    /// font URLs under `tiles_base`. Without contour lines until the region
-    /// packages carry them.
+    /// font URLs under `tiles_base`. Contour lines come from the packages;
+    /// without any, the style has none.
     pub fn offline_style(
         &self,
         style_json: String,
@@ -159,7 +159,11 @@ impl CoreApp {
             tiles_base: &tiles_base,
             bounds: overview.installed_bounds,
             attribution: &overview.attribution,
-            contours: Contours::Omit,
+            contours: if self.app.map_has_layer(Layer::Contours) {
+                Contours::Tiles
+            } else {
+                Contours::Omit
+            },
         };
         Ok(core_maps::offline_style(&style_json, &options)?)
     }

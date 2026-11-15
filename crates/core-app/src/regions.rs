@@ -322,6 +322,11 @@ impl App {
         Ok(())
     }
 
+    /// Whether any installed region has the archive of `layer`.
+    pub fn map_has_layer(&self, layer: Layer) -> bool {
+        self.shared.maps.store.has_layer(layer)
+    }
+
     /// A map tile from the installed regions; `None` if no region covers it.
     pub fn map_tile(&self, layer: Layer, z: u8, x: u32, y: u32) -> Result<Option<Tile>, AppError> {
         Ok(self.shared.maps.store.tile(layer, z, x, y)?)

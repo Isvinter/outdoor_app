@@ -23,10 +23,19 @@ pub enum Layer {
     Dem,
     /// Raster tiles colouring terrain by slope angle (optional).
     Slope,
+    /// Vector tiles with contour lines (optional), for renderers that cannot
+    /// derive them from the elevation tiles.
+    Contours,
 }
 
 impl Layer {
-    pub const ALL: [Layer; 4] = [Layer::Basemap, Layer::Outdoor, Layer::Dem, Layer::Slope];
+    pub const ALL: [Layer; 5] = [
+        Layer::Basemap,
+        Layer::Outdoor,
+        Layer::Dem,
+        Layer::Slope,
+        Layer::Contours,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -34,6 +43,7 @@ impl Layer {
             Layer::Outdoor => "outdoor",
             Layer::Dem => "dem",
             Layer::Slope => "slope",
+            Layer::Contours => "contours",
         }
     }
 

@@ -539,3 +539,52 @@ fn local_package_without_manifest_is_an_error() {
     let result = store.install_local(&temp_dir("local-empty-pkg"));
     assert!(matches!(result, Err(MapsError::Io { .. })), "{result:?}");
 }
+
+#[test]
+fn contours_layer_name() {
+    assert_eq!("contours".parse::<Layer>().ok(), Some(Layer::Contours));
+    assert_eq!(Layer::Contours.file_name(), "contours.pmtiles");
+}
+
+/// A copy of `mini` with a small `contours.pmtiles` listed in its manifest.
+fn package_with_contours(name: &str) -> std::path::PathBuf {
+    let package = common::catalog_copy(name).join("mini");
+    let archive = package.join("contours.pmtiles");
+    let info = core_maps::ArchiveInfo {
+        tile_type: core_maps::TileType::Mvt,
+        bounds: [11.54, 47.57, 11.56, 47.58],
+    };
+    core_maps::write_archive(
+        &archive,
+        vec![(13, 4358, 2862, b"contours".to_vec())],
+        &info,
+    )
+    .unwrap();
+    let data = std::fs::read(&archive).unwrap();
+    let manifest_path = package.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest["files"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "name": "contours.pmtiles", "size": data.len(), "sha256": common::sha256_hex(&data),
+        }));
+    std::fs::write(&manifest_path, manifest.to_string()).unwrap();
+    package
+}
+
+#[test]
+fn has_layer_follows_installed_files() {
+    let store = RegionStore::open(&common::temp_dir("has-layer")).unwrap();
+    assert!(!store.has_layer(Layer::Basemap));
+    store
+        .install_local(&common::catalog_copy("has-layer-mini").join("mini"))
+        .unwrap();
+    assert!(store.has_layer(Layer::Basemap));
+    assert!(!store.has_layer(Layer::Contours));
+    store
+        .install_local(&package_with_contours("has-layer-contours"))
+        .unwrap();
+    assert!(store.has_layer(Layer::Contours));
+}

@@ -106,3 +106,62 @@ fn style_has_tiles_base() {
     let parsed: serde_json::Value = serde_json::from_str(&style).unwrap();
     assert!(parsed["sources"].get("contours").is_none());
 }
+
+#[test]
+fn style_uses_contour_tiles_when_installed() {
+    use sha2::{Digest, Sha256};
+    let (data, package) = setup("contours");
+    let core = open(&data);
+    let json = fs::read_to_string(repo().join("styles/topo-summer.json")).unwrap();
+    core.install_local_region(package.display().to_string())
+        .unwrap();
+    let plain: serde_json::Value = serde_json::from_str(
+        &core
+            .offline_style(json.clone(), "outdoor-tiles://localhost/".into())
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(plain["sources"].get("contours").is_none());
+
+    // The same region again, now with contour lines.
+    let (_, package) = setup("contours-again");
+    let archive = package.join("contours.pmtiles");
+    let info = core_maps::ArchiveInfo {
+        tile_type: core_maps::TileType::Mvt,
+        bounds: [11.54, 47.57, 11.56, 47.58],
+    };
+    core_maps::write_archive(
+        &archive,
+        vec![(13, 4358, 2862, b"contours".to_vec())],
+        &info,
+    )
+    .unwrap();
+    let bytes = fs::read(&archive).unwrap();
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let manifest_path = package.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest["files"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "name": "contours.pmtiles", "size": bytes.len(), "sha256": digest,
+        }));
+    fs::write(&manifest_path, manifest.to_string()).unwrap();
+    core.install_local_region(package.display().to_string())
+        .unwrap();
+
+    let style: serde_json::Value = serde_json::from_str(
+        &core
+            .offline_style(json, "outdoor-tiles://localhost/".into())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        style["sources"]["contours"]["tiles"][0],
+        "outdoor-tiles://localhost/contours/{z}/{x}/{y}"
+    );
+}
