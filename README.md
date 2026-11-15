@@ -83,7 +83,7 @@ Kartenregionen in `regions/`, Beschreibungen der in der App gebauten Regionen in
 Die App zeigt Karten aus **Regionspaketen**, die einmal heruntergeladen werden und danach ohne
 Netz funktionieren. Ein Paket besteht aus Basiskarte, Outdoor-Overlay (Wege mit
 Schwierigkeit, markierte Wander-/Rad-/MTB-Routen, Pisten, Gipfel, Hütten), Höhendaten,
-Hangneigung und Routingdaten.
+Hangneigung, Höhenlinien (für die Handy-Apps) und Routingdaten.
 Einen öffentlichen Server mit fertigen Paketen gibt es noch nicht (Phase 3) – Pakete werden
 lokal gebaut und aus einem Ordner (oder von einem eigenen Webserver) geladen.
 
@@ -96,7 +96,12 @@ Teil des Repositories.
 ```sh
 scripts/build-region.sh isarwinkel-achensee      # Testregion, Ergebnis ~90 MB, Dauer ~3 min
 scripts/build-region.sh isarwinkel-achensee --steps outdoor,manifest --force   # einzelne Schritte neu
+scripts/build-region.sh isarwinkel-achensee --steps contours,manifest   # vorhandenes Paket um Höhenlinien ergänzen
 ```
+
+Schritte: `osm,basemap,outdoor,dem,slope,contours,routing,manifest`. Ein vorhandenes Paket lässt
+sich so um einzelne Schritte ergänzen; fehlt `routing.json` (installierte Pakete), übernimmt
+der Schritt `manifest` die Routing-Angaben aus dem bisherigen Manifest.
 
 Ergebnis: `data/regions/<id>/` (vier `.pmtiles`-Dateien, `routing.tar` und `manifest.json`) sowie
 `data/regions/catalog.json` mit allen gebauten Regionen. Weitere Regionen entstehen aus einer
@@ -149,6 +154,15 @@ Lawinenlagebericht noch Beurteilung im Gelände.
 
 ```sh
 cargo run --release -p slope-tiles -- dem.pmtiles slope.pmtiles   # einzeln aufrufen; --help zeigt Optionen
+```
+
+**Höhenlinien** zeichnet die Desktop-App selbst aus den Höhendaten (`maplibre-contour`). Für
+MapLibre Native auf dem Handy, das das nicht kann, berechnet `tools/contour-tiles` sie beim Bau
+als Vektorkacheln (`contours.pmtiles`, Zoom 11–14, Abstände wie am Desktop; darüber vergrößert
+die Karte).
+
+```sh
+cargo run --release -p contour-tiles -- dem.pmtiles contours.pmtiles   # --bounds w,s,o,n für einen Ausschnitt
 ```
 
 Die Stile werden aus `scripts/make-style.py` erzeugt (`styles/topo-summer.json`,
@@ -259,6 +273,7 @@ Abweichung geprüft.
 | `crates/region-builder` | nur Desktop: Regionen in der App bauen – Beschreibung, Wahl der Geofabrik-Auszüge, Lauf des Bauskripts mit Fortschritt und Abbruch |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |
+| `tools/contour-tiles` | Höhenlinien als Vektorkacheln aus Höhenkacheln |
 | `regions/` | Beschreibungen der baubaren Regionen |
 | `scripts/` | `build-region.sh` (Regionspaket bauen), `build-valhalla-tiles.sh` (Routingdaten), `make-style.py` (Kartenstile), `measure-performance.sh`, Planetiler-Profil |
 | `docs/` | Algorithmen, Datenquellen, Messprotokoll |

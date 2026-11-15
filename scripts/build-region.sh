@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds an offline region package from free data sources.
 #
-#   scripts/build-region.sh <region-id> [--steps osm,basemap,outdoor,dem,slope,routing,manifest]
+#   scripts/build-region.sh <region-id> [--steps osm,basemap,outdoor,dem,slope,contours,routing,manifest]
 #                                       [--max-mtb-scale N] [--force]
 #                                       [--config FILE] [--package-dir DIR] [--refresh-osm]
 #
@@ -11,6 +11,8 @@
 #   outdoor.pmtiles   vector overlay: trails, routes, pistes, peaks, huts
 #   dem.pmtiles       elevation tiles (Terrarium encoding, from Mapterhorn)
 #   slope.pmtiles     slope angle classes for winter maps (tools/slope-tiles)
+#   contours.pmtiles  contour lines as vector tiles up to zoom 14, for renderers
+#                     that cannot derive them from dem.pmtiles (tools/contour-tiles)
 #   routing.tar       routing tiles (Valhalla, see scripts/build-valhalla-tiles.sh);
 #                     bicycles may not use ways above mtb:scale N (default 2)
 #   manifest.json     name, bounds, files with size and SHA-256, attribution
@@ -37,7 +39,7 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 [ $# -ge 1 ] || usage 1
 case "$1" in -h|--help) usage ;; esac
 ID="$1"; shift
-STEPS="osm,basemap,outdoor,dem,slope,routing,manifest"
+STEPS="osm,basemap,outdoor,dem,slope,contours,routing,manifest"
 MAX_MTB_SCALE=2
 FORCE=0
 CONFIG=""
@@ -223,6 +225,15 @@ step_slope() {
   mv "$BUILD/slope.pmtiles" "$OUT/slope.pmtiles"
 }
 
+step_contours() {
+  stale "$OUT/contours.pmtiles" || return 0
+  [ -s "$OUT/dem.pmtiles" ] || die "run the dem step first"
+  log "deriving contour line tiles"
+  (cd "$ROOT" && cargo run --quiet --release -p contour-tiles -- \
+    "$OUT/dem.pmtiles" "$BUILD/contours.pmtiles")
+  mv "$BUILD/contours.pmtiles" "$OUT/contours.pmtiles"
+}
+
 step_routing() {
   local args=("$ID" --max-mtb-scale "$MAX_MTB_SCALE" --config "$CONFIG")
   [ -n "$PACKAGE_DIR" ] && args+=(--package-dir "$PACKAGE_DIR")
@@ -238,6 +249,11 @@ import datetime, hashlib, json, os, sys
 
 config = json.load(open(sys.argv[1]))
 out = sys.argv[2]
+# An installed package has no routing.json any more; amending it keeps what
+# its manifest says about the routing tiles.
+previous = {}
+if os.path.isfile(os.path.join(out, "manifest.json")):
+    previous = json.load(open(os.path.join(out, "manifest.json"), encoding="utf-8"))
 
 def describe(name):
     path = os.path.join(out, name)
@@ -247,7 +263,8 @@ def describe(name):
             digest.update(chunk)
     return {"name": name, "size": os.path.getsize(path), "sha256": digest.hexdigest()}
 
-files = [describe(n) for n in ("basemap.pmtiles", "outdoor.pmtiles", "dem.pmtiles", "slope.pmtiles", "routing.tar")
+files = [describe(n) for n in ("basemap.pmtiles", "outdoor.pmtiles", "dem.pmtiles", "slope.pmtiles",
+                               "contours.pmtiles", "routing.tar")
          if os.path.exists(os.path.join(out, n))]
 manifest = {
     "format": 1,
@@ -261,7 +278,13 @@ manifest = {
 }
 # How the routing tiles were built, as noted by build-valhalla-tiles.sh.
 if any(f["name"] == "routing.tar" for f in files):
-    manifest["routing"] = json.load(open(os.path.join(out, "routing.json")))
+    routing_json = os.path.join(out, "routing.json")
+    if os.path.isfile(routing_json):
+        manifest["routing"] = json.load(open(routing_json))
+    elif "routing" in previous:
+        manifest["routing"] = previous["routing"]
+    else:
+        sys.exit(f"{routing_json} is missing and the manifest does not say how the routing tiles were built")
 with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
     json.dump(manifest, f, ensure_ascii=False, indent=2)
     f.write("\n")
@@ -284,8 +307,11 @@ print(f"  {'total':18} {manifest['size'] / 1e6:8.1f} MB")
 PY
 }
 
+ALL_STEPS="osm basemap outdoor dem slope contours routing manifest"
+for step in ${STEPS//,/ }; do
+  case " $ALL_STEPS " in *" $step "*) ;; *) die "unknown step: $step (steps: $ALL_STEPS)" ;; esac
+done
 ensure_tools
-ALL_STEPS="osm basemap outdoor dem slope routing manifest"
 TOTAL=0
 for step in $ALL_STEPS; do
   if wants "$step"; then TOTAL=$((TOTAL + 1)); fi
