@@ -765,6 +765,16 @@ nur Desktop) und installiert das Paket mit `RegionStore::install_local` (prüfen
 Nächster Schritt (Vorhaben 2): installierte Regionen im Heimnetz als Katalog freigeben, damit
 die mobilen Apps sie ohne Server laden.
 
+### Routen aus Teilstücken und Etappen (2026-11-15)
+
+Entwurf: `docs/superpowers/specs/2026-11-15-routen-teilstuecke-etappen-design.md`, Plan unter
+`docs/superpowers/plans/`. Anlass: lange Radreisen (München–Rom) und gemischte Touren. Eine
+Route besteht aus Teilstücken mit eigenem Profil (`core-app/src/plan.rs`), der Kern rechnet
+nur geänderte Teilstücke; Etappenenden setzt der Nutzer am Wegpunkt. Karte und Höhenprofil
+sind nach Profil eingefärbt. Das Distanzlimit von Valhalla gilt nur noch je Teilstück; ein
+fehlerhaftes Teilstück verwirft die Route nicht mehr. Offen: Profil eines früheren
+Teilstücks nachträglich ändern.
+
 ## 11. Risiken
 
 | | Risiko | Einschätzung | Gegenmaßnahme |

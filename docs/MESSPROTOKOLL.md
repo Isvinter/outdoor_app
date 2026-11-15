@@ -69,6 +69,30 @@ Baus geladen.
   Planetiler brach mit „Nodes must be sorted ascending by ID“ ab. Seitdem behält
   `build-region.sh` nach dem Zusammenführen mit `osmium time-filter` nur die neueste Version.
 
+## Lange Routen aus Teilstücken
+
+Gemessen am 2026-11-15 mit `cargo run --release -p core-app --features valhalla --example
+long_route -- <Datenordner> 300` auf der Region `alpenraum-ost` (4,7 GB, Ostalpen bis zur
+Adria), gleicher Rechner. 300 Wegpunkte gleichmäßig auf der Linie München – Garmisch –
+Innsbruck – Bozen – Trient – Belluno – Cortina – Lienz – Villach – Salzburg, Trekkingrad,
+zwei Etappenenden.
+
+| Messung | Ergebnis |
+|---|---|
+| Route | 2 048 km, 92 400 m Aufstieg, 299 Teilstücke, davon 4 ohne Weg |
+| Ganze Route frisch (alle Teilstücke) | 2,5 s |
+| Ein weiterer Wegpunkt (Rest aus dem Speicher) | 0,38 s |
+| Antwort vollständig (138 000 Höhenproben, 102 000 Linienpunkte) | 16,4 MB |
+| Antwort an die Oberfläche (Profil auf 2 000 Proben) | 3,8 MB, Ausdünnen und Umwandeln 5 ms |
+
+- Vorher (eine Anfrage für alle Punkte) lehnte Valhalla Wanderrouten über 250 km
+  Luftliniensumme ab; eine Route über 243 km mit 8 Punkten brauchte 0,14 s.
+- Die 0,38 s für einen weiteren Punkt sind fast nur Zusammensetzen der 138 000 Höhenproben
+  und Kopieren des Plans; das einzelne Teilstück braucht Millisekunden.
+- **Befund:** Zwei Punkte, die auf dieselbe Stelle des Wegs einrasten, ergaben ein Teilstück
+  ohne Länge und mit nur einer Höhenprobe; das galt als „Höhen unbekannt“ und blendete den
+  Aufstieg der ganzen Route aus. Ein solches Teilstück hat jetzt 0 m.
+
 ## Rohdaten
 
 ```

@@ -99,8 +99,13 @@ deshalb als zweite Meinung neben den GPS-Werten gedacht, nicht als deren Ersatz.
 
 ## 3. Routen (`core-routing`, `core-app`)
 
-- **Weg:** Valhalla rechnet im Prozess auf dem Routinggraph der Region, in der alle
-  Wegpunkte liegen. Profile und ihre Einstellungen:
+- **Teilstücke:** Eine Route ist eine Folge von Teilstücken zwischen je zwei Wegpunkten, jedes
+  mit eigenem Profil. Jedes Teilstück ist eine eigene Anfrage an Valhalla, auf dem Graph der
+  Region, die seine beiden Enden enthält. Berechnete Teilstücke (samt Höhenprofil) werden nach
+  Region, Enden, Profil und Einstellungen gemerkt; eine Änderung rechnet nur die betroffenen
+  neu. Ändert sich eine Region, wird alles vergessen. Ein Teilstück ohne Ergebnis zählt nicht
+  mit und wird markiert; die übrigen bleiben.
+- **Weg:** Profile und ihre Einstellungen:
 
   | Profil | Valhalla-Costing | Voreinstellung |
   |---|---|---|
@@ -117,9 +122,14 @@ deshalb als zweite Meinung neben den GPS-Werten gedacht, nicht als deren Ersatz.
   nicht.
 - **Höhenprofil:** Die Linie der Route wird alle 25 m im Geländemodell abgetastet – nicht mit
   Valhallas Höhen, damit Routen und Tracks dieselbe Quelle haben. Auf- und Abstieg nach dem
-  Verfahren aus Abschnitt 1 (50 m glätten, 3 m Schwelle). Fehlen Höhen auf einem Teil der
-  Route, zeigt die App keine Höhenmeter.
-- **Zeit:** Valhallas Fahr- oder Gehzeit. Für Wandern und Skitour zusätzlich **DIN 33466**:
+  Verfahren aus Abschnitt 1 (50 m glätten, 3 m Schwelle), je Teilstück; Etappe und Route
+  sind die Summen. Fehlen Höhen auf einem Teilstück, hat es – und damit Etappe und Route –
+  keine Höhenmeter. Ein Teilstück ohne Länge (beide Enden auf derselben Stelle) hat 0 m.
+  An die Oberfläche geht das Profil auf etwa 2 000 Punkte ausgedünnt (Ende jedes Teilstücks
+  bleibt erhalten); Speichern und GPX nutzen das volle Profil.
+- **Zeit:** je Teilstück; Etappe und Route sind Summen. Zu Fuß (Wandern, Skitour) die
+  DIN-Zeit, sobald Höhen bekannt sind, sonst Valhallas Zeit. Die DIN-Formel ist nicht
+  additiv; je Teilstück gerechnet und summiert ist eine bewusste Näherung. **DIN 33466**:
   Zeit für die Strecke (4 km/h) und Zeit für die Höhe (300 Hm/h auf, 500 Hm/h ab) getrennt
   rechnen; die größere zählt ganz, die kleinere halb. Valhallas Gehzeit ist im Gebirge
   deutlich zu kurz (Lenggries → Brauneck: 2:05 h gegen 3:33 h).

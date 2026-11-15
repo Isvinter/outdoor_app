@@ -75,7 +75,7 @@ Kartenregionen in `regions/`, Beschreibungen der in der App gebauten Regionen in
 | `OUTDOOR_SELFTEST_BUILD=<west>,<süd>,<ost>,<nord>;<name>` | wählt das Gebiet über die Oberfläche, baut und installiert es, gibt das Ergebnis als JSON aus, beendet die App |
 | `OUTDOOR_REPO=<ordner>` | Projektordner mit `scripts/build-region.sh` für „Region bauen“ (Standard: der Ordner, aus dem die App gebaut wurde) |
 | `OUTDOOR_BUILD_SCRIPT=<datei>` | anderes Bauskript (Tests, z. B. `crates/region-builder/tests/fixtures/fake-build.sh`) |
-| `OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>` | plant über die Oberfläche eine Wanderroute durch die Punkte, speichert sie, gibt das Ergebnis als JSON aus, beendet die App (zusammen mit `OUTDOOR_SNAPSHOT` zeigt das Bild die Route) |
+| `OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]` | plant über die Oberfläche eine Wanderroute durch die Punkte, speichert sie, gibt das Ergebnis als JSON aus, beendet die App (zusammen mit `OUTDOOR_SNAPSHOT` zeigt das Bild die Route). Ab vier Punkten: letztes Teilstück MTB, Etappenende am zweiten Punkt über das Menü, danach „Letzten entfernen“ |
 | `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt und `OUTDOOR_SNAPSHOT_STYLE=topo\|winter\|online` für einen Stil |
 
 ## Offline-Karten
@@ -161,18 +161,33 @@ Angaben stehen im Manifest jeder Region und in der Karte unten rechts.
 ## Routenplanung
 
 Routen werden vollständig auf dem Gerät berechnet (Valhalla im Prozess, Routingdaten aus dem
-Regionspaket). Alle Wegpunkte müssen in **einer** installierten Region liegen.
+Regionspaket). Eine Route besteht aus **Teilstücken** zwischen je zwei Wegpunkten; jedes
+Teilstück hat sein eigenes Profil und muss in einer installierten Region liegen. So lassen
+sich lange und gemischte Touren planen (z. B. mit dem Rad zum Berg, dann zu Fuß weiter).
 
 1. Unter **Route planen** ein Profil wählen. Die Regler darunter gehören zum Profil
    (z. B. Wandern: Schwierigkeit bis T1–T6 nach SAC-Skala, Steigungen meiden ↔ egal).
 2. **Wegpunkte setzen** drücken und in die Karte klicken: erster Klick Start, weitere Klicks
-   Zwischenziele und Ziel. Punkte lassen sich ziehen; ein Klick auf einen Punkt entfernt ihn.
-   Die Route wird nach jeder Änderung neu berechnet.
-3. Angezeigt werden Distanz, Zeit, Auf- und Abstieg, niedrigster/höchster Punkt und das
-   Höhenprofil (Zeiger über dem Profil zeigt die Stelle in der Karte). Höhen kommen aus dem
-   Geländemodell der Region, nicht aus dem Router.
-4. **Speichern** legt die Route in der Liste darunter ab (Klick lädt sie wieder, ✕ löscht),
-   **Als GPX exportieren** schreibt sie als Track mit Höhen.
+   Zwischenziele und Ziel. Jeder neue Punkt bekommt ein Teilstück mit dem gewählten Profil;
+   ein Wechsel von Profil oder Reglern gilt für das letzte Teilstück und alle neuen.
+   Nur geänderte Teilstücke werden neu berechnet; **Letzten entfernen** nimmt nur das
+   letzte Teilstück weg.
+3. Punkte lassen sich ziehen. Ein Klick auf einen Punkt öffnet ein Menü: **Etappenende**
+   (z. B. ein Nachtlager; eckiger Marker) oder **Entfernen** (die Nachbarn werden mit dem
+   Profil des Teilstücks davor verbunden).
+4. Angezeigt werden Distanz, Zeit, Auf- und Abstieg, niedrigster/höchster Punkt, bei mehreren
+   Etappen eine Zeile je Etappe, und das Höhenprofil (Zeiger über dem Profil zeigt die Stelle
+   in der Karte). Karte und Höhenprofil sind nach Profil eingefärbt, darunter steht die
+   Legende; Etappengrenzen sind gestrichelt. Höhen kommen aus dem Geländemodell der Region,
+   nicht aus dem Router. Ein Teilstück, das sich nicht berechnen lässt, erscheint als
+   gestrichelte rote Luftlinie und zählt nicht mit; die übrigen bleiben stehen.
+5. **Speichern** legt die Route in der Liste darunter ab (Klick lädt sie wieder, ✕ löscht),
+   **Als GPX exportieren** schreibt sie mit Höhen: je Etappe ein Track, je Aktivität ein
+   Abschnitt, Etappenenden als Wegpunkte. Routen aus älteren Versionen werden beim Öffnen neu
+   berechnet.
+
+Valhalla begrenzt je Anfrage die Summe der Luftlinien (Wandern 250 km, Rad 500 km, Auto
+5 000 km). Weil jedes Teilstück einzeln gerechnet wird, gilt das nur noch je Teilstück.
 
 | Profil | Rechnet mit |
 |---|---|
