@@ -136,4 +136,34 @@ final class AcceptanceUITests: XCTestCase {
             app.waitForStatus("route of the test deleted") { $0.int("routes") == routesBefore }
         }
     }
+
+    /// Measures how long a new leg takes, from the input to the drawn route:
+    /// eleven points tapped around the first reference point, ten hiking legs.
+    /// Prints `plan_ms`, the median of the last ten. Saves nothing.
+    func testLegTimes() throws {
+        let app = try launch()
+        let start = app.waitForStatus("map rendered", timeout: 60) { $0.rendered }
+        guard start.int("regions") >= 1 else { throw XCTSkip("no region is installed") }
+
+        app.buttons["plan-pick"].tap()
+        let spots: [(Double, Double)] = [
+            (0.5, 0.45), (0.25, 0.3), (0.75, 0.3), (0.3, 0.55), (0.7, 0.6), (0.5, 0.25),
+            (0.2, 0.45), (0.8, 0.45), (0.4, 0.65), (0.6, 0.35), (0.5, 0.55),
+        ]
+        for (index, spot) in spots.enumerated() {
+            app.place(spot.0, spot.1).tap()
+            app.waitForStatus("leg \(index) computed") {
+                $0.int("waypoints") == index + 1 && $0.int("planning") == 0 && $0.int("plans") == index
+                    || index == 0 && $0.int("waypoints") == 1
+            }
+        }
+        let status = app.mapStatus
+        print("legtimes: plan_ms=\(status.int("plan_ms")) plans=\(status.int("plans")) "
+            + "failed_legs=\(status.int("failed_legs")) distance_m=\(status.int("distance_m"))")
+        XCTAssertEqual(status.int("plans"), 10)
+        XCTAssertGreaterThan(status.int("distance_m"), 0)
+
+        app.buttons["plan-clear"].tap()
+        app.waitForPlan(waypoints: 0)
+    }
 }

@@ -125,9 +125,9 @@ Rulings:
 - **Abnahme:** Bei Zoom 12 (alle Punkte auf einem Bildschirm) rastete Valhalla an anderen
   Wegen ein (13 001 m). Der Test tippt bei Zoom 14 und schiebt die Karte per Wischgeste von
   Punkt zu Punkt, die Bildschirmstellen liefert `project=` im Status. Ergebnis 12 352 m.
-- **Offen: Lauf auf dem iPhone und `plan_ms` dort.** Der Test-Runner lässt sich nicht
-  installieren, das kostenlose Profil erlaubt drei Apps (Outdoor, Valhalla-Test, Vario liegen
-  darauf). Siehe `docs/MESSPROTOKOLL.md`, „iOS I3: Planung“.
+- **iPhone:** Die Abnahme lief auf dem iPhone 13 Pro Max mit der installierten Region
+  (`DEVICE=<udid> apps/ios/scripts/test.sh …`): 12 352 m, Median 41 ms je neues Teilstück
+  (`testLegTimes`). Der Test-Runner zählt zu den drei Apps des kostenlosen Profils.
 
 ## Global Constraints
 
@@ -474,7 +474,7 @@ wie am Desktop (`route.default_name`, Profilnamen und Distanz).
   - Den Planmodus einschalten und die drei Referenzpunkte an ihrer **Bildschirmstelle** antippen. Die Umrechnung von Koordinate in Bildschirmpunkt liefert der Status (`project=<lat>,<lon>→<x>,<y>` für die drei Punkte, oder Start mit `-startCenter` und `-startZoom 13`, dann rechnet der Test Web Mercator selbst). Die Wahl des Bauenden.
   - Ergebnis: `distance_m` liegt in 12 353 ± 124, `failed_legs=0`.
   - Danach speichern, leeren, laden, Punkt 2 verschieben und speichern. Ergebnis: `routes=1`, dieselbe `route_id`.
-- [ ] **Step 2:** Im Simulator und auf dem iPhone ausführen (`ISARWINKEL_PACKAGE` im Schema setzen). Erwartet: grün. *(Simulator grün; iPhone offen, siehe „Stand nach Task 5–9“.)*
+- [x] **Step 2:** Im Simulator und auf dem iPhone ausführen (`ISARWINKEL_PACKAGE` im Schema setzen). Erwartet: grün.
 - [x] **Step 3:** Messwerte in `docs/MESSPROTOKOLL.md`:
   - Dauer je neues Teilstück auf dem iPhone, vom Tippen bis zur gezeichneten Route. Mit Median über 10 Teilstücke als Status-Feld `plan_ms` aus dem Selbsttest.
   - App-Größe mit valhalla-mobile.
