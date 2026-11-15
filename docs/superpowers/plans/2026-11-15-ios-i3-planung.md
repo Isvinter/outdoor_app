@@ -96,6 +96,39 @@ ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
 - `cargo check --target aarch64-apple-ios` geht auf Linux nicht (SQLite braucht `xcrun`). Die
   iOS-Übersetzung prüft erst `build-core.sh` auf dem Mac.
 
+## Stand nach Task 5–9 (Mac, 2026-11-16)
+
+Task 5–9 sind gebaut und im Simulator grün (25 Unit-Tests, 26 UI-Tests). Abweichungen und
+Rulings:
+
+- **`ISARWINKEL_PACKAGE`** setzt `apps/ios/scripts/test.sh`, nicht das Schema (kein
+  Rechnerpfad im Repo). Auf dem Mac liegt nur die `routing.tar`. Das Skript macht daraus ein
+  Paket nur mit Routing. Die Abnahme läuft damit auf leerer Karte und ohne Höhenprofil.
+- **Valhalla-Logging** lässt sich über `ValhallaConfig` nicht abstellen (valhalla-mobile gibt
+  `logging` nicht weiter). Die `traffic.tar`-Warnung ist abgestellt.
+- Die Engine-Klasse heißt `ValhallaMobileEngine`, weil `ValhallaEngine` das Protokoll aus
+  den Bindings ist.
+- **Tippen:** Ein Tipp gilt nach 0,3 s, wenn kein Doppeltipp folgt. Den Erkenner auf den
+  Doppeltipp der Karte warten zu lassen, verschluckte jeden zweiten von schnellen Tipps.
+- **Ziehen** eines Wegpunkts beginnt sofort (eigene Geste), nicht erst nach langem Drücken.
+- **Wegpunktmenü:** iOS 27 zeigt in diesem Dialog keinen „Abbrechen“-Knopf, Tippen daneben
+  schließt ihn.
+- **Profil-Cursor:** bleibt nach dem Loslassen stehen, bis sich die Route ändert. Auf dem
+  Handy gibt es kein Überfahren, und so lässt sich die Stelle bei eingeklapptem Sheet ansehen.
+- **Zahlen:** `Format.distance(12353)` ergibt „12,35 km“ wie `format.ts`, nicht „12,4 km“.
+- **Speichern** fragt immer nach dem Namen und schlägt den der geladenen Route oder
+  „Profil Distanz“ vor. Nach dem Laden klappt das Sheet ein, und die Karte zeigt die Route.
+- `testUndoAndClear` prüft die Zustände; dass „Leeren“ eine neue Route beginnt und
+  Rückgängig nicht, prüft `RoutesUITests.testUndoKeepsRouteAndClearStartsNew` über das
+  Speichern. `testLoadReplanSave` setzt nach dem Laden einen Punkt dazu; das Verschieben
+  nach dem Laden prüft die Abnahme.
+- **Abnahme:** Bei Zoom 12 (alle Punkte auf einem Bildschirm) rastete Valhalla an anderen
+  Wegen ein (13 001 m). Der Test tippt bei Zoom 14 und schiebt die Karte per Wischgeste von
+  Punkt zu Punkt, die Bildschirmstellen liefert `project=` im Status. Ergebnis 12 352 m.
+- **Offen: Lauf auf dem iPhone und `plan_ms` dort.** Der Test-Runner lässt sich nicht
+  installieren, das kostenlose Profil erlaubt drei Apps (Outdoor, Valhalla-Test, Vario liegen
+  darauf). Siehe `docs/MESSPROTOKOLL.md`, „iOS I3: Planung“.
+
 ## Global Constraints
 
 - **Kein Schritt der Planung braucht ein Netz.** Kein Rückgriff auf Online-Routing.
@@ -323,21 +356,21 @@ für das Ziel. Die Tests in `plan_edit.rs` legen die Regeln fest, an denen sich 
 - Create: `apps/ios/Outdoor/Core/ValhallaEngine.swift`
 - Test: `apps/ios/OutdoorTests/ValhallaEngineTests.swift`
 
-- [ ] **Step 1: Tests schreiben.**
+- [x] **Step 1: Tests schreiben.**
   - `testRoutesReferenceHike`: Läuft nur, wenn `ISARWINKEL_PACKAGE` (Umgebungsvariable des Test-Schemas, Pfad zu `isarwinkel-achensee` auf dem Mac) gesetzt ist, sonst `XCTSkip`.
     - Region importieren, Engine setzen, `planRoute` über die drei Referenzpunkte (siehe Spike: 47.6803/11.5741, 47.6625/11.5233, 47.645/11.556) mit `hike` und `max_hiking_difficulty 3`, `use_hills 0.8`.
     - Die Distanz ist 12 353 m ± 1 %, `failedLegs == 0`.
   - `testConcurrentRoutesAreSerialised`: 8 parallele `planRoute`-Aufrufe derselben Region ergeben 8 gleiche Distanzen, ohne Absturz.
   - `testEngineFailureIsReported`: Ein Pfad ohne Datei ergibt `CoreError` beziehungsweise ein Teilstück mit `errorCode`, kein Absturz.
-- [ ] **Step 2:** Tests im Simulator ausführen. Erwartet: FAIL, weil es die Engine noch nicht gibt.
-- [ ] **Step 3:** `ValhallaEngine` umsetzen:
+- [x] **Step 2:** Tests im Simulator ausführen. Erwartet: FAIL, weil es die Engine noch nicht gibt.
+- [x] **Step 3:** `ValhallaEngine` umsetzen:
   - Eine Instanz von `Valhalla(ValhallaConfig(tileExtractTar:))` je `tilesPath`, einmal angelegt und wiederverwendet.
   - Je Instanz eine `NSLock` um `route(rawRequest:)`.
   - `version()` liefert `"3.9.1"`.
   - Logging und `traffic.tar` in der Konfiguration abstellen. Geht das mit `ValhallaConfig` nicht, als Ruling festhalten.
   - In `AppStart` nach `CoreApp.open` `setValhallaEngine` aufrufen.
-- [ ] **Step 4:** Tests ausführen. Erwartet: grün, der Referenztest mit gesetzter Variable ebenfalls.
-- [ ] **Step 5:** Commit `ios: route with valhalla-mobile through the core`.
+- [x] **Step 4:** Tests ausführen. Erwartet: grün, der Referenztest mit gesetzter Variable ebenfalls.
+- [x] **Step 5:** Commit `ios: route with valhalla-mobile through the core`.
 
 ### Task 6 (Mac): Wegpunkte und Route auf der Karte
 
@@ -361,7 +394,7 @@ Der Status `map-status` bekommt diese Felder:
 - `planning=<0|1>` (eine Berechnung läuft)
 - `route_colors=<#..,#..>` (gezeichnete Teilstücke)
 
-- [ ] **Step 1: UI-Tests schreiben.** Fixture `mini`, Profil `manual`, damit kein Routing nötig ist, Start mit `-startZoom 14`.
+- [x] **Step 1: UI-Tests schreiben.** Fixture `mini`, Profil `manual`, damit kein Routing nötig ist, Start mit `-startZoom 14`.
   - `testTapsSetWaypoints`: Planmodus an, drei Tipps an verschiedenen Bildschirmstellen ergeben `waypoints=3 legs=2`, `distance_m>0` und `route_colors` zweimal `#6a1b9a`.
   - `testTapOutsidePlanModeSetsNothing`.
   - `testDragMovesWaypoint`: Zieht man Punkt 2 um 80 pt, ändert sich `distance_m`, `waypoints` bleibt 3.
@@ -369,13 +402,13 @@ Der Status `map-status` bekommt diese Felder:
   - `testUndoAndClear`: Nach „Leeren“ ruft die App `startNewRoute()` auf. Bei Rückgängig unter zwei Punkte ruft sie nur `clearPlannedRoute()` auf.
   - `testFastTapsKeepNewestPlan`: fünf Tipps ohne Warten. Wenn `planning=0`, gilt `waypoints=5` und `legs=4`.
   - Mit Profil `hike` und `mini` ohne Routingdaten: `failed_legs=1`, das Teilstück ist gestrichelt, und die Meldung „Keine Routingdaten …“ ist sichtbar.
-- [ ] **Step 2:** Ausführen. Erwartet: FAIL.
-- [ ] **Step 3:** Umsetzen:
+- [x] **Step 2:** Ausführen. Erwartet: FAIL.
+- [x] **Step 3:** Umsetzen:
   - Wegpunkte als `MLNPointAnnotation`-Views oder als Symbolebene. Für Ziehen und Menü sind Annotation-Views naheliegend, das ist die Wahl des Bauenden.
   - Linien als `MLNShapeSource` mit den Eigenschaften `color` und `failed`, Ebenen wie in den Global Constraints.
   - Farben aus `PlanLeg.color` und `failedLegColor()`.
-- [ ] **Step 4:** Ausführen. Erwartet: grün.
-- [ ] **Step 5:** Commit `ios: waypoints and route legs on the map`.
+- [x] **Step 4:** Ausführen. Erwartet: grün.
+- [x] **Step 5:** Commit `ios: waypoints and route legs on the map`.
 
 ### Task 7 (Mac): Sheet mit Profilwahl, Einstellungen, Höhenprofil und Etappen
 
@@ -397,16 +430,16 @@ Das Sheet hat drei Stufen, wie im Entwurf skizziert. Mindesthöhe iOS 16.4, also
 Das Profil ist nach Teilstück gefärbt, mit senkrechten Linien an den Etappenenden. Ein Finger
 auf dem Profil setzt den Cursor auf der Karte.
 
-- [ ] **Step 1: Tests schreiben.**
+- [x] **Step 1: Tests schreiben.**
   - `FormatTests`: `12353 m` ergibt „12,4 km“, `850 m` ergibt „850 m“, `3,6 h` ergibt „3:36 h“. Die genauen Werte kommen aus `format.ts`, dort nachsehen und übernehmen.
   - UI-Tests:
     - `testProfileAppliesToLastLeg`: Drei Punkte mit `manual`, dann „Wandern“ wählen. Mit `mini` (ohne Routingdaten) schlägt das Wander-Teilstück fehl: `failed_legs=1`, `route_colors` ergibt `#6a1b9a,#d93025`. Das Profil steht trotzdem im Request (`legs` zeigt `manual,hike`, eigenes Status-Feld `leg_profiles=`).
     - `testSheetShowsTotals`: Die eingeklappte Stufe zeigt die Distanz aus `distance_m`, formatiert.
     - `testChartCursor`: Ziehen auf dem Profil ergibt den Status `cursor=<lat>,<lon>` innerhalb der Grenzen von `mini`.
-- [ ] **Step 2:** Ausführen. Erwartet: FAIL.
-- [ ] **Step 3:** Umsetzen. Das Profil wahlweise mit Swift Charts (`LineMark` je Teilstück, `RuleMark` für Etappen) zeichnen.
-- [ ] **Step 4:** Ausführen. Erwartet: grün.
-- [ ] **Step 5:** Commit `ios: plan sheet with profile choice, elevation chart and stages`.
+- [x] **Step 2:** Ausführen. Erwartet: FAIL.
+- [x] **Step 3:** Umsetzen. Das Profil wahlweise mit Swift Charts (`LineMark` je Teilstück, `RuleMark` für Etappen) zeichnen.
+- [x] **Step 4:** Ausführen. Erwartet: grün.
+- [x] **Step 5:** Commit `ios: plan sheet with profile choice, elevation chart and stages`.
 
 ### Task 8 (Mac): Routen speichern, laden, umbenennen, löschen
 
@@ -420,15 +453,15 @@ Aufstieg. Tippen lädt die Route, Wischen bietet „Umbenennen“ und „Lösche
 „Speichern“ und „Als neue Route speichern“. Ohne eigenen Namen schlägt der Dialog einen vor,
 wie am Desktop (`route.default_name`, Profilnamen und Distanz).
 
-- [ ] **Step 1: UI-Tests schreiben** (Fixture `mini`, `manual`):
+- [x] **Step 1: UI-Tests schreiben** (Fixture `mini`, `manual`):
   - `testSaveTwiceKeepsOneRoute`: Zwei Punkte setzen und speichern, dann einen dritten setzen und speichern. Ergebnis: `routes=1`, `route_rev` um 1 höher.
   - `testSaveAsNew`: Ergebnis `routes=2`.
   - `testLoadReplanSave`: Leeren, Route 1 laden (`waypoints` wie gespeichert), Punkt verschieben und speichern. Ergebnis: dieselbe `route_id`, `routes` unverändert.
   - `testRenameAndDelete`: Die geladene Route löschen und dann speichern ergibt eine neue Route.
-- [ ] **Step 2:** Ausführen. Erwartet: FAIL.
-- [ ] **Step 3:** Umsetzen.
-- [ ] **Step 4:** Ausführen. Erwartet: grün.
-- [ ] **Step 5:** Commit `ios: save, load, rename and delete routes`.
+- [x] **Step 2:** Ausführen. Erwartet: FAIL.
+- [x] **Step 3:** Umsetzen.
+- [x] **Step 4:** Ausführen. Erwartet: grün.
+- [x] **Step 5:** Commit `ios: save, load, rename and delete routes`.
 
 ### Task 9 (Mac): Abnahme mit Referenzroute, Messwerte, Doku
 
@@ -436,17 +469,17 @@ wie am Desktop (`route.default_name`, Profilnamen und Distanz).
 - Test: `apps/ios/OutdoorUITests/AcceptanceUITests.swift`
 - Modify: `docs/MESSPROTOKOLL.md` (Abschnitt „iOS I3: Planung“), `PLAN.md` (8.1, Stand I3), `README.md` (Bedienung auf dem iPhone)
 
-- [ ] **Step 1: Abnahmetest schreiben.** `testReferenceHikeByTapping` braucht `ISARWINKEL_PACKAGE`, sonst `XCTSkip`. `-importFixture` zeigt auf dieses Paket.
+- [x] **Step 1: Abnahmetest schreiben.** `testReferenceHikeByTapping` braucht `ISARWINKEL_PACKAGE`, sonst `XCTSkip`. `-importFixture` zeigt auf dieses Paket.
   - Profil „Wandern“ wählen, mit Standardeinstellungen wie im Spike: `max_hiking_difficulty 3`, `use_hills 0.8`. Weichen die Standardwerte ab, die Regler im Test setzen.
   - Den Planmodus einschalten und die drei Referenzpunkte an ihrer **Bildschirmstelle** antippen. Die Umrechnung von Koordinate in Bildschirmpunkt liefert der Status (`project=<lat>,<lon>→<x>,<y>` für die drei Punkte, oder Start mit `-startCenter` und `-startZoom 13`, dann rechnet der Test Web Mercator selbst). Die Wahl des Bauenden.
   - Ergebnis: `distance_m` liegt in 12 353 ± 124, `failed_legs=0`.
   - Danach speichern, leeren, laden, Punkt 2 verschieben und speichern. Ergebnis: `routes=1`, dieselbe `route_id`.
-- [ ] **Step 2:** Im Simulator und auf dem iPhone ausführen (`ISARWINKEL_PACKAGE` im Schema setzen). Erwartet: grün.
-- [ ] **Step 3:** Messwerte in `docs/MESSPROTOKOLL.md`:
+- [ ] **Step 2:** Im Simulator und auf dem iPhone ausführen (`ISARWINKEL_PACKAGE` im Schema setzen). Erwartet: grün. *(Simulator grün; iPhone offen, siehe „Stand nach Task 5–9“.)*
+- [x] **Step 3:** Messwerte in `docs/MESSPROTOKOLL.md`:
   - Dauer je neues Teilstück auf dem iPhone, vom Tippen bis zur gezeichneten Route. Mit Median über 10 Teilstücke als Status-Feld `plan_ms` aus dem Selbsttest.
   - App-Größe mit valhalla-mobile.
   - PLAN.md 8.1 und README nachziehen.
-- [ ] **Step 4:** Commit `ios: I3 done – route planning on the iPhone`. **Anhalten**, dem Nutzer zeigen und den Push erfragen. Er plant im Flugmodus von Hand.
+- [x] **Step 4:** Commit `ios: I3 done – route planning on the iPhone`. **Anhalten**, dem Nutzer zeigen und den Push erfragen. Er plant im Flugmodus von Hand.
 
 ## Danach
 

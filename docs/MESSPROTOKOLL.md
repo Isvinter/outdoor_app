@@ -117,6 +117,39 @@ Stand 2026-11-15, MacBook Air (Xcode 27.2), MapLibre Native 7.0.0, Release-Build
   übersah es. Sie nimmt jetzt beides. Danach lehnte sie das Paket zu Recht ab, weil die im
   Manifest genannte `routing.tar` fehlte; mit der Datei lief der Import durch.
 
+## iOS I3: Planung
+
+Stand 2026-11-16, MacBook Air (Xcode 27.2), valhalla-mobile 0.6.4 (Valhalla 3.9.1).
+
+| Messung | Ergebnis |
+|---|---|
+| App-Größe (Release, arm64, unkomprimiert, ohne Regionen) | 30 MB: 19,4 MB Programm mit Rust-Kern und Valhalla, 8,1 MB MapLibre, 1,4 MB Valhalla-Ressourcen (tzdata, Standardkonfiguration), 1,4 MB Schriften |
+| Zuwachs gegenüber I1 | 16 MB, davon 14,4 MB Programm (Valhalla statisch gelinkt) |
+| Simulator (iPhone 17): Referenzwanderung, drei Punkte getippt | 12 352 m (Desktop 12 353 m), kein fehlgeschlagenes Teilstück |
+| Simulator: erstes Teilstück, vom Tippen bis zur gezeichneten Route | 113 ms, davon rund 100 ms Öffnen von Valhalla (einmal je App-Start) |
+| Simulator: weitere Teilstücke (Median) | 15 ms |
+| iPhone 13 Pro Max: Dauer je neues Teilstück | **offen**, siehe unten |
+
+- `plan_ms` misst vom Eingang der Eingabe (Tipp, Loslassen eines Wegpunkts) bis die Route an
+  die Karte übergeben ist. Nicht enthalten sind 0,3 s davor: Ein Tipp wartet so lange auf einen
+  zweiten, damit ein Doppeltipp zoomt und keine zwei Punkte setzt. Diese Wartezeit kommt bei
+  jedem getippten Punkt dazu.
+- Die Werte im Simulator stammen aus einem Paket **nur mit Routing** (`routing.tar` aus dem
+  Vorabtest, von `apps/ios/scripts/test.sh` zu einem Paket gemacht). Das volle Paket liegt
+  nicht auf dem Mac. Ohne Höhendaten entfällt dort das Höhenprofil, die Zeiten mit vollem
+  Paket liegen also etwas höher.
+- **Auf dem iPhone nicht gemessen:** Der UI-Test braucht eine zweite App auf dem Gerät (den
+  Test-Runner). Das kostenlose Entwicklerprofil erlaubt drei Apps, und es liegen schon drei
+  darauf (Outdoor, Valhalla-Test, Vario). Nach dem Löschen von „Valhalla-Test“ läuft
+  `DEVICE=<udid> apps/ios/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`.
+  Ohne Test geht es auch von Hand: Die App mit
+  `xcrun devicectl device process launch --console --device <id> de.zeibig.outdoor -- -selftest`
+  starten und planen. Nach jeder berechneten Route schreibt sie eine Zeile mit `plan_ms`
+  (Median der letzten zehn).
+- Valhalla schreibt weiter eine Zeile je Anfrage auf die Konsole. valhalla-mobile reicht den
+  Abschnitt `logging` der Konfiguration nicht an Valhalla weiter, abstellen lässt es sich
+  dort also nicht. Die Warnung zur fehlenden `traffic.tar` ist weg.
+
 ## Höhenlinien im Regionspaket
 
 Gemessen am 2026-11-15 mit `scripts/build-region.sh <id> --steps contours,manifest`

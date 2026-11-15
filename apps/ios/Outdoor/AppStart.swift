@@ -12,6 +12,11 @@ enum AppStart {
         var importFixture: String?
         /// `-startZoom <zoom>`: the zoom the map starts at.
         var startZoom: Double?
+        /// `-startCenter <lat>,<lon>`: where the map starts.
+        var startCenter: [Double]?
+        /// `-project <lat>,<lon>;<lat>,<lon>…`: places whose position on the
+        /// screen the status reports, for tests that tap on them.
+        var project: [[Double]] = []
 
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             guard arguments.contains("-selftest") else { return }
@@ -24,6 +29,16 @@ enum AppStart {
             }
             if let flag = arguments.firstIndex(of: "-startZoom"), flag + 1 < arguments.count {
                 startZoom = Double(arguments[flag + 1])
+            }
+            let places = { (text: String) in
+                text.split(separator: ";").map { $0.split(separator: ",").compactMap { Double($0) } }
+                    .filter { $0.count == 2 }
+            }
+            if let flag = arguments.firstIndex(of: "-startCenter"), flag + 1 < arguments.count {
+                startCenter = places(arguments[flag + 1]).first
+            }
+            if let flag = arguments.firstIndex(of: "-project"), flag + 1 < arguments.count {
+                project = places(arguments[flag + 1])
             }
             #endif
         }

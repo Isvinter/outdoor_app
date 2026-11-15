@@ -45,7 +45,8 @@ private struct RootView: View {
         }.value
         switch result {
         case .success(let start):
-            let map = MapController(core: start.host.core, bounds: start.bounds, zoom: start.options.startZoom ?? 11)
+            let map = MapController(core: start.host.core, bounds: start.bounds, zoom: start.options.startZoom ?? 11,
+                centre: start.options.startCenter)
             phase = .ready(start, map, PlanController(core: start.host.core, map: map))
         case .failure(let error):
             phase = .failed(describe(error))

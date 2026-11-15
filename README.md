@@ -236,8 +236,9 @@ cargo run --release -p track-cli -- record tour.gpx --db test.sqlite         # G
 ## iOS
 
 Die iOS-App (`apps/ios/`, SwiftUI und MapLibre Native) zeigt die Sommer- und Winterkarte
-samt Hangneigung offline aus installierten Regionen, dazu die eigene Position. Routen,
-Aufzeichnung und Höhenlinien folgen.
+samt Hangneigung und Höhenlinien offline aus installierten Regionen, dazu die eigene
+Position. Routen plant sie ohne Netz, mit Valhalla in der App (valhalla-mobile) und der
+Planungslogik des Rust-Kerns. Aufzeichnung und die Übernahme vom Desktop folgen.
 
 Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
 `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
@@ -248,6 +249,13 @@ apps/ios/scripts/build-core.sh               # Rust-Kern als XCFramework und Swi
 apps/ios/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
 ```
 
+Die Tests mit echten Routingdaten (Referenzwanderung, Abnahme) brauchen ein Paket von
+`isarwinkel-achensee`. `test.sh` nimmt `data/regions/isarwinkel-achensee` oder den Pfad in
+`ISARWINKEL_PACKAGE`. Liegt dort nur die `routing.tar`, baut das Skript daraus ein Paket nur
+mit Routing (die Karte bleibt dann leer). Ohne Paket werden diese Tests übersprungen. Auf dem
+iPhone läuft die Abnahme mit der dort installierten Region:
+`DEVICE=<udid> apps/ios/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`.
+
 Signiert wird mit dem „Personal Team“ aus `project.yml` (Profil gilt 7 Tage). Auf dem iPhone
 muss der Entwickler einmal unter Einstellungen → Allgemein → VPN & Geräteverwaltung vertraut
 werden.
@@ -257,6 +265,23 @@ Dateien → Outdoor den Regionsordner (mit `manifest.json` und allen dort genann
 in den Ordner `Import` ziehen, oder die Dateien direkt hinein. Das geht auch in der App „Dateien“ unter Auf meinem iPhone → Outdoor → Import.
 Dann die App beenden (im App-Umschalter wegwischen) und neu starten: Sie prüft die Dateien,
 installiert die Region und entfernt den Ordner. Schlägt die Prüfung fehl, meldet die App das, und der Ordner bleibt liegen.
+
+**Routen planen auf dem iPhone:** Unten liegt ein Bereich, der sich in drei Stufen hochziehen
+lässt.
+
+- **„+ Punkt“** schaltet den Planmodus ein. Dann setzt Tippen auf die Karte einen Wegpunkt,
+  „Fertig“ beendet den Modus. Außerhalb davon verschiebt und zoomt Tippen nur die Karte.
+- Einen Wegpunkt **ziehen** verschiebt ihn. **Tippen** auf einen Wegpunkt öffnet ein Menü mit
+  „Etappenende hier“ (nur innere Punkte) und „Entfernen“.
+- Das **Sportart-Menü** und die Regler gelten für das letzte und alle neuen Teilstücke.
+  ↶ nimmt den letzten Punkt weg, ⌫ leert die Planung und beginnt eine neue Route.
+- Ein Teilstück, das sich nicht berechnen lässt, ist rot gestrichelt und zählt in der
+  Statistik nicht mit. Oben steht der Grund.
+- Halb hochgezogen zeigt der Bereich Regler, Höhenprofil, Statistik und Etappen. Ein Finger
+  auf dem Profil setzt eine Marke auf die Karte. Sie bleibt stehen, bis sich die Route ändert.
+- **„Speichern“** überschreibt die geladene oder zuletzt gespeicherte Route, **„Als neue Route
+  speichern“** legt eine neue an. Ganz hochgezogen steht die Liste „Routen“: Tippen lädt
+  eine Route, Wischen nach links bietet „Umbenennen“ und „Löschen“.
 
 ## Entwickeln
 
@@ -297,7 +322,7 @@ Abweichung geprüft.
 | `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
 | `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
 | `crates/core-ffi` | UniFFI-Hülle um `core-app` für die mobilen Apps |
-| `apps/ios` | iOS-App (SwiftUI, MapLibre Native): Karte, Regionsimport, Position; keine Fachlogik |
+| `apps/ios` | iOS-App (SwiftUI, MapLibre Native, valhalla-mobile): Karte, Regionsimport, Position, Routenplanung; keine Fachlogik |
 | `crates/region-builder` | nur Desktop: Regionen in der App bauen – Beschreibung, Wahl der Geofabrik-Auszüge, Lauf des Bauskripts mit Fortschritt und Abbruch |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |

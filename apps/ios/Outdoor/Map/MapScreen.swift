@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 
 struct MapScreen: View {
@@ -95,6 +96,10 @@ private struct SelfTestStatus: View {
         .onChange(of: controller.rendered) { rendered in
             if rendered { print("selftest: \(status)") }
         }
+        // And after each computed route, for `plan_ms` when planning by hand.
+        .onChange(of: plan.planning) { planning in
+            if !planning { print("selftest: \(status)") }
+        }
     }
 
     private var status: String {
@@ -122,6 +127,14 @@ private struct SelfTestStatus: View {
             parts.append(String(format: "rendered_ms=%.0f", rendered * 1000))
         }
         parts += plan.status
+        let waypoints = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+        if !waypoints.isEmpty {
+            parts.append("waypoint_xy=\(controller.screenPoints(of: waypoints))")
+        }
+        if !start.options.project.isEmpty {
+            let places = start.options.project.map { CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) }
+            parts.append("project=\(controller.screenPoints(of: places))")
+        }
         return parts.joined(separator: " ")
     }
 }

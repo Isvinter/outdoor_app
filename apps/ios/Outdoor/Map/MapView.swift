@@ -44,7 +44,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     /// Where the map starts while no region is installed (as on the desktop).
     private static let fallbackCentre = CLLocationCoordinate2D(latitude: 47.68, longitude: 11.57)
 
-    init(core: CoreApp, bounds: [Double]?, zoom: Double = 11) {
+    init(core: CoreApp, bounds: [Double]?, zoom: Double = 11, centre start: [Double]? = nil) {
         self.core = core
         mapView = MLNMapView(frame: .zero)
         route = RouteOverlay(mapView: mapView)
@@ -55,6 +55,9 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         var centre = Self.fallbackCentre
         if let bounds, bounds.count == 4 {
             centre = CLLocationCoordinate2D(latitude: (bounds[1] + bounds[3]) / 2, longitude: (bounds[0] + bounds[2]) / 2)
+        }
+        if let start, start.count == 2 {
+            centre = CLLocationCoordinate2D(latitude: start[0], longitude: start[1])
         }
         mapView.setCenter(centre, zoomLevel: zoom, animated: false)
         show(.summer)
@@ -167,6 +170,14 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         let layers = Set(["contour-minor", "contour-major"].filter { mapView.style?.layer(withIdentifier: $0) != nil })
         guard !layers.isEmpty else { return 0 }
         return mapView.visibleFeatures(in: mapView.bounds, styleLayerIdentifiers: layers).count
+    }
+
+    /// Where places are on the screen, as "x,y;x,y"; for the self-test.
+    func screenPoints(of places: [CLLocationCoordinate2D]) -> String {
+        places.map { place in
+            let point = mapView.convert(place, toPointTo: mapView)
+            return String(format: "%.1f,%.1f", point.x, point.y)
+        }.joined(separator: ";")
     }
 
     private func fail(_ error: Error) {

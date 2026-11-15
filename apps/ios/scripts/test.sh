@@ -2,6 +2,9 @@
 # Runs the tests in the simulator; arguments go to xcodebuild, e.g.
 #   scripts/test.sh -only-testing:OutdoorTests/RegionImportTests
 #
+# On a device: DEVICE=<udid> scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests
+# (the device unlocked, `isarwinkel-achensee` installed on it; the app keeps its data).
+#
 # The tests with real routing data need a package of `isarwinkel-achensee`.
 # ISARWINKEL_PACKAGE names it; without it, the script takes
 # data/regions/isarwinkel-achensee, and if only the routing data lies there
@@ -42,6 +45,13 @@ if [ -n "$package" ]; then
   export TEST_RUNNER_ISARWINKEL_PACKAGE="$package"
 fi
 
+destination="platform=iOS Simulator,name=${SIMULATOR:-iPhone 17}"
+if [ -n "${DEVICE:-}" ]; then
+  # The Mac's files are out of reach there: the test takes the installed region.
+  destination="id=$DEVICE"
+  unset TEST_RUNNER_ISARWINKEL_PACKAGE
+  export TEST_RUNNER_ISARWINKEL_INSTALLED=1
+fi
+
 xcodegen generate --quiet
-xcodebuild test -project Outdoor.xcodeproj -scheme Outdoor \
-  -destination "platform=iOS Simulator,name=${SIMULATOR:-iPhone 17}" "$@"
+xcodebuild test -project Outdoor.xcodeproj -scheme Outdoor -destination "$destination" "$@"

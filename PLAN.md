@@ -656,8 +656,18 @@ Im Simulator getestet und auf dem iPhone 13 Pro Max im Flugmodus abgenommen, sie
 (`contours.pmtiles`, Zoom 11–14, Schritt `contours` in `scripts/build-region.sh`), weil
 MapLibre Native sie nicht selbst aus den Höhendaten ableiten kann. Auf dem iPhone mit
 `isarwinkel-achensee` im Flugmodus abgenommen, siehe
-`docs/superpowers/plans/2026-11-15-ios-i2-hoehenlinien.md`. Es folgen I3 (Routing mit
-valhalla-mobile) und I4 (Freigabe im Heimnetz).
+`docs/superpowers/plans/2026-11-15-ios-i2-hoehenlinien.md`.
+
+**Stand 2026-11-16, iOS I3:** Routenplanung offline auf dem iPhone. Der Kern nimmt den Router
+von außen (`RouterFactory`): Swift reicht Valhallas JSON an valhalla-mobile 0.6.4
+(Valhalla 3.9.1) durch, Anfrage und Auswertung bleiben im Kern (`JsonRouter`). Weicht die
+Valhalla-Version der Routingdaten ab, schlägt nur das Teilstück fehl (`routing_incompatible`).
+Die Bearbeitung einer Planung (Punkt setzen, verschieben, entfernen, Etappenende) und die
+Profilfarben liegen im Kern, die App hält nur die aktuelle Anfrage. „Speichern“ überschreibt
+die geladene Route, „Als neue Route speichern“ legt eine neue an, auf beiden Plattformen.
+Abnahme im Simulator: Der Selbsttest tippt die drei Referenzpunkte an und kommt auf 12 352 m
+(Desktop 12 353 m), siehe `docs/superpowers/plans/2026-11-15-ios-i3-planung.md` und
+`docs/MESSPROTOKOLL.md`. Es folgt I4 (Freigabe im Heimnetz).
 
 | | A: Tauri Mobile | B: Native UI + UniFFI |
 |---|---|---|
