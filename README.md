@@ -233,10 +233,36 @@ cargo run --release -p track-cli -- stats tour.gpx --set ele_threshold_m=5   # P
 cargo run --release -p track-cli -- record tour.gpx --db test.sqlite         # GPX in eine Datenbank aufzeichnen
 ```
 
+## iOS
+
+Die iOS-App (`apps/ios/`, SwiftUI und MapLibre Native) zeigt die Sommer- und Winterkarte
+samt Hangneigung offline aus installierten Regionen, dazu die eigene Position. Routen,
+Aufzeichnung und Höhenlinien folgen.
+
+Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
+`rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
+
+```sh
+apps/ios/scripts/build-core.sh               # Rust-Kern als XCFramework und Swift-Bindings (nach jeder Änderung am Kern)
+(cd apps/ios && xcodegen generate)           # erzeugt Outdoor.xcodeproj, dann in Xcode das Schema „Outdoor“ starten
+apps/ios/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
+```
+
+Signiert wird mit dem „Personal Team“ aus `project.yml` (Profil gilt 7 Tage). Auf dem iPhone
+muss der Entwickler einmal unter Einstellungen → Allgemein → VPN & Geräteverwaltung vertraut
+werden.
+
+**Region aufs iPhone bringen:** Das iPhone anschließen und im Finder unter dem Gerät →
+Dateien → Outdoor den Regionsordner (mit `manifest.json` und allen dort genannten Dateien)
+in den Ordner `Import` ziehen, oder die Dateien direkt hinein. Das geht auch in der App „Dateien“ unter Auf meinem iPhone → Outdoor → Import.
+Dann die App beenden (im App-Umschalter wegwischen) und neu starten: Sie prüft die Dateien,
+installiert die Region und entfernt den Ordner. Schlägt die Prüfung fehl, meldet die App das, und der Ordner bleibt liegen.
+
 ## Entwickeln
 
 ```sh
 cargo test --workspace                       # mit Valhalla (über die Desktop-App eingeschaltet)
+cargo test --workspace --exclude outdoor-desktop --exclude region-builder   # auf dem Mac: ohne Valhalla und ohne den Regionsbau (nur Linux)
 cargo test -p core-routing -p core-app       # dieselben Crates ohne Valhalla
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
@@ -270,6 +296,8 @@ Abweichung geprüft.
 | `crates/core-app` | Anwendungsdienste; einzige Schnittstelle für Oberflächen |
 | `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
 | `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
+| `crates/core-ffi` | UniFFI-Hülle um `core-app` für die mobilen Apps |
+| `apps/ios` | iOS-App (SwiftUI, MapLibre Native): Karte, Regionsimport, Position; keine Fachlogik |
 | `crates/region-builder` | nur Desktop: Regionen in der App bauen – Beschreibung, Wahl der Geofabrik-Auszüge, Lauf des Bauskripts mit Fortschritt und Abbruch |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |
