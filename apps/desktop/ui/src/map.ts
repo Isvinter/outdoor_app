@@ -6,6 +6,7 @@ import {
   Map as MapLibreMap,
   Marker,
   NavigationControl,
+  Popup,
   ScaleControl,
   setWorkerUrl,
   type GeoJSONSource,
@@ -67,6 +68,13 @@ const OVERLAYS = [
 export interface WaypointHandlers {
   moved(index: number, to: LatLon): void;
   removed(index: number): void;
+  stageToggled(index: number): void;
+}
+
+/** Texts of the waypoint menu, given by the caller (the map knows no language). */
+export interface WaypointMenuTexts {
+  stageEnd: string;
+  remove: string;
 }
 
 // Contour lines are computed from the elevation tiles of the installed regions.
@@ -173,6 +181,7 @@ export class MapView {
   private markerShown = false;
   private readonly lines: Record<string, Line> = { [LIVE]: [], [SELECTED]: [], [ROUTE]: [] };
   private waypointMarkers: Marker[] = [];
+  private waypointMenu: Popup | null = null;
   private readonly cursor: Marker;
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
@@ -309,11 +318,17 @@ export class MapView {
   }
 
   /** Replaces the numbered waypoint markers. They can be dragged; a click removes one. */
-  setWaypoints(points: LatLon[], handlers: WaypointHandlers): void {
+  /**
+   * Shows the numbered waypoints; inner points in `stageEnds` end a stage.
+   * Points can be dragged; a click opens a menu to end a stage there or to
+   * remove the point.
+   */
+  setWaypoints(points: LatLon[], stageEnds: number[], handlers: WaypointHandlers, texts: WaypointMenuTexts): void {
+    this.closeWaypointMenu();
     for (const marker of this.waypointMarkers) marker.remove();
     this.waypointMarkers = points.map((point, index) => {
       const element = document.createElement("div");
-      element.className = "waypoint-marker";
+      element.className = stageEnds.includes(index) ? "waypoint-marker stage-end" : "waypoint-marker";
       element.textContent = String(index + 1);
       const marker = new Marker({ element, draggable: true }).setLngLat([point.lon, point.lat]).addTo(this.map);
       marker.on("dragend", () => {
@@ -323,10 +338,52 @@ export class MapView {
       element.addEventListener("click", (e) => {
         // Not a click on the map: do not add a waypoint here.
         e.stopPropagation();
-        handlers.removed(index);
+        const inner = index > 0 && index < points.length - 1;
+        this.openWaypointMenu(marker, inner, stageEnds.includes(index), {
+          stage: () => handlers.stageToggled(index),
+          remove: () => handlers.removed(index),
+        }, texts);
       });
       return marker;
     });
+  }
+
+  private openWaypointMenu(
+    marker: Marker,
+    inner: boolean,
+    stageEnd: boolean,
+    actions: { stage(): void; remove(): void },
+    texts: WaypointMenuTexts,
+  ): void {
+    this.closeWaypointMenu();
+    const menu = document.createElement("div");
+    menu.className = "waypoint-menu";
+    const button = (text: string, action: () => void, className = "") => {
+      const b = document.createElement("button");
+      b.textContent = text;
+      b.className = className;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.closeWaypointMenu();
+        action();
+      });
+      return b;
+    };
+    if (inner) {
+      const stage = button(texts.stageEnd, actions.stage, "stage-toggle");
+      stage.setAttribute("aria-pressed", String(stageEnd));
+      menu.append(stage);
+    }
+    menu.append(button(texts.remove, actions.remove, "remove"));
+    this.waypointMenu = new Popup({ closeButton: false, offset: 16, className: "waypoint-popup" })
+      .setLngLat(marker.getLngLat())
+      .setDOMContent(menu)
+      .addTo(this.map);
+  }
+
+  private closeWaypointMenu(): void {
+    this.waypointMenu?.remove();
+    this.waypointMenu = null;
   }
 
   /** Calls `handler` with the position of every click on the map. */

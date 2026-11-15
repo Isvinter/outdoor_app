@@ -96,6 +96,11 @@ input[type="range"] { flex: 1; accent-color: var(--accent); }
   border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   font: 600 12px/20px system-ui, sans-serif; text-align: center; user-select: none;
 }
+.waypoint-marker.stage-end { border-radius: 4px; background: #1d1d1f; }
+.waypoint-popup .maplibregl-popup-content { padding: 4px; border-radius: 6px; }
+.waypoint-menu { display: flex; flex-direction: column; gap: 2px; }
+.waypoint-menu button { text-align: left; white-space: nowrap; }
+.waypoint-menu .stage-toggle[aria-pressed="true"]::before { content: "✓ "; }
 .profile-cursor {
   width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 3px solid #0b63ce; pointer-events: none;
 }

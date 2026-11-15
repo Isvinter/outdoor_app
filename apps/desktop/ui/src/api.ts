@@ -156,10 +156,18 @@ export interface ProfileInfo {
 
 export type RouteOptions = Partial<Record<RouteOptionKey, number | null>>;
 
-export interface RouteRequest {
-  waypoints: LatLon[];
+/** How one leg (from waypoint i to i + 1) is to be found. */
+export interface LegSpec {
   profile: Profile;
   options: RouteOptions;
+}
+
+export interface PlanRequest {
+  waypoints: LatLon[];
+  /** One less than waypoints. */
+  legs: LegSpec[];
+  /** Inner waypoints where a stage ends, ascending. */
+  stage_ends: number[];
 }
 
 export interface ProfilePoint {
@@ -169,29 +177,68 @@ export interface ProfilePoint {
   ele: number | null;
 }
 
-export interface RoutePlan {
-  route: {
-    profile: Profile;
-    waypoints: LatLon[];
-    line: LatLon[];
-    distance_m: number;
-    duration_s: number | null;
-  };
+/** A sample of the elevation profile, with the leg it lies on. */
+export interface RoutePoint extends ProfilePoint {
+  leg: number;
+}
+
+export interface LegError {
+  code: string;
+  message: string;
+}
+
+export interface Leg {
+  profile: Profile;
   options: RouteOptions;
-  elevation: ProfilePoint[];
+  /** Empty if the leg failed. */
+  line: LatLon[];
+  distance_m: number;
+  duration_s: number | null;
   ascent_m: number | null;
   descent_m: number | null;
-  min_ele_m: number | null;
-  max_ele_m: number | null;
-  hiking_time_s: number | null;
+  /** On foot the DIN walking time, otherwise the router's time. */
+  time_s: number | null;
   region: string | null;
   max_mtb_scale: number | null;
+  error: LegError | null;
+}
+
+export interface Stage {
+  /** First and last waypoint of the stage. */
+  from: number;
+  to: number;
+  distance_m: number;
+  ascent_m: number | null;
+  descent_m: number | null;
+  time_s: number | null;
+  profiles: Profile[];
+}
+
+export interface Totals {
+  distance_m: number;
+  ascent_m: number | null;
+  descent_m: number | null;
+  time_s: number | null;
+  min_ele_m: number | null;
+  max_ele_m: number | null;
+  /** Legs missing from the totals because they could not be computed. */
+  failed_legs: number;
+}
+
+export interface RoutePlan {
+  format: number;
+  request: PlanRequest;
+  legs: Leg[];
+  elevation: RoutePoint[];
+  stages: Stage[];
+  total: Totals;
 }
 
 export interface RouteRecord {
   id: string;
   name: string;
-  profile: Profile;
+  /** The profiles of the route joined by "+", e.g. "mtb+hike". */
+  profile: string;
   distance_m: number;
   ascent_m: number | null;
   created_at_ms: number;
@@ -243,7 +290,7 @@ export const api = {
   regionBuildCancel: () => invoke<void>("region_build_cancel"),
 
   routeProfiles: () => invoke<ProfileInfo[]>("route_profiles"),
-  routePlan: (request: RouteRequest) => invoke<RoutePlan>("route_plan", { request }),
+  routePlan: (request: PlanRequest) => invoke<RoutePlan>("route_plan", { request }),
   routeClear: () => invoke<void>("route_clear"),
   routeSave: (name: string) => invoke<RouteRecord>("route_save", { name }),
   routesList: () => invoke<RouteRecord[]>("routes_list"),

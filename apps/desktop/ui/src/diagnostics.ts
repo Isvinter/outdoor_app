@@ -329,8 +329,8 @@ async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promis
     // How long the core takes for the same route, without the page around it.
     const request = {
       waypoints: places.map((place) => ({ lat: place.lat, lon: place.lng })),
-      profile: "hike" as const,
-      options: {},
+      legs: places.slice(1).map(() => ({ profile: "hike" as const, options: {} })),
+      stage_ends: [],
     };
     const times: number[] = [];
     for (let i = 0; i < 5; i++) {

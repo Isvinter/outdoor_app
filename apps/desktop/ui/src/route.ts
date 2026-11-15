@@ -1,11 +1,16 @@
 /**
  * The "Route planen" panel: profile, settings, waypoints, result, saved routes.
  * Input and rendering only; routes and their numbers come from the core.
+ *
+ * A route is a list of waypoints with one leg between each two of them; every
+ * leg has its own profile and settings. The form shows and changes the last
+ * leg, and new legs take what the form shows.
  */
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   api,
   type LatLon,
+  type LegSpec,
   type Profile,
   type ProfileInfo,
   type RouteOptionKey,
@@ -32,6 +37,11 @@ export interface RoutePanelHost {
 export class RoutePanel {
   private profiles: ProfileInfo[] = [];
   private waypoints: LatLon[] = [];
+  /** Leg i runs from waypoint i to i + 1. */
+  private legs: LegSpec[] = [];
+  /** Inner waypoints where a stage ends, ascending. */
+  private stageEnds: number[] = [];
+  /** Settings shown in the form: those of the last leg and of new legs. */
   private options: RouteOptions = {};
   private picking = false;
   private plan: RoutePlan | null = null;
@@ -61,21 +71,24 @@ export class RoutePanel {
     select.value = this.profiles.find((p) => p.profile === "hike")?.available ? "hike" : "manual";
     select.addEventListener("change", () => {
       this.options = {};
+      this.updateLastLeg();
       this.renderOptions();
       this.renderControls();
-      void this.compute(false);
     });
     $("route-edit").addEventListener("click", () => this.setPicking(!this.picking));
-    $("route-undo").addEventListener("click", () => this.setWaypoints(this.waypoints.slice(0, -1)));
+    $("route-undo").addEventListener("click", () => this.removeWaypoint(this.waypoints.length - 1));
     $("route-clear").addEventListener("click", () => {
       this.setPicking(false);
       delete $<HTMLInputElement>("route-name").dataset.auto;
-      this.setWaypoints([]);
+      this.waypoints = [];
+      this.legs = [];
+      this.stageEnds = [];
+      this.changed();
     });
     $("route-save").addEventListener("click", () => void this.save());
     $("route-export").addEventListener("click", () => void this.export());
     this.view.onClick((at) => {
-      if (this.picking) this.setWaypoints([...this.waypoints, at]);
+      if (this.picking) this.addWaypoint(at);
     });
     this.renderOptions();
     this.renderControls();
@@ -93,18 +106,70 @@ export class RoutePanel {
     this.renderControls();
   }
 
-  private setWaypoints(waypoints: LatLon[]): void {
-    this.waypoints = waypoints;
+  /** What a new leg gets: the profile and settings shown in the form. */
+  private formLeg(): LegSpec {
+    return { profile: this.profile(), options: { ...this.options } };
+  }
+
+  /** The form changed: the last leg follows it. */
+  private updateLastLeg(): void {
+    if (this.legs.length === 0) return;
+    this.legs = [...this.legs.slice(0, -1), this.formLeg()];
+    void this.compute(false);
+  }
+
+  private addWaypoint(at: LatLon): void {
+    if (this.waypoints.length > 0) this.legs = [...this.legs, this.formLeg()];
+    this.waypoints = [...this.waypoints, at];
+    this.changed();
+  }
+
+  private moveWaypoint(index: number, to: LatLon): void {
+    this.waypoints = this.waypoints.map((p, i) => (i === index ? to : p));
+    this.changed();
+  }
+
+  /**
+   * Removes a waypoint. Its neighbours are joined by the leg before it (the
+   * first point takes its leg along); a stage ending there ends no more.
+   */
+  private removeWaypoint(index: number): void {
+    if (index < 0 || index >= this.waypoints.length) return;
+    this.waypoints = this.waypoints.filter((_, i) => i !== index);
+    const leg = index === 0 ? 0 : index - 1 === this.legs.length - 1 ? index - 1 : index;
+    this.legs = this.legs.filter((_, i) => i !== leg);
+    this.stageEnds = this.stageEnds.filter((end) => end !== index).map((end) => (end > index ? end - 1 : end));
+    this.changed();
+  }
+
+  /** Marks or unmarks an inner waypoint as the end of a stage. */
+  private toggleStageEnd(index: number): void {
+    if (index <= 0 || index >= this.waypoints.length - 1) return;
+    this.stageEnds = this.stageEnds.includes(index)
+      ? this.stageEnds.filter((end) => end !== index)
+      : [...this.stageEnds, index].sort((a, b) => a - b);
+    this.changed();
+  }
+
+  private changed(): void {
+    // Only inner waypoints can end a stage.
+    this.stageEnds = this.stageEnds.filter((end) => end > 0 && end < this.waypoints.length - 1);
     this.renderWaypoints();
     this.renderControls();
     void this.compute(false);
   }
 
   private renderWaypoints(): void {
-    this.view.setWaypoints(this.waypoints, {
-      moved: (index, to) => this.setWaypoints(this.waypoints.map((p, i) => (i === index ? to : p))),
-      removed: (index) => this.setWaypoints(this.waypoints.filter((_, i) => i !== index)),
-    });
+    this.view.setWaypoints(
+      this.waypoints,
+      this.stageEnds,
+      {
+        moved: (index, to) => this.moveWaypoint(index, to),
+        removed: (index) => this.removeWaypoint(index),
+        stageToggled: (index) => this.toggleStageEnd(index),
+      },
+      { stageEnd: t("route.waypoint.stage_end"), remove: t("route.waypoint.remove") },
+    );
   }
 
   private renderControls(): void {
@@ -145,7 +210,7 @@ export class RoutePanel {
         slider.addEventListener("input", show);
         slider.addEventListener("change", () => {
           this.options = { ...this.options, [spec.key]: Number(slider.value) };
-          void this.compute(false);
+          this.updateLastLeg();
         });
         row.append(label, value, slider);
         return row;
@@ -164,10 +229,14 @@ export class RoutePanel {
     }
     this.host.showMessage(t("route.computing"));
     try {
-      const plan = await api.routePlan({ waypoints: this.waypoints, profile: this.profile(), options: this.options });
+      const plan = await api.routePlan({ waypoints: this.waypoints, legs: this.legs, stage_ends: this.stageEnds });
       if (request !== this.request) return;
       this.plan = plan;
-      this.host.showMessage("");
+      const failed = plan.legs.findIndex((leg) => leg.error !== null);
+      const error = plan.legs[failed]?.error;
+      if (error) {
+        this.host.showError({ code: error.code, message: t("route.leg_failed", { n: failed + 1, reason: error.message }) });
+      } else this.host.showMessage("");
     } catch (e) {
       if (request !== this.request) return;
       this.plan = null;
@@ -178,27 +247,24 @@ export class RoutePanel {
 
   private renderPlan(fit = false): void {
     const plan = this.plan;
-    this.view.showRoute(plan?.route.line ?? [], fit);
+    this.view.showRoute(plan?.legs.flatMap((leg) => leg.line) ?? [], fit);
     this.view.showProfileCursor(null);
     $("route-result").hidden = plan === null;
     if (!plan) return;
-    const { route } = plan;
-    const rows: [MessageKey, string][] = [["stats.distance", distance(route.distance_m)]];
-    if (route.duration_s !== null) {
-      rows.push([route.profile === "hike" ? "route.time.walk" : "route.time.ride", hours(route.duration_s)]);
+    const { total } = plan;
+    const rows: [MessageKey, string][] = [["stats.distance", distance(total.distance_m)]];
+    if (total.ascent_m !== null && total.descent_m !== null) {
+      rows.push(["stats.ascent", elevation(total.ascent_m)], ["stats.descent", elevation(total.descent_m)]);
+      rows.push(["stats.elevation", `${elevation(total.min_ele_m)} / ${elevation(total.max_ele_m)}`]);
     }
-    if (plan.ascent_m !== null && plan.descent_m !== null) {
-      rows.push(["stats.ascent", elevation(plan.ascent_m)], ["stats.descent", elevation(plan.descent_m)]);
-      rows.push(["stats.elevation", `${elevation(plan.min_ele_m)} / ${elevation(plan.max_ele_m)}`]);
-    }
-    if (plan.hiking_time_s !== null) rows.push(["route.time.din", hours(plan.hiking_time_s)]);
+    if (total.time_s !== null) rows.push(["route.time", hours(total.time_s)]);
     renderRows($("route-stats"), rows);
     renderProfileChart($("route-chart"), plan.elevation, (point) => this.view.showProfileCursor(point));
     const notes: string[] = [];
-    if (plan.ascent_m === null) notes.push(t("route.note.no_elevation"));
-    if (plan.max_mtb_scale !== null && BIKES.includes(route.profile)) {
-      notes.push(t("route.note.mtb_scale", { scale: plan.max_mtb_scale }));
-    }
+    if (total.failed_legs > 0) notes.push(t("route.note.failed_legs", { n: total.failed_legs }));
+    if (total.ascent_m === null) notes.push(t("route.note.no_elevation"));
+    const scale = plan.legs.find((leg) => BIKES.includes(leg.profile) && leg.max_mtb_scale !== null)?.max_mtb_scale;
+    if (scale !== undefined && scale !== null) notes.push(t("route.note.mtb_scale", { scale }));
     $("route-note").textContent = notes.join(" ");
     const name = $<HTMLInputElement>("route-name");
     name.placeholder = t("route.name");
@@ -208,8 +274,8 @@ export class RoutePanel {
 
   private defaultName(plan: RoutePlan): string {
     return t("route.default_name", {
-      profile: t(`route.profile.${plan.route.profile}`),
-      distance: distance(plan.route.distance_m),
+      profile: profileNames(plan.legs.map((leg) => leg.profile)),
+      distance: distance(plan.total.distance_m),
     });
   }
 
@@ -247,11 +313,14 @@ export class RoutePanel {
       const plan = await api.routeLoad(record.id);
       this.request++;
       this.plan = plan;
-      this.waypoints = plan.route.waypoints;
+      this.waypoints = plan.request.waypoints;
+      this.legs = plan.request.legs;
+      this.stageEnds = plan.request.stage_ends;
+      const last = this.legs[this.legs.length - 1];
       this.options = Object.fromEntries(
-        Object.entries(plan.options).filter(([, value]) => value !== null),
+        Object.entries(last?.options ?? {}).filter(([, value]) => value !== null),
       ) as Partial<Record<RouteOptionKey, number>>;
-      $<HTMLSelectElement>("route-profile").value = plan.route.profile;
+      if (last) $<HTMLSelectElement>("route-profile").value = last.profile;
       const name = $<HTMLInputElement>("route-name");
       name.value = record.name;
       name.dataset.auto = "no";
@@ -290,7 +359,8 @@ export class RoutePanel {
         const meta = document.createElement("span");
         meta.className = "meta";
         const ascent = record.ascent_m === null ? "" : ` · ↑ ${elevation(record.ascent_m)}`;
-        meta.textContent = `${distance(record.distance_m)}${ascent}`;
+        const profiles = profileNames(record.profile.split("+") as Profile[]);
+        meta.textContent = `${profiles} · ${distance(record.distance_m)}${ascent}`;
         const remove = document.createElement("button");
         remove.textContent = "✕";
         remove.title = t("route.delete");
@@ -304,4 +374,9 @@ export class RoutePanel {
       }),
     );
   }
+}
+
+/** "MTB + Wandern": the names of the profiles, each once, in order. */
+function profileNames(profiles: Profile[]): string {
+  return [...new Set(profiles)].map((profile) => t(`route.profile.${profile}`)).join(" + ");
 }

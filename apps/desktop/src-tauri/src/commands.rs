@@ -2,12 +2,12 @@
 //! the result. Commands are `async` so they run off the UI thread.
 
 use core_app::{
-    App, AppError, ProfileInfo, RecordingStatus, RegionsOverview, RoutePlan, TrackDetail,
+    App, AppError, PlanRequest, ProfileInfo, RecordingStatus, RegionsOverview, RoutePlan,
+    TrackDetail,
 };
 use core_gpx::parse_gpx;
 use core_location::{GpsdSource, GpxReplaySource};
 use core_maps::InstalledRegion;
-use core_routing::RouteRequest;
 use core_storage::{RouteRecord, TrackRecord};
 use core_track::Activity;
 use serde::Serialize;
@@ -77,9 +77,9 @@ pub async fn route_profiles(app: State<'_, App>) -> CommandResult<Vec<ProfileInf
     Ok(app.route_profiles())
 }
 
-/// Computes a route; it becomes the planned route.
+/// Computes a route leg by leg; it becomes the planned route.
 #[tauri::command]
-pub async fn route_plan(handle: AppHandle, request: RouteRequest) -> CommandResult<RoutePlan> {
+pub async fn route_plan(handle: AppHandle, request: PlanRequest) -> CommandResult<RoutePlan> {
     blocking(handle, move |app| app.plan_route(&request)).await
 }
 
