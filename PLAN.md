@@ -649,9 +649,15 @@ noch als Zuwachs übertragen.
 App in `apps/ios/` zeigt Sommer- und Winterkarte samt Hangneigung offline, mit Regionsimport
 über den Ordner `Import` und der eigenen Position. MapLibre Native holt Kacheln und Schriften
 über ein `URLProtocol` (`outdoor-tiles://`) aus dem Kern, den Style füllt der Kern.
-Im Simulator getestet und auf dem iPhone 13 Pro Max im Flugmodus abgenommen. Es folgen I2 (Höhenlinien), I3
-(Routing mit valhalla-mobile) und I4 (Freigabe im Heimnetz), siehe
+Im Simulator getestet und auf dem iPhone 13 Pro Max im Flugmodus abgenommen, siehe
 `docs/superpowers/plans/2026-11-15-ios-i1-karte.md`.
+
+**Stand 2026-11-15, iOS I2:** Höhenlinien kommen vorberechnet aus dem Regionspaket
+(`contours.pmtiles`, Zoom 11–14, Schritt `contours` in `scripts/build-region.sh`), weil
+MapLibre Native sie nicht selbst aus den Höhendaten ableiten kann. Auf dem iPhone mit
+`isarwinkel-achensee` im Flugmodus abgenommen, siehe
+`docs/superpowers/plans/2026-11-15-ios-i2-hoehenlinien.md`. Es folgen I3 (Routing mit
+valhalla-mobile) und I4 (Freigabe im Heimnetz).
 
 | | A: Tauri Mobile | B: Native UI + UniFFI |
 |---|---|---|
