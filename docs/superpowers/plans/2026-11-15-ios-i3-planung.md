@@ -146,7 +146,7 @@ Profilfarben), „Bedienung auf dem iPhone“ und Meilenstein I3. Baut auf I1 un
 
 - [ ] **Step 1: Tests schreiben** (`plan_edit.rs`):
   - `add_appends_leg_from_form`: Der 1. Punkt bringt kein Teilstück, der 2. und 3. Punkt bringen je eines.
-  - `remove_inner_joins_with_leg_before`: 4 Punkte mit Profilen `[hike, mtb, car]`. Entfernen von Index 2 ergibt `[hike, car]`. Bei Index 3 (der letzte) ergibt sich `[hike, mtb]`, bei Index 0 `[mtb, car]`.
+  - `remove_inner_joins_with_leg_before`: 4 Punkte mit Profilen `[hike, mtb, car]`. Entfernen von Index 2 ergibt `[hike, mtb]` (das Teilstück davor verbindet die Nachbarn), Index 1 ergibt `[hike, car]`, Index 3 (der letzte) `[hike, mtb]`, Index 0 `[mtb, car]`. *(Korrigiert in Task 2, nach `route.ts`.)*
   - `remove_shifts_stage_ends`: Etappenenden `[1, 3]` bei 5 Punkten. Entfernen von 1 ergibt `[2]`, Entfernen von 2 ergibt `[1, 2]`.
   - `stage_end_only_inner`: `toggle_stage_end(0)` und `toggle_stage_end(n-1)` ändern nichts. Zweimal umschalten stellt den alten Zustand her. Die Liste bleibt sortiert.
   - `stage_ends_dropped_when_point_becomes_last`: Punkte 0..=2, Etappenende `[1]`. Entfernen von 2 ergibt `[]`.

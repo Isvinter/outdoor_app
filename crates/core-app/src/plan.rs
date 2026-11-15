@@ -205,22 +205,116 @@ fn invalid(message: &str) -> AppError {
     AppError::RoutePlan(message.to_string())
 }
 
-fn check(request: &PlanRequest) -> Result<(), AppError> {
-    let n = request.waypoints.len();
-    if n < 2 {
-        return Err(RoutingError::TooFewWaypoints.into());
+impl PlanRequest {
+    /// No waypoints, no legs.
+    #[must_use]
+    pub fn empty() -> Self {
+        PlanRequest {
+            waypoints: Vec::new(),
+            legs: Vec::new(),
+            stage_ends: Vec::new(),
+        }
     }
-    if request.legs.len() != n - 1 {
-        return Err(invalid("there must be one leg less than waypoints"));
+
+    /// Whether the request can be computed: start and destination, one leg
+    /// between each two waypoints, stage ends at inner waypoints in order.
+    pub fn validate(&self) -> Result<(), AppError> {
+        let n = self.waypoints.len();
+        if n < 2 {
+            return Err(RoutingError::TooFewWaypoints.into());
+        }
+        if self.legs.len() != n - 1 {
+            return Err(invalid("there must be one leg less than waypoints"));
+        }
+        let inner = |i: &usize| (1..n - 1).contains(i);
+        if !self.stage_ends.iter().all(inner) || !self.stage_ends.windows(2).all(|w| w[0] < w[1]) {
+            return Err(invalid(
+                "stage ends must be inner waypoints in ascending order",
+            ));
+        }
+        Ok(())
     }
-    let inner = |i: &usize| (1..n - 1).contains(i);
-    if !request.stage_ends.iter().all(inner) || !request.stage_ends.windows(2).all(|w| w[0] < w[1])
-    {
-        return Err(invalid(
-            "stage ends must be inner waypoints in ascending order",
-        ));
+
+    /// Adds a destination; the leg to it is `leg` (what the form shows).
+    #[must_use]
+    pub fn add_waypoint(&self, at: LatLon, leg: LegSpec) -> Self {
+        let mut next = self.clone();
+        if !next.waypoints.is_empty() {
+            next.legs.push(leg);
+        }
+        next.waypoints.push(at);
+        next
     }
-    Ok(())
+
+    #[must_use]
+    pub fn move_waypoint(&self, index: usize, to: LatLon) -> Self {
+        let mut next = self.clone();
+        if let Some(point) = next.waypoints.get_mut(index) {
+            *point = to;
+        }
+        next
+    }
+
+    /// Removes a waypoint. Its neighbours are joined by the leg before it (the
+    /// first point takes its leg along); a stage ending there ends no more.
+    #[must_use]
+    pub fn remove_waypoint(&self, index: usize) -> Self {
+        if index >= self.waypoints.len() {
+            return self.clone();
+        }
+        let mut next = self.clone();
+        next.waypoints.remove(index);
+        if !next.legs.is_empty() {
+            let leg = if index == 0 {
+                0
+            } else if index - 1 == next.legs.len() - 1 {
+                index - 1
+            } else {
+                index
+            };
+            next.legs.remove(leg);
+        }
+        next.stage_ends = next
+            .stage_ends
+            .iter()
+            .filter(|&&end| end != index)
+            .map(|&end| if end > index { end - 1 } else { end })
+            .collect();
+        next.keep_inner_stage_ends();
+        next
+    }
+
+    /// Marks or unmarks an inner waypoint as the end of a stage.
+    #[must_use]
+    pub fn toggle_stage_end(&self, index: usize) -> Self {
+        let mut next = self.clone();
+        if index == 0 || index + 1 >= next.waypoints.len() {
+            return next;
+        }
+        if let Some(at) = next.stage_ends.iter().position(|&end| end == index) {
+            next.stage_ends.remove(at);
+        } else {
+            next.stage_ends.push(index);
+            next.stage_ends.sort_unstable();
+        }
+        next
+    }
+
+    /// The form changed: the last leg follows it.
+    #[must_use]
+    pub fn set_last_leg(&self, leg: LegSpec) -> Self {
+        let mut next = self.clone();
+        if let Some(last) = next.legs.last_mut() {
+            *last = leg;
+        }
+        next
+    }
+
+    /// Only inner waypoints can end a stage.
+    fn keep_inner_stage_ends(&mut self) {
+        let n = self.waypoints.len();
+        self.stage_ends.retain(|&end| end > 0 && end + 1 < n);
+    }
 }
 
 fn on_foot(profile: Profile) -> bool {
@@ -270,7 +364,7 @@ impl App {
     /// is marked in the plan; only an invalid request is an error. May take a
     /// moment; call it off the UI thread.
     pub fn plan_route(&self, request: &PlanRequest) -> Result<RoutePlan, AppError> {
-        check(request)?;
+        request.validate()?;
         let mut legs = Vec::with_capacity(request.legs.len());
         let mut samples = Vec::with_capacity(request.legs.len());
         for (i, spec) in request.legs.iter().enumerate() {

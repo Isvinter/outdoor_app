@@ -72,7 +72,11 @@ fn factory_is_used_for_routed_legs() {
     let mut moved = hike();
     moved.waypoints[1] = position(40.0, 32.0);
     app.plan_route(&moved).unwrap();
-    assert_eq!(factory.opened.load(Ordering::SeqCst), 1, "one router per region");
+    assert_eq!(
+        factory.opened.load(Ordering::SeqCst),
+        1,
+        "one router per region"
+    );
     assert!(app.route_profiles().iter().all(|p| p.available));
 }
 
@@ -105,7 +109,10 @@ fn a_new_factory_replaces_open_routers() {
     app.set_router_factory(second.clone());
     app.plan_route(&hike()).unwrap();
     assert_eq!(
-        (first.opened.load(Ordering::SeqCst), second.opened.load(Ordering::SeqCst)),
+        (
+            first.opened.load(Ordering::SeqCst),
+            second.opened.load(Ordering::SeqCst)
+        ),
         (1, 1)
     );
 }
@@ -115,7 +122,10 @@ fn a_new_factory_replaces_open_routers() {
 fn no_factory_no_routing() {
     let app = app_with_ramp_routing("no-factory");
     let plan = app.plan_route(&hike()).unwrap();
-    assert_eq!(plan.legs[0].error.as_ref().unwrap().code, "routing_unavailable");
+    assert_eq!(
+        plan.legs[0].error.as_ref().unwrap().code,
+        "routing_unavailable"
+    );
     for profile in app.route_profiles() {
         assert_eq!(profile.available, profile.profile == Profile::Manual);
     }

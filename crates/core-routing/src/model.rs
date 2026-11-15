@@ -31,6 +31,24 @@ pub enum Profile {
     Manual,
 }
 
+/// Colour of a leg that could not be computed, drawn as a dashed straight line.
+pub const FAILED_LEG_COLOR: &str = "#d93025";
+
+impl Profile {
+    /// One colour per profile, the same on the map and in the elevation
+    /// profile on every platform (as `apps/desktop/ui/src/profile-colors.ts`).
+    pub fn color(self) -> &'static str {
+        match self {
+            Profile::RoadBike => "#1565c0",
+            Profile::Trekking => "#00897b",
+            Profile::Mtb => "#e07b00",
+            Profile::Hike => "#c62828",
+            Profile::Car => "#546e7a",
+            Profile::Manual => "#6a1b9a",
+        }
+    }
+}
+
 /// An adjustable setting of a profile, for user interfaces to build controls from.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct OptionSpec {

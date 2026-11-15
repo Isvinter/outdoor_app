@@ -85,10 +85,19 @@ fn routes_through_engine() {
 #[test]
 fn engine_errors_are_mapped() {
     let (router, _) = json_router(Err("No path could be found for input".into()));
-    assert!(matches!(router.route(&request()), Err(RoutingError::NoRoute(_))));
+    assert!(matches!(
+        router.route(&request()),
+        Err(RoutingError::NoRoute(_))
+    ));
     let (router, _) = json_router(Err("boom".into()));
-    assert!(matches!(router.route(&request()), Err(RoutingError::Engine(_))));
-    assert!(matches!(engine_error("No suitable edges near location"), RoutingError::NoRoute(_)));
+    assert!(matches!(
+        router.route(&request()),
+        Err(RoutingError::Engine(_))
+    ));
+    assert!(matches!(
+        engine_error("No suitable edges near location"),
+        RoutingError::NoRoute(_)
+    ));
 }
 
 #[test]

@@ -12,7 +12,8 @@ mod valhalla_router;
 pub use json_router::{JsonEngine, JsonRouter};
 pub use manual::{DinParams, din_time_s, manual_route};
 pub use model::{
-    LatLon, OptionSpec, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError,
+    FAILED_LEG_COLOR, LatLon, OptionSpec, Profile, Route, RouteOptions, RouteRequest, Router,
+    RoutingError,
 };
 pub use valhalla_api::{
     VALHALLA_PROFILES, costing_json, decode_polyline6, engine_error, parse_valhalla_route,

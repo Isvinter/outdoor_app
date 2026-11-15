@@ -329,3 +329,16 @@ fn din_33466_combines_horizontal_and_vertical_time() {
     };
     assert!(din_time_s(4000.0, 600.0, 0.0, &fit) < 9000.0);
 }
+
+#[test]
+fn colors_match_desktop() {
+    let desktop = include_str!("../../../apps/desktop/ui/src/profile-colors.ts");
+    for profile in Profile::ALL {
+        let line = format!("{}: \"{}\"", profile.as_str(), profile.color());
+        assert!(desktop.contains(&line), "{line} not in profile-colors.ts");
+    }
+    assert!(desktop.contains(&format!(
+        "FAILED_COLOR = \"{}\"",
+        core_routing::FAILED_LEG_COLOR
+    )));
+}

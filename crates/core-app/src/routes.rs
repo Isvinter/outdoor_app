@@ -99,9 +99,9 @@ impl Routing {
         if let Some(router) = routers.get(region) {
             return Ok(Arc::clone(router));
         }
-        let factory = self.factory().ok_or_else(|| {
-            RoutingError::Unavailable("this build has no routing engine".into())
-        })?;
+        let factory = self
+            .factory()
+            .ok_or_else(|| RoutingError::Unavailable("this build has no routing engine".into()))?;
         let router = factory.open(tiles)?;
         routers.insert(region.to_string(), Arc::clone(&router));
         Ok(router)
