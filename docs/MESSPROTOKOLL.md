@@ -93,6 +93,25 @@ zwei Etappenenden.
   ohne Länge und mit nur einer Höhenprobe; das galt als „Höhen unbekannt“ und blendete den
   Aufstieg der ganzen Route aus. Ein solches Teilstück hat jetzt 0 m.
 
+## iOS I1: Offline-Karte
+
+Stand 2026-11-15, MacBook Air (Xcode 27.2), MapLibre Native 7.0.0, Release-Build.
+
+| Messung | Ergebnis |
+|---|---|
+| App-Größe (Release, arm64, unkomprimiert, ohne Regionen) | 14 MB: 7,9 MB MapLibre, 5,0 MB Programm mit Rust-Kern, 1,4 MB Schriften |
+| Simulator (iPhone 17, iOS 27.2), Region `mini` (0,8 MB): Import | 5 ms |
+| Simulator, Region `mini`: App-Start bis Karte vollständig gezeichnet | 290–320 ms (3 Läufe) |
+| iPhone 13 Pro Max, `isarwinkel-achensee`: Import | offen |
+| iPhone 13 Pro Max, `isarwinkel-achensee`: App-Start bis Karte gezeichnet | offen |
+
+- Gemessen ab dem Start des App-Codes (`OutdoorApp.init`), nicht ab dem Antippen des Symbols.
+- Die Werte liefert der Selbsttest:
+  `xcrun devicectl device process launch --console --device <id> de.zeibig.outdoor -- -selftest`
+  schreibt nach dem ersten vollständigen Bild eine Zeile mit `import_ms` und `rendered_ms`.
+- Die iPhone-Werte stehen aus: Die App ist installiert, ließ sich aber nicht starten, weil
+  das Gerät gesperrt war, und das Regionspaket liegt noch auf dem Linux-Rechner.
+
 ## Rohdaten
 
 ```

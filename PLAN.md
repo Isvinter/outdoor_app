@@ -643,6 +643,14 @@ noch als Zuwachs übertragen.
 
 ### 8.1 Phase 2 – Anbindung des Rust-Kerns auf iOS/Android
 
+**Stand 2026-11-15, iOS I1:** `crates/core-ffi` gibt `core-app` per UniFFI an Swift aus. Die
+App in `apps/ios/` zeigt Sommer- und Winterkarte samt Hangneigung offline, mit Regionsimport
+über den Ordner `Import` und der eigenen Position. MapLibre Native holt Kacheln und Schriften
+über ein `URLProtocol` (`outdoor-tiles://`) aus dem Kern, den Style füllt der Kern. Im
+Simulator getestet; die Abnahme auf dem iPhone steht aus. Es folgen I2 (Höhenlinien), I3
+(Routing mit valhalla-mobile) und I4 (Freigabe im Heimnetz), siehe
+`docs/superpowers/plans/2026-11-15-ios-i1-karte.md`.
+
 | | A: Tauri Mobile | B: Native UI + UniFFI |
 |---|---|---|
 | UI | dasselbe TypeScript-Frontend im WebView | SwiftUI bzw. Jetpack Compose |

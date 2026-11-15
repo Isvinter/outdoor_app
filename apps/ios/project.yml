@@ -16,6 +16,8 @@ settings:
     DEVELOPMENT_TEAM: 29WG4SD523
     MARKETING_VERSION: "0.1"
     CURRENT_PROJECT_VERSION: "1"
+    # The core is only built for Apple-Silicon simulators (scripts/build-core.sh).
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
 targets:
   Outdoor:
     type: application
@@ -40,6 +42,8 @@ targets:
       path: Outdoor/Info.plist
       properties:
         CFBundleDisplayName: Outdoor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

@@ -73,6 +73,11 @@ private struct SelfTestStatus: View {
                 .accessibilityValue(status)
         }
         .allowsHitTesting(false)
+        // Also on the console, to read the measurements from a device:
+        // xcrun devicectl device process launch --console --device <id> de.zeibig.outdoor -- -selftest
+        .onChange(of: controller.rendered) { rendered in
+            if rendered { print("selftest: \(status)") }
+        }
     }
 
     private var status: String {
@@ -88,6 +93,10 @@ private struct SelfTestStatus: View {
         parts.append(String(format: "center=%.5f,%.5f", centre.latitude, centre.longitude))
         if let slope = controller.slopeOpacityOnMap {
             parts.append(String(format: "slope=%.2f", slope))
+        }
+        parts.append(String(format: "import_ms=%.0f", start.importSeconds * 1000))
+        if let rendered = controller.firstRenderedAfter {
+            parts.append(String(format: "rendered_ms=%.0f", rendered * 1000))
         }
         return parts.joined(separator: " ")
     }

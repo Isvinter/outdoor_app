@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct OutdoorApp: App {
+    init() {
+        _ = AppStart.launched
+    }
+
     var body: some Scene {
         WindowGroup {
             // The unit tests run inside the app and bring their own core.

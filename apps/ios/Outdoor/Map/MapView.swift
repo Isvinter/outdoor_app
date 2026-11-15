@@ -18,6 +18,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     @Published var slopeOpacity = 0.6 {
         didSet { applySlopeOpacity() }
     }
+    /// Seconds from the start of the app until the first map was drawn completely.
+    private(set) var firstRenderedAfter: TimeInterval?
     /// A failure worth telling the user, in German.
     @Published var message: String?
     /// Why the map could not be centred on the own position, if it could not.
@@ -157,6 +159,9 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     func mapViewDidFinishRenderingMap(_ mapView: MLNMapView, fullyRendered: Bool) {
         if styleLoaded && fullyRendered && !rendered {
             rendered = true
+            if firstRenderedAfter == nil {
+                firstRenderedAfter = Date().timeIntervalSince(AppStart.launched)
+            }
         }
     }
 

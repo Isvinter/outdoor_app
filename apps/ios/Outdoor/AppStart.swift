@@ -21,6 +21,9 @@ enum AppStart {
         }
     }
 
+    /// When the app started, for the measurements of the self-test.
+    static let launched = Date()
+
     struct Ready {
         let options: Options
         let host: CoreHost
@@ -28,6 +31,8 @@ enum AppStart {
         let bounds: [Double]?
         /// One line per package that could not be installed.
         let failedImports: [String]
+        /// How long checking and moving the regions to import took.
+        let importSeconds: TimeInterval
     }
 
     /// Blocking: checks and moves the files of the regions to import.
@@ -46,13 +51,16 @@ enum AppStart {
             try files.copyItem(at: source, to: host.importDirectory.appendingPathComponent(source.lastPathComponent))
         }
 
+        let importStarted = Date()
         let failed = host.importPendingRegions().compactMap { result -> String? in
             guard case .failed(let folder, _, let message) = result else { return nil }
             return "Import von „\(folder)“ fehlgeschlagen: \(message)"
         }
+        let importSeconds = Date().timeIntervalSince(importStarted)
         let overview = try host.core.overview()
         TileURLProtocol.install(core: host.core)
         return Ready(
-            options: options, host: host, regions: overview.regions, bounds: overview.bounds, failedImports: failed)
+            options: options, host: host, regions: overview.regions, bounds: overview.bounds, failedImports: failed,
+            importSeconds: importSeconds)
     }
 }
