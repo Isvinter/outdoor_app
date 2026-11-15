@@ -144,7 +144,9 @@ LocationSource ──Fix──► Recorder (core-track) ──► core-storage (
 - Höhenlinien: Phase 1 clientseitig aus den DEM-Kacheln mit `maplibre-contour` (läuft im
   Web-Worker, braucht keinen zusätzlichen Speicher). MapLibre Native hat dieses Plugin nicht;
   für Phase 2 müssen Höhenlinien als Vektor-PMTiles vorberechnet werden (Erweiterung des
-  Regions-Build-Skripts, kein Umbau der App).
+  Regions-Build-Skripts, kein Umbau der App). **Umgesetzt in Phase 2, I2:** Schritt
+  `contours` mit `tools/contour-tiles`, `contours.pmtiles` bis Zoom 14 (optional im Paket);
+  der Kern setzt die Quelle im iOS-Style darauf, der Desktop bleibt bei `maplibre-contour`.
 - Schummerung: MapLibre-`hillshade`-Layer aus derselben `raster-dem`-Quelle.
 - Hangneigung: vorberechnete Rasterkacheln als `raster`-Layer, Deckkraft über
   `raster-opacity` einstellbar.
@@ -786,7 +788,7 @@ Teilstücks nachträglich ändern.
 | R5 | Eigenes Kachelschema bedeutet eigenen Style-Aufwand (Sommerstil von Grund auf) | mittel | auf OpenMapTiles-Profil und einem bestehenden freien Style aufbauen, nur Outdoor-Layer ergänzen |
 | R6 | **Plattenplatz:** 89 GB frei (96 % belegt). DEM bis Zoom 17 für große Alpenregionen, Planetiler-Zwischendateien und Valhalla-Kacheln können das sprengen | mittel | Testregion klein halten; DEM-Maxzoom je Region begrenzen (z. B. 14); Größen mit `--dry-run` vorab anzeigen |
 | R7 | Mapterhorn ist jung (v0.0.x), URLs/Struktur können sich ändern | niedrig–mittel | nur im Build-Skript verwendet, nicht in der App; Copernicus GLO-30 direkt als Rückfallquelle |
-| R8 | Höhenlinien-Plugin nur für GL JS | niedrig (Phase 2) | vorberechnete Höhenlinien-Kacheln im Regions-Build ergänzen |
+| R8 | Höhenlinien-Plugin nur für GL JS | erledigt (Phase 2, I2) | vorberechnete Höhenlinien-Kacheln im Regions-Build (`contours.pmtiles`) |
 | R9 | MapLibre GL JS 6 ist neu (Juli 2026, ESM-only, WebGL2-Pflicht); `maplibre-contour` 0.1.1 muss dazu passen | erledigt (M3) | funktioniert mit MapLibre 6.18 im Tauri-WebView über `addProtocol` und eigenen Worker |
 | R10 | gpsd ohne echte Hardware nur gegen `gpsfake` testbar | niedrig | Protokolltests mit aufgezeichneten gpsd-Strömen |
 

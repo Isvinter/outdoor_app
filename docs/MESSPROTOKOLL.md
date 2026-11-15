@@ -93,6 +93,25 @@ zwei Etappenenden.
   ohne Länge und mit nur einer Höhenprobe; das galt als „Höhen unbekannt“ und blendete den
   Aufstieg der ganzen Route aus. Ein solches Teilstück hat jetzt 0 m.
 
+## Höhenlinien im Regionspaket
+
+Gemessen am 2026-11-15 mit `scripts/build-region.sh <id> --steps contours,manifest`
+(`tools/contour-tiles`, Release, alle Kerne), gleicher Rechner.
+
+| Region | Höhendaten | Höhenlinien z11–14 | Anteil am Paket | Kacheln | Dauer | Speicher |
+|---|---|---|---|---|---|---|
+| isarwinkel-achensee | 42,5 MB | 17,0 MB (40 % der Höhendaten) | 16 % von 107 MB | 1 194 | 20 s | 0,4 GB |
+| alpenraum-ost | 1 912 MB | 762 MB (40 %) | 13 % von 5,7 GB | 61 535 | 17:10 min | 1,4 GB |
+
+- Je Zoomstufe bei `isarwinkel-achensee`: z11 0,4 MB, z12 1,1 MB, z13 5,6 MB, z14 9,9 MB.
+  **z15 allein wären 34,2 MB** (zwei Drittel von 51 MB). Weil die Höhendaten bei z13 enden
+  (rund 10 m je Pixel), bringt z15 nur interpolierte Linien. Daher hört das Paket bei z14 auf
+  (Nutzerentscheidung), und die Karte vergrößert darüber.
+- Die Kacheln liegen unkomprimiert im Archiv. gzip der ganzen Datei mit z15 brachte 51 → 36 MB.
+  Das ist der nächste Hebel, falls Speicher auf dem Handy knapp wird.
+- Nach dem Ergänzen von `alpenraum-ost`: Routen-Selbsttest (`OUTDOOR_SELFTEST_ROUTE`) mit den
+  Referenzpunkten ok, Karte und Routing unverändert.
+
 ## Rohdaten
 
 ```
