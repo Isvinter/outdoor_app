@@ -1,0 +1,34 @@
+# Wegwerf-Test: Valhalla offline auf iOS (docs/superpowers/spikes/2026-11-15-ios-valhalla-spike.md)
+# Projekt erzeugen: xcodegen generate
+name: ValhallaSpike
+options:
+  bundleIdPrefix: de.zeibig.spike
+  deploymentTarget:
+    iOS: "16.4"
+packages:
+  ValhallaMobile:
+    url: https://github.com/Rallista/valhalla-mobile.git
+    exactVersion: 0.6.4
+targets:
+  ValhallaSpike:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      # Routingdaten liegen ausserhalb von Git (data/ ist ignoriert).
+      - path: ../../data/regions/isarwinkel-achensee/routing.tar
+        buildPhase: resources
+    dependencies:
+      - package: ValhallaMobile
+        product: Valhalla
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.zeibig.spike.valhalla
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Valhalla-Test
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 29WG4SD523

@@ -59,7 +59,64 @@ Die Punkte sind die dekodierte `shape` (polyline6) aller Teilstücke zusammen.
 
 ## Ergebnis
 
-Hier eintragen: welcher Weg, was gebaut werden musste, Stolpersteine, Messwerte,
-Empfehlung für den Entwurf der iOS-App. Danach geht es mit dem Entwurf weiter (Brainstorming).
+Stand 2026-11-15, MacBook Air (Xcode 27.2). **Bestanden: alle drei Erfolgskriterien erfüllt,
+im Simulator und auf dem iPhone 13 Pro Max im Flugmodus.**
+
+**Weg B funktioniert, Weg A war nicht nötig.** `Rallista/valhalla-mobile` **0.6.4** als
+Swift-Paket, fertiges XCFramework aus dem Release, nichts selbst in C++ gebaut.
+
+- Version: 0.6.4 bindet Valhalla am Commit `bafb699` ein, das ist genau der Tag **3.9.1**,
+  also dieselbe Version wie unsere `routing.tar`. Das Abzeichen „3.9.0“ im README ist veraltet.
+- Mini-App: `spikes/ios-valhalla/` (`xcodegen generate`, dann Schema `ValhallaSpike`).
+  Die `routing.tar` wird aus `data/regions/isarwinkel-achensee/` ins Bundle kopiert und
+  dort direkt geöffnet (kein Entpacken, kein Kopieren ins Dokumentenverzeichnis).
+- Aufruf: `Valhalla(ValhallaConfig(tileExtractTar:))`, dann `route(rawRequest:)` mit genau
+  dem JSON vom Desktop. Die Antwort ist Valhallas eigenes JSON, also passt
+  `parse_valhalla_route` aus `core-routing` unverändert.
+
+Messwerte Simulator (iPhone 17, iOS 27.2, Release, Apple-Silicon-Mac, 20 Läufe je Route):
+
+| | Ergebnis | erster Lauf | Median | Minimum |
+| --- | --- | --- | --- | --- |
+| Öffnen (Konfiguration schreiben, tzdata, Akteur) | – | 76 ms | – | – |
+| Wandern, 3 Punkte | 12 353 m, 718 Punkte – exakt | 34 ms | 4,9 ms | 2,9 ms |
+| MTB, 2 Punkte | 5 832 m, 260 Punkte – exakt | 3,0 ms | 2,3 ms | 1,3 ms |
+
+Messwerte iPhone 13 Pro Max (iOS 27.2, Release, Flugmodus, 20 Läufe je Route):
+
+| | Ergebnis | erster Lauf | Median | Minimum |
+| --- | --- | --- | --- | --- |
+| Öffnen (Konfiguration schreiben, tzdata, Akteur) | – | 99 ms | – | – |
+| Wandern, 3 Punkte | 12 353 m, 718 Punkte – exakt | 23 ms | 2,6 ms | 2,6 ms |
+| MTB, 2 Punkte | 5 832 m, 260 Punkte – exakt | 1,6 ms | 1,2 ms | 1,2 ms |
+
+Das Gerät rechnet damit so schnell wie der Desktop (2–11 ms bzw. 1 ms).
+
+App-Größe (Release, arm64, unkomprimiert): **32 MB**, davon 19,1 MB `routing.tar`,
+12,7 MB Programm (Valhalla statisch gelinkt), 1,4 MB Paket-Ressourcen (tzdata, Standardkonfiguration).
+Valhalla selbst kostet also rund 14 MB.
+
+Stolpersteine:
+
+- Das Öffnen ist langsamer als am Desktop (76–99 ms statt 4 ms), weil das Paket bei jedem
+  `init` die Konfiguration nach Application Support schreibt und `tzdata.tar` nach
+  `Library/tzdata` entpackt. Einmal je App-Start, daher unkritisch; die Instanz wiederverwenden.
+- Die Instanz ist nicht für mehrere Threads gedacht (das Paket serialisiert mit einem Lock).
+- Valhalla schreibt jede Anfrage auf die Konsole (`algorithm::bidirectional_a*`) und warnt
+  wegen fehlender `traffic.tar` aus der Standardkonfiguration. Harmlos, für die echte App
+  in der Konfiguration abstellen.
+- Mindestversion iOS 16.4. Signieren mit dem kostenlosen „Personal Team“ klappt
+  (Profil gilt 7 Tage).
+- `devicectl … launch` braucht `--` vor App-Argumenten und ein entsperrtes Gerät.
+
+Empfehlung für den Entwurf: Valhalla kommt auf iOS über valhalla-mobile in die Swift-Schicht,
+nicht über das Rust-Paket `valhalla`. Der Rust-Kern (UniFFI) baut weiter die Anfrage
+(`costing_json`) und wertet die Antwort aus (`parse_valhalla_route`); dazwischen reicht Swift
+den JSON-Text an `route(rawRequest:)` durch. So bleibt `core-routing` ohne Feature `valhalla`
+für iOS baubar, und Boost/Protobuf müssen nie für iOS übersetzt werden. Zu beachten: die
+Valhalla-Version des Bauskripts und die von valhalla-mobile müssen zusammenpassen
+(`routing.json` beim Laden prüfen).
+
+Danach geht es mit dem Entwurf weiter (Brainstorming).
 Arbeitsweise des Nutzers: Push erst nach einem Meilenstein, einmal vorher fragen;
 nach jedem Meilenstein anhalten und zeigen.
