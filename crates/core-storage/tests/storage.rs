@@ -300,3 +300,52 @@ fn routes_survive_reopening_and_old_databases_gain_the_table() {
     assert_eq!(storage.list_routes().unwrap()[0].id, id);
     assert_eq!(storage.schema_version().unwrap(), 2);
 }
+
+#[test]
+fn replace_route_bumps_rev() {
+    let mut storage = Storage::open(&temp_db("routes-replace")).unwrap();
+    let id = storage
+        .save_route("Tour", "hike", 1000.0, Some(10.0), "{\"v\":1}", 1_000)
+        .unwrap();
+    assert_eq!(storage.list_routes().unwrap()[0].rev, 1);
+
+    storage
+        .replace_route(id, "Tour 2", "hike+mtb", 2000.0, None, "{\"v\":2}", 2_000)
+        .unwrap();
+
+    let routes = storage.list_routes().unwrap();
+    assert_eq!(routes.len(), 1);
+    let route = &routes[0];
+    assert_eq!(
+        (
+            route.id,
+            route.name.as_str(),
+            route.profile.as_str(),
+            route.distance_m,
+            route.ascent_m
+        ),
+        (id, "Tour 2", "hike+mtb", 2000.0, None)
+    );
+    assert_eq!(
+        (route.created_at_ms, route.updated_at_ms, route.rev),
+        (1_000, 2_000, 2)
+    );
+    assert_eq!(storage.route_plan(id).unwrap(), "{\"v\":2}");
+}
+
+#[test]
+fn replace_deleted_route_is_not_found() {
+    let mut storage = Storage::open(&temp_db("routes-replace-deleted")).unwrap();
+    let id = storage
+        .save_route("Tour", "hike", 1.0, None, "{}", 1)
+        .unwrap();
+    storage.delete_route(id, 2).unwrap();
+    assert!(matches!(
+        storage.replace_route(id, "x", "hike", 1.0, None, "{}", 3),
+        Err(StorageError::NotFound(_))
+    ));
+    assert!(matches!(
+        storage.replace_route(Uuid::now_v7(), "x", "hike", 1.0, None, "{}", 3),
+        Err(StorageError::NotFound(_))
+    ));
+}

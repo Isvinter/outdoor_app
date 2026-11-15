@@ -86,7 +86,8 @@ export class RoutePanel {
       this.stageEnds = [];
       this.changed();
     });
-    $("route-save").addEventListener("click", () => void this.save());
+    $("route-save").addEventListener("click", () => void this.save(false));
+    $("route-save-new").addEventListener("click", () => void this.save(true));
     $("route-export").addEventListener("click", () => void this.export());
     this.view.onClick((at) => {
       if (this.picking) this.addWaypoint(at);
@@ -301,9 +302,11 @@ export class RoutePanel {
     return name === "" && this.plan ? this.defaultName(this.plan) : name;
   }
 
-  private async save(): Promise<void> {
+  /** Overwrites the route loaded or saved last, or stores a new one. */
+  private async save(asNew: boolean): Promise<void> {
     try {
-      await api.routeSave(this.routeName());
+      const name = this.routeName();
+      await (asNew ? api.routeSaveNew(name) : api.routeSave(name));
       this.host.showMessage(t("route.saved"));
       await this.refreshList();
     } catch (e) {

@@ -374,10 +374,31 @@ impl Storage {
         Ok(id)
     }
 
+    /// Puts a new plan into a saved route, keeping its id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_route(
+        &mut self,
+        id: Uuid,
+        name: &str,
+        profile: &str,
+        distance_m: f64,
+        ascent_m: Option<f64>,
+        plan_json: &str,
+        now_ms: i64,
+    ) -> Result<(), StorageError> {
+        self.update_route(
+            id,
+            "UPDATE routes SET name = ?2, profile = ?3, distance_m = ?4, ascent_m = ?5, plan_json = ?6,
+                 updated_at = ?7, rev = rev + 1
+             WHERE id = ?1 AND deleted_at IS NULL",
+            params![id, name, profile, distance_m, ascent_m, plan_json, now_ms],
+        )
+    }
+
     /// The saved routes, newest first.
     pub fn list_routes(&self) -> Result<Vec<RouteRecord>, StorageError> {
         let mut statement = self.conn.prepare(
-            "SELECT id, name, profile, distance_m, ascent_m, created_at, updated_at FROM routes
+            "SELECT id, name, profile, distance_m, ascent_m, created_at, updated_at, rev FROM routes
              WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC",
         )?;
         let rows = statement.query_map([], |row| {
@@ -389,6 +410,7 @@ impl Storage {
                 ascent_m: row.get(4)?,
                 created_at_ms: row.get(5)?,
                 updated_at_ms: row.get(6)?,
+                rev: row.get(7)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -548,4 +570,6 @@ pub struct RouteRecord {
     pub ascent_m: Option<f64>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+    /// Counts the changes of the route, starting at 1.
+    pub rev: i64,
 }

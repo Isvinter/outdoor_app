@@ -658,3 +658,108 @@ fn the_plan_for_display_has_a_thinned_elevation_profile() {
     assert_eq!(shown.total, plan.total);
     assert_eq!(plan.for_display(10_000), plan);
 }
+
+/// 40 pixels east along the ramp, then 10 more.
+fn longer() -> PlanRequest {
+    manual(vec![
+        position(10.0, 32.0),
+        position(50.0, 32.0),
+        position(60.0, 32.0),
+    ])
+}
+
+#[test]
+fn save_twice_overwrites() {
+    let app = app_with_ramp("save-twice");
+    app.plan_route(&uphill()).unwrap();
+    let first = app.save_planned_route("Rampe").unwrap();
+    assert_eq!(app.loaded_route(), Some(first.id));
+
+    let plan = app.plan_route(&longer()).unwrap();
+    let second = app.save_planned_route("Rampe lang").unwrap();
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.rev, first.rev + 1);
+    assert_eq!(second.name, "Rampe lang");
+    assert_eq!(second.distance_m, plan.total.distance_m);
+    assert_eq!(app.saved_routes().unwrap(), vec![second.clone()]);
+    assert_eq!(app.saved_route(second.id).unwrap(), plan);
+}
+
+#[test]
+fn save_loaded_overwrites() {
+    let dir = temp_dir("save-loaded");
+    let id = {
+        let app = open(&dir);
+        app.plan_route(&uphill()).unwrap();
+        app.save_planned_route("Rampe").unwrap().id
+    };
+    let app = open(&dir);
+    assert_eq!(app.loaded_route(), None);
+    app.saved_route(id).unwrap();
+    assert_eq!(app.loaded_route(), Some(id));
+    app.plan_route(&longer()).unwrap();
+
+    let saved = app.save_planned_route("Rampe").unwrap();
+
+    assert_eq!(saved.id, id);
+    assert_eq!(app.saved_routes().unwrap().len(), 1);
+}
+
+#[test]
+fn save_as_new_keeps_old() {
+    let app = app_with_ramp("save-new");
+    app.plan_route(&uphill()).unwrap();
+    let old = app.save_planned_route("Rampe").unwrap();
+    app.plan_route(&longer()).unwrap();
+
+    let new = app.save_planned_route_as_new("Rampe lang").unwrap();
+
+    assert_ne!(new.id, old.id);
+    assert_eq!(app.loaded_route(), Some(new.id));
+    let routes = app.saved_routes().unwrap();
+    assert_eq!(routes.len(), 2);
+    assert!(routes.contains(&old), "the old route is unchanged");
+    // Saving again overwrites the new one.
+    assert_eq!(app.save_planned_route("Rampe lang").unwrap().id, new.id);
+    assert_eq!(app.saved_routes().unwrap().len(), 2);
+}
+
+#[test]
+fn clear_then_save_creates_new() {
+    let app = app_with_ramp("clear-save");
+    app.plan_route(&uphill()).unwrap();
+    let first = app.save_planned_route("Eins").unwrap();
+    app.clear_planned_route();
+    assert_eq!(app.loaded_route(), None);
+    app.plan_route(&longer()).unwrap();
+
+    let second = app.save_planned_route("Zwei").unwrap();
+
+    assert_ne!(second.id, first.id);
+    assert_eq!(app.saved_routes().unwrap().len(), 2);
+}
+
+#[test]
+fn save_after_deleting_loaded_creates_new() {
+    let app = app_with_ramp("delete-save");
+    app.plan_route(&uphill()).unwrap();
+    let first = app.save_planned_route("Eins").unwrap();
+    app.delete_route(first.id).unwrap();
+    assert_eq!(app.loaded_route(), None);
+
+    let second = app.save_planned_route("Eins").unwrap();
+
+    assert_ne!(second.id, first.id);
+    assert_eq!(app.saved_routes().unwrap(), vec![second]);
+}
+
+#[test]
+fn deleting_another_route_keeps_the_loaded_one() {
+    let app = app_with_ramp("delete-other");
+    app.plan_route(&uphill()).unwrap();
+    let other = app.save_planned_route_as_new("Andere").unwrap();
+    let loaded = app.save_planned_route_as_new("Geladen").unwrap();
+    app.delete_route(other.id).unwrap();
+    assert_eq!(app.loaded_route(), Some(loaded.id));
+}

@@ -60,6 +60,8 @@ pub(crate) struct Routing {
     /// Computed legs, reused while their inputs stay the same.
     legs: Mutex<LegCache>,
     planned: Mutex<Option<RoutePlan>>,
+    /// The saved route the planned route belongs to: loaded or saved last.
+    loaded: Mutex<Option<Uuid>>,
 }
 
 impl Routing {
@@ -105,6 +107,10 @@ impl Routing {
         let router = factory.open(tiles)?;
         routers.insert(region.to_string(), Arc::clone(&router));
         Ok(router)
+    }
+
+    pub(crate) fn loaded(&self) -> MutexGuard<'_, Option<Uuid>> {
+        self.loaded.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub(crate) fn planned(&self) -> MutexGuard<'_, Option<RoutePlan>> {
@@ -246,23 +252,67 @@ impl App {
         self.shared.routing.planned().clone()
     }
 
+    /// Forgets the planned route and which saved route it was.
     pub fn clear_planned_route(&self) {
         *self.shared.routing.planned() = None;
+        *self.shared.routing.loaded() = None;
     }
 
-    /// Stores the planned route under a name.
+    /// The saved route that "save" overwrites: the one loaded or saved last.
+    pub fn loaded_route(&self) -> Option<Uuid> {
+        *self.shared.routing.loaded()
+    }
+
+    /// Stores the planned route under a name. It replaces the saved route it
+    /// was loaded from or saved as before; otherwise it is stored anew.
     pub fn save_planned_route(&self, name: &str) -> Result<RouteRecord, AppError> {
+        self.store_planned_route(name, self.loaded_route())
+    }
+
+    /// Stores the planned route as a new saved route, which "save" overwrites
+    /// from now on.
+    pub fn save_planned_route_as_new(&self, name: &str) -> Result<RouteRecord, AppError> {
+        self.store_planned_route(name, None)
+    }
+
+    fn store_planned_route(
+        &self,
+        name: &str,
+        replace: Option<Uuid>,
+    ) -> Result<RouteRecord, AppError> {
         let plan = self.planned_route().ok_or(AppError::NoRoutePlanned)?;
         let json = serde_json::to_string(&plan).map_err(|e| AppError::RoutePlan(e.to_string()))?;
+        let (profile, now) = (profile_label(&plan), now_ms());
         let mut inner = self.shared.inner();
-        let id = inner.storage.save_route(
-            name,
-            &profile_label(&plan),
-            plan.total.distance_m,
-            plan.total.ascent_m,
-            &json,
-            now_ms(),
-        )?;
+        let replaced = match replace {
+            Some(id) => match inner.storage.replace_route(
+                id,
+                name,
+                &profile,
+                plan.total.distance_m,
+                plan.total.ascent_m,
+                &json,
+                now,
+            ) {
+                Ok(()) => Some(id),
+                // Deleted meanwhile: store it anew.
+                Err(core_storage::StorageError::NotFound(_)) => None,
+                Err(error) => return Err(error.into()),
+            },
+            None => None,
+        };
+        let id = match replaced {
+            Some(id) => id,
+            None => inner.storage.save_route(
+                name,
+                &profile,
+                plan.total.distance_m,
+                plan.total.ascent_m,
+                &json,
+                now,
+            )?,
+        };
+        *self.shared.routing.loaded() = Some(id);
         let routes = inner.storage.list_routes()?;
         routes
             .into_iter()
@@ -301,6 +351,7 @@ impl App {
     pub fn saved_route(&self, id: Uuid) -> Result<RoutePlan, AppError> {
         let plan = self.load_plan(id)?;
         *self.shared.routing.planned() = Some(plan.clone());
+        *self.shared.routing.loaded() = Some(id);
         Ok(plan)
     }
 
@@ -312,8 +363,15 @@ impl App {
             .rename_route(id, name, now_ms())?)
     }
 
+    /// Deletes a saved route; if it was loaded, "save" stores the planned
+    /// route anew.
     pub fn delete_route(&self, id: Uuid) -> Result<(), AppError> {
-        Ok(self.shared.inner().storage.delete_route(id, now_ms())?)
+        self.shared.inner().storage.delete_route(id, now_ms())?;
+        let mut loaded = self.shared.routing.loaded();
+        if *loaded == Some(id) {
+            *loaded = None;
+        }
+        Ok(())
     }
 
     /// The planned route as a GPX 1.1 track with elevation, without times.

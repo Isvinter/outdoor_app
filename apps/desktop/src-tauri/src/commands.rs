@@ -102,6 +102,11 @@ pub async fn route_save(app: State<'_, App>, name: String) -> CommandResult<Rout
 }
 
 #[tauri::command]
+pub async fn route_save_new(app: State<'_, App>, name: String) -> CommandResult<RouteRecord> {
+    Ok(app.save_planned_route_as_new(&name)?)
+}
+
+#[tauri::command]
 pub async fn routes_list(app: State<'_, App>) -> CommandResult<Vec<RouteRecord>> {
     Ok(app.saved_routes()?)
 }

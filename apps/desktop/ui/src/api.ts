@@ -243,6 +243,8 @@ export interface RouteRecord {
   ascent_m: number | null;
   created_at_ms: number;
   updated_at_ms: number;
+  /** Counts the changes of the route, starting at 1. */
+  rev: number;
 }
 
 export interface SnapshotRequest {
@@ -292,7 +294,9 @@ export const api = {
   routeProfiles: () => invoke<ProfileInfo[]>("route_profiles"),
   routePlan: (request: PlanRequest) => invoke<RoutePlan>("route_plan", { request }),
   routeClear: () => invoke<void>("route_clear"),
+  /** Overwrites the route loaded or saved last; otherwise stores a new one. */
   routeSave: (name: string) => invoke<RouteRecord>("route_save", { name }),
+  routeSaveNew: (name: string) => invoke<RouteRecord>("route_save_new", { name }),
   routesList: () => invoke<RouteRecord[]>("routes_list"),
   routeLoad: (id: string) => invoke<RoutePlan>("route_load", { id }),
   routeDelete: (id: string) => invoke<void>("route_delete", { id }),

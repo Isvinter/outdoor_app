@@ -138,6 +138,7 @@ export const de = {
   "route.name": "Name der Route",
   "route.default_name": "{profile} {distance}",
   "route.save": "Speichern",
+  "route.save_new": "Als neue Route speichern",
   "route.export": "Als GPX exportieren …",
   "route.saved": "Route gespeichert",
   "route.empty": "Noch keine gespeicherten Routen",
