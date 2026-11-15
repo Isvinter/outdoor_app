@@ -283,13 +283,22 @@ export class MapView {
   /** The planned route: one line per leg in its colour, failed legs dashed. */
   private addRouteLayers(): void {
     this.map.addSource(ROUTE, { type: "geojson", data: routeData(this.routeLegs) });
+    // A white casing sets the route apart from trails drawn in similar colours.
+    this.map.addLayer({
+      id: `${ROUTE}-casing`,
+      type: "line",
+      source: ROUTE,
+      filter: ["!", ["get", "failed"]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 8, "line-opacity": 0.95 },
+    });
     this.map.addLayer({
       id: ROUTE,
       type: "line",
       source: ROUTE,
       filter: ["!", ["get", "failed"]],
       layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": ["get", "color"], "line-width": 4, "line-opacity": 0.9 },
+      paint: { "line-color": ["get", "color"], "line-width": 4.5 },
     });
     this.map.addLayer({
       id: `${ROUTE}-failed`,

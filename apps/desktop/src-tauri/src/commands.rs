@@ -80,8 +80,15 @@ pub async fn route_profiles(app: State<'_, App>) -> CommandResult<Vec<ProfileInf
 /// Computes a route leg by leg; it becomes the planned route.
 #[tauri::command]
 pub async fn route_plan(handle: AppHandle, request: PlanRequest) -> CommandResult<RoutePlan> {
-    blocking(handle, move |app| app.plan_route(&request)).await
+    blocking(handle, move |app| {
+        Ok(app.plan_route(&request)?.for_display(DISPLAY_SAMPLES))
+    })
+    .await
 }
+
+/// Elevation samples sent to the page for a route: plenty for the chart, and
+/// small enough to send on every click for routes of a thousand kilometres.
+const DISPLAY_SAMPLES: usize = 2000;
 
 #[tauri::command]
 pub async fn route_clear(app: State<'_, App>) -> CommandResult<()> {
@@ -102,7 +109,7 @@ pub async fn routes_list(app: State<'_, App>) -> CommandResult<Vec<RouteRecord>>
 /// Loads a saved route; it becomes the planned route.
 #[tauri::command]
 pub async fn route_load(app: State<'_, App>, id: Uuid) -> CommandResult<RoutePlan> {
-    Ok(app.saved_route(id)?)
+    Ok(app.saved_route(id)?.for_display(DISPLAY_SAMPLES))
 }
 
 #[tauri::command]

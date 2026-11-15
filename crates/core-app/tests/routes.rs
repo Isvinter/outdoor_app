@@ -617,3 +617,44 @@ fn legs_of_different_activity_are_separate_segments() {
     assert_eq!(document.tracks[0].segments.len(), 2);
     assert_eq!(document.tracks[0].activity, None);
 }
+
+#[test]
+fn a_leg_of_no_length_does_not_hide_the_ascent() {
+    let app = app_with_ramp("zero-leg");
+    let at = position(30.0, 32.0);
+    let request = manual(vec![position(10.0, 32.0), at, at]);
+
+    let plan = app.plan_route(&request).unwrap();
+
+    assert_eq!(plan.legs[1].distance_m, 0.0);
+    assert_eq!(plan.legs[1].ascent_m, Some(0.0));
+    assert!((plan.total.ascent_m.unwrap() - 40.0).abs() < 1.5);
+}
+
+#[test]
+fn the_plan_for_display_has_a_thinned_elevation_profile() {
+    let app = app_with_ramp("thinned");
+    let plan = app.plan_route(&three_points()).unwrap();
+    assert!(plan.elevation.len() > 100);
+
+    let shown = plan.for_display(20);
+
+    assert!(
+        shown.elevation.len() <= 20 + plan.legs.len(),
+        "{}",
+        shown.elevation.len()
+    );
+    assert_eq!(shown.elevation.first(), plan.elevation.first());
+    for leg in 0..plan.legs.len() {
+        let last =
+            |points: &[core_app::RoutePoint]| points.iter().rev().find(|p| p.leg == leg).copied();
+        assert_eq!(
+            last(&shown.elevation),
+            last(&plan.elevation),
+            "end of leg {leg}"
+        );
+    }
+    assert_eq!(shown.legs, plan.legs);
+    assert_eq!(shown.total, plan.total);
+    assert_eq!(plan.for_display(10_000), plan);
+}

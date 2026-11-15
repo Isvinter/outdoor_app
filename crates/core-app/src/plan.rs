@@ -127,6 +127,37 @@ pub struct RoutePlan {
     pub total: Totals,
 }
 
+impl RoutePlan {
+    /// The plan with an elevation profile of about `max_points` samples, for
+    /// showing it: a chart needs no sample every 25 m of a long route. The
+    /// first sample and the last one of every leg are always kept.
+    #[must_use]
+    pub fn for_display(&self, max_points: usize) -> RoutePlan {
+        let samples = &self.elevation;
+        if samples.len() <= max_points {
+            return self.clone();
+        }
+        let stride = samples.len().div_ceil(max_points.max(1));
+        let elevation = samples
+            .iter()
+            .enumerate()
+            .filter(|&(i, point)| {
+                let leg_ends = samples.get(i + 1).is_none_or(|next| next.leg != point.leg);
+                i % stride == 0 || leg_ends
+            })
+            .map(|(_, point)| *point)
+            .collect();
+        RoutePlan {
+            format: self.format,
+            request: self.request.clone(),
+            legs: self.legs.clone(),
+            elevation,
+            stages: self.stages.clone(),
+            total: self.total.clone(),
+        }
+    }
+}
+
 /// A computed leg with its elevation samples (distances from the leg's start).
 #[derive(Clone)]
 pub(crate) struct CachedLeg {
@@ -325,12 +356,15 @@ impl App {
             .filter_map(|point| Some((point.distance_m, f64::from(point.ele?))))
             .collect();
         // Gaps in the elevation data would hide ascent; then rather none at all.
-        let complete = known.len() >= 2 && known.len() == elevation.len();
-        let (ascent_m, descent_m) = if complete {
+        let complete = !known.is_empty() && known.len() == elevation.len();
+        let (ascent_m, descent_m) = if !complete {
+            (None, None)
+        } else if known.len() < 2 {
+            // A leg of no length (both ends snapped to the same place).
+            (Some(0.0), Some(0.0))
+        } else {
             let (up, down) = elevation_gain(&known, ELE_SMOOTH_M, ELE_THRESHOLD_M);
             (Some(up), Some(down))
-        } else {
-            (None, None)
         };
         let time_s = match (on_foot(spec.profile), ascent_m, descent_m) {
             (true, Some(up), Some(down)) => Some(din_time_s(

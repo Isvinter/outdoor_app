@@ -310,13 +310,44 @@ async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promis
     // Real mouse events on the map, as a user would cause them.
     const canvas = view.map.getCanvas();
     const box = canvas.getBoundingClientRect();
-    for (const place of places) {
+    const clickAt = async (place: LngLat) => {
       const { x, y } = view.map.project(place);
       for (const type of ["mousedown", "mouseup", "click"]) {
         const init = { clientX: box.left + x, clientY: box.top + y, bubbles: true, button: 0 };
         canvas.dispatchEvent(new MouseEvent(type, init));
       }
       await sleep(100);
+    };
+    // With four or more points: all but the last on foot, the last leg by
+    // mountain bike, a stage ending at the second point, then one point undone.
+    const legs = places.length >= 4;
+    for (const place of legs ? places.slice(0, -1) : places) await clickAt(place);
+    if (legs) {
+      await until("hiking legs drawn", () => view.routeColors().length === places.length - 2);
+      const select = el("route-profile") as HTMLSelectElement;
+      select.value = "mtb";
+      select.dispatchEvent(new Event("change"));
+      const last = places[places.length - 1];
+      if (last) await clickAt(last);
+      await until("all legs drawn", () => view.routeColors().length === places.length - 1);
+      const second = document.querySelectorAll<HTMLElement>(".waypoint-marker")[1];
+      second?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await until("waypoint menu", () => document.querySelector(".waypoint-menu") !== null);
+      report.menu = [...document.querySelectorAll(".waypoint-menu button")].map((b) => b.textContent);
+      document.querySelector<HTMLElement>(".waypoint-menu .stage-toggle")?.click();
+      await until("stages shown", () => !el("route-stages").hidden);
+      await sleep(300);
+      report.leg_colors = view.routeColors();
+      report.stage_markers = document.querySelectorAll(".waypoint-marker.stage-end").length;
+      report.stages = [...el("route-stages").querySelectorAll("li")].map((row) => row.textContent);
+      report.legend = [...el("route-legend").querySelectorAll("span > span")].map((s) => s.parentElement?.textContent);
+      report.chart_areas = el("route-chart").querySelectorAll("path").length;
+      report.chart_stage_lines = el("route-chart").querySelectorAll("line.stage").length;
+      report.stats_with_legs = [...el("route-stats").querySelectorAll("div")].map((row) => row.textContent);
+      report.layout_problems_legs = layoutProblems();
+      el("route-undo").click();
+      await until("last leg undone", () => view.routeColors().length === places.length - 2);
+      report.after_undo = { colors: view.routeColors(), waypoints: document.querySelectorAll(".waypoint-marker").length };
     }
     await until("route shown", () => !el("route-result").hidden || text("message").includes("("));
     report.waypoints = document.querySelectorAll(".waypoint-marker").length;
@@ -326,11 +357,17 @@ async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promis
     report.note = text("route-note");
     report.name = (el("route-name") as HTMLInputElement).value;
     report.layout_problems = layoutProblems();
+    // Save what the panel shows, before the timing below plans another route.
+    if (!el("route-result").hidden) {
+      el("route-save").click();
+      await until("route saved", () => document.querySelectorAll("#route-list li[data-id]").length > saved);
+      report.saved = text("route-list");
+    }
     // How long the core takes for the same route, without the page around it.
     const request = {
       waypoints: places.map((place) => ({ lat: place.lat, lon: place.lng })),
       legs: places.slice(1).map(() => ({ profile: "hike" as const, options: {} })),
-      stage_ends: [],
+      stage_ends: [] as number[],
     };
     const times: number[] = [];
     for (let i = 0; i < 5; i++) {
@@ -340,11 +377,6 @@ async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promis
     }
     report.plan_ms = times;
     report.message = text("message");
-    if (!el("route-result").hidden) {
-      el("route-save").click();
-      await until("route saved", () => document.querySelectorAll("#route-list li[data-id]").length > saved);
-      report.saved = text("route-list");
-    }
     el("route-edit").click();
     report.ok = !el("route-result").hidden;
   } catch (e) {
