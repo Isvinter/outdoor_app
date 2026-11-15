@@ -556,6 +556,7 @@ impl App {
         let track = self.shared.inner().storage.load_track(id)?;
         Ok(write_gpx(&GpxDocument {
             name: track.name.clone(),
+            waypoints: Vec::new(),
             tracks: vec![track],
         })?)
     }

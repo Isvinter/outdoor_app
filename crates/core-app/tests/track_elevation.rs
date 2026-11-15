@@ -31,6 +31,7 @@ fn import_noisy_hike(app: &App) -> TrackRecord {
     };
     let xml = write_gpx(&GpxDocument {
         name: None,
+        waypoints: Vec::new(),
         tracks: vec![track],
     })
     .unwrap();

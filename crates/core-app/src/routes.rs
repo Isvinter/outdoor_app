@@ -5,16 +5,16 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use core_gpx::{GpxDocument, write_gpx};
-use core_routing::{OptionSpec, Profile, Router, RoutingError};
+use core_gpx::{GpxDocument, GpxWaypoint, write_gpx};
+use core_routing::{LatLon, OptionSpec, Profile, RouteOptions, Router, RoutingError};
 use core_storage::RouteRecord;
 use core_track::{Activity, Segment, Track, TrackPoint};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::AppError;
 use crate::app::{App, now_ms};
-use crate::plan::{LegCache, RoutePlan};
+use crate::plan::{LegCache, LegSpec, PlanRequest, RoutePlan};
 
 /// A routing profile as offered to the user.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -94,28 +94,97 @@ fn activity_of(profile: Profile) -> Option<Activity> {
     }
 }
 
+/// The profiles of a route in order of first appearance, joined by `+`.
+fn profile_label(plan: &RoutePlan) -> String {
+    let mut profiles: Vec<&str> = Vec::new();
+    for leg in &plan.request.legs {
+        let name = leg.profile.as_str();
+        if !profiles.contains(&name) {
+            profiles.push(name);
+        }
+    }
+    profiles.join("+")
+}
+
+/// One track per stage, one segment per run of legs with the same activity;
+/// the ends of the stages as waypoints.
 fn plan_gpx(plan: &RoutePlan, name: &str) -> Result<String, AppError> {
-    let points = plan
-        .elevation
-        .iter()
-        .map(|point| TrackPoint {
-            lat: point.lat,
-            lon: point.lon,
-            ele: point.ele.map(f64::from),
-            time_ms: None,
-            h_accuracy_m: None,
-            speed_mps: None,
+    let several = plan.stages.len() > 1;
+    let mut tracks = Vec::with_capacity(plan.stages.len());
+    for (number, stage) in (1..).zip(&plan.stages) {
+        let mut segments: Vec<(Option<Activity>, Vec<TrackPoint>)> = Vec::new();
+        for leg in stage.from..stage.to {
+            let activity = activity_of(plan.legs[leg].profile);
+            let points = plan
+                .elevation
+                .iter()
+                .filter(|point| point.leg == leg)
+                .map(|point| TrackPoint {
+                    lat: point.lat,
+                    lon: point.lon,
+                    ele: point.ele.map(f64::from),
+                    time_ms: None,
+                    h_accuracy_m: None,
+                    speed_mps: None,
+                });
+            match segments.last_mut() {
+                Some((last, run)) if *last == activity => run.extend(points),
+                _ => segments.push((activity, points.collect())),
+            }
+        }
+        segments.retain(|(_, points)| !points.is_empty());
+        let first = segments.first().and_then(|(activity, _)| *activity);
+        let uniform = segments.iter().all(|(activity, _)| *activity == first);
+        tracks.push(Track {
+            name: Some(if several {
+                format!("{name} – Etappe {number}")
+            } else {
+                name.to_string()
+            }),
+            activity: if uniform { first } else { None },
+            segments: segments
+                .into_iter()
+                .map(|(_, points)| Segment { points })
+                .collect(),
+        });
+    }
+    let waypoints = (1..)
+        .zip(&plan.request.stage_ends)
+        .map(|(number, &end)| {
+            let at = plan.request.waypoints[end];
+            let ele = plan
+                .elevation
+                .iter()
+                .rev()
+                .find(|point| point.leg + 1 == end)
+                .and_then(|point| point.ele.map(f64::from));
+            GpxWaypoint {
+                lat: at.lat,
+                lon: at.lon,
+                ele,
+                name: Some(format!("Etappe {number} Ende")),
+            }
         })
         .collect();
-    let name = Some(name.to_string());
     Ok(write_gpx(&GpxDocument {
-        name: name.clone(),
-        tracks: vec![Track {
-            name,
-            activity: plan.legs.first().and_then(|leg| activity_of(leg.profile)),
-            segments: vec![Segment { points }],
-        }],
+        name: Some(name.to_string()),
+        waypoints,
+        tracks,
     })?)
+}
+
+/// What is read of a route saved before routes had legs.
+#[derive(Deserialize)]
+struct OldPlan {
+    route: OldRoute,
+    #[serde(default)]
+    options: RouteOptions,
+}
+
+#[derive(Deserialize)]
+struct OldRoute {
+    profile: Profile,
+    waypoints: Vec<LatLon>,
 }
 
 impl App {
@@ -147,7 +216,7 @@ impl App {
         let mut inner = self.shared.inner();
         let id = inner.storage.save_route(
             name,
-            plan.legs.first().map_or("", |leg| leg.profile.as_str()),
+            &profile_label(&plan),
             plan.total.distance_m,
             plan.total.ascent_m,
             &json,
@@ -165,9 +234,26 @@ impl App {
         Ok(self.shared.inner().storage.list_routes()?)
     }
 
+    /// A saved plan; one saved before routes had legs is computed anew from
+    /// its waypoints, all legs in its one profile.
     fn load_plan(&self, id: Uuid) -> Result<RoutePlan, AppError> {
         let json = self.shared.inner().storage.route_plan(id)?;
-        serde_json::from_str(&json).map_err(|e| AppError::RoutePlan(e.to_string()))
+        let broken = |e: serde_json::Error| AppError::RoutePlan(e.to_string());
+        let value: serde_json::Value = serde_json::from_str(&json).map_err(broken)?;
+        if value.get("format").is_some() {
+            return serde_json::from_value(value).map_err(broken);
+        }
+        let old: OldPlan = serde_json::from_value(value).map_err(broken)?;
+        let spec = LegSpec {
+            profile: old.route.profile,
+            options: old.options,
+        };
+        let legs = vec![spec; old.route.waypoints.len().saturating_sub(1)];
+        self.plan_route(&PlanRequest {
+            waypoints: old.route.waypoints,
+            legs,
+            stage_ends: Vec::new(),
+        })
     }
 
     /// Loads a saved route; it becomes the planned route.

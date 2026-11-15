@@ -23,6 +23,23 @@ pub fn write_gpx(doc: &GpxDocument) -> Result<String, GpxError> {
     if let Some(name) = &doc.name {
         let _ = writeln!(out, "  <metadata><name>{}</name></metadata>", escape(name));
     }
+    for point in &doc.waypoints {
+        if !point.lat.is_finite() || !point.lon.is_finite() {
+            return Err(GpxError::InvalidCoordinate);
+        }
+        let _ = write!(
+            out,
+            "  <wpt lat=\"{:.7}\" lon=\"{:.7}\">",
+            point.lat, point.lon
+        );
+        if let Some(ele) = point.ele.filter(|e| e.is_finite()) {
+            let _ = write!(out, "<ele>{ele:.1}</ele>");
+        }
+        if let Some(name) = &point.name {
+            let _ = write!(out, "<name>{}</name>", escape(name));
+        }
+        out.push_str("</wpt>\n");
+    }
     for track in &doc.tracks {
         out.push_str("  <trk>\n");
         if let Some(name) = &track.name {

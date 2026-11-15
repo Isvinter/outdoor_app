@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use core_gpx::{GpxDocument, GpxError, parse_gpx, write_gpx};
+use core_gpx::{GpxDocument, GpxError, GpxWaypoint, parse_gpx, write_gpx};
 use core_track::{Activity, Segment, Track, TrackPoint};
 
 const FIXTURE: &str = include_str!("../../../fixtures/gpx/synthetic_two_segments.gpx");
@@ -190,6 +190,7 @@ fn writes_gpx_1_1_header_escaped_text_and_millisecond_times() {
     p.time_ms = Some(1_719_820_800_250);
     let doc = GpxDocument {
         name: None,
+        waypoints: Vec::new(),
         tracks: vec![Track {
             name: Some("A < B & \"C\"".into()),
             activity: Some(Activity::SkiTour),
@@ -215,6 +216,7 @@ fn writes_gpx_1_1_header_escaped_text_and_millisecond_times() {
 fn refuses_to_write_non_finite_coordinates() {
     let doc = GpxDocument {
         name: None,
+        waypoints: Vec::new(),
         tracks: vec![Track {
             name: None,
             activity: None,
@@ -227,4 +229,41 @@ fn refuses_to_write_non_finite_coordinates() {
         write_gpx(&doc).unwrap_err(),
         GpxError::InvalidCoordinate
     ));
+}
+
+#[test]
+fn waypoints_are_written_before_tracks() {
+    let doc = GpxDocument {
+        name: None,
+        waypoints: vec![GpxWaypoint {
+            lat: 47.5,
+            lon: 11.25,
+            ele: Some(812.34),
+            name: Some("Etappe 1 Ende & mehr".into()),
+        }],
+        tracks: vec![Track {
+            name: None,
+            activity: None,
+            segments: vec![Segment {
+                points: vec![TrackPoint {
+                    lat: 47.5,
+                    lon: 11.25,
+                    ele: None,
+                    time_ms: None,
+                    h_accuracy_m: None,
+                    speed_mps: None,
+                }],
+            }],
+        }],
+    };
+
+    let xml = write_gpx(&doc).unwrap();
+
+    let wpt = xml.find("<wpt").unwrap();
+    assert!(wpt < xml.find("<trk>").unwrap());
+    assert!(xml.contains(
+        "<wpt lat=\"47.5000000\" lon=\"11.2500000\"><ele>812.3</ele><name>Etappe 1 Ende &amp; mehr</name></wpt>"
+    ));
+    // Waypoints are not read back; the track is.
+    assert_eq!(parse_gpx(&xml).unwrap().tracks.len(), 1);
 }

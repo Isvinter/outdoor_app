@@ -507,3 +507,113 @@ mod valhalla {
         );
     }
 }
+
+#[test]
+fn mixed_route_is_listed_with_all_profiles() {
+    let (app, _router) = counting_app("save-mixed");
+    let mut request = three_points();
+    request.legs[0].profile = Profile::Hike;
+    let plan = app.plan_route(&request).unwrap();
+
+    let record = app.save_planned_route("Gemischt").unwrap();
+
+    assert_eq!(record.profile, "hike+manual");
+    assert_eq!(app.saved_route(record.id).unwrap(), plan);
+}
+
+/// A route as saved before routes had legs.
+fn old_plan_json(profile: &str, from: LatLon, to: LatLon) -> String {
+    serde_json::json!({
+        "route": {
+            "profile": profile,
+            "waypoints": [from, to],
+            "line": [from, to],
+            "distance_m": 4000.0,
+            "duration_s": null,
+        },
+        "options": {},
+        "elevation": [],
+        "ascent_m": null, "descent_m": null, "min_ele_m": null, "max_ele_m": null,
+        "hiking_time_s": null, "region": null, "max_mtb_scale": null,
+    })
+    .to_string()
+}
+
+#[test]
+fn old_saved_plans_are_loaded_and_recomputed() {
+    let dir = temp_dir("old-plans");
+    let app = open(&dir);
+    let (from, to) = (position(10.0, 32.0), position(50.0, 32.0));
+    let (manual_id, hike_id) = {
+        let mut storage = core_storage::Storage::open(&dir.join("app.sqlite")).unwrap();
+        let manual = old_plan_json("manual", from, to);
+        let hike = old_plan_json("hike", from, to);
+        (
+            storage
+                .save_route("Alt", "manual", 4000.0, None, &manual, 1)
+                .unwrap(),
+            storage
+                .save_route("Alt zu Fuß", "hike", 4000.0, None, &hike, 1)
+                .unwrap(),
+        )
+    };
+
+    let plan = app.saved_route(manual_id).unwrap();
+    assert_eq!(plan.request.waypoints, vec![from, to]);
+    assert_eq!(plan.request.legs.len(), 1);
+    assert_eq!(plan.legs[0].profile, Profile::Manual);
+    assert!((plan.total.distance_m - 4090.0).abs() < 60.0);
+
+    // Without routing data the leg fails, but the route still opens.
+    let plan = app.saved_route(hike_id).unwrap();
+    assert_eq!(plan.legs[0].profile, Profile::Hike);
+    assert!(plan.legs[0].error.is_some());
+}
+
+#[test]
+fn routes_are_exported_as_gpx_with_stages() {
+    let app = app_with_ramp("export-stages");
+    let request = PlanRequest {
+        stage_ends: vec![1],
+        ..three_points()
+    };
+    let plan = app.plan_route(&request).unwrap();
+
+    let xml = app.export_planned_route_gpx("Zwei Tage").unwrap();
+
+    let document = core_gpx::parse_gpx(&xml).unwrap();
+    let names: Vec<_> = document
+        .tracks
+        .iter()
+        .map(|t| t.name.clone().unwrap())
+        .collect();
+    assert_eq!(names, vec!["Zwei Tage – Etappe 1", "Zwei Tage – Etappe 2"]);
+    assert_eq!(
+        document.tracks[0].activity,
+        Some(core_track::Activity::SkiTour)
+    );
+    let points: usize = document
+        .tracks
+        .iter()
+        .flat_map(|t| &t.segments)
+        .map(|s| s.points.len())
+        .sum();
+    assert_eq!(points, plan.elevation.len());
+    assert_eq!(xml.matches("<wpt").count(), 1);
+    assert!(xml.contains("<name>Etappe 1 Ende</name>"));
+}
+
+#[test]
+fn legs_of_different_activity_are_separate_segments() {
+    let (app, _router) = counting_app("export-mixed");
+    let mut request = three_points();
+    request.legs[0].profile = Profile::Mtb;
+    app.plan_route(&request).unwrap();
+
+    let document = core_gpx::parse_gpx(&app.export_planned_route_gpx("Mix").unwrap()).unwrap();
+
+    assert_eq!(document.tracks.len(), 1);
+    assert_eq!(document.tracks[0].name.as_deref(), Some("Mix"));
+    assert_eq!(document.tracks[0].segments.len(), 2);
+    assert_eq!(document.tracks[0].activity, None);
+}
