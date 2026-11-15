@@ -9,6 +9,10 @@ packages:
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution
     exactVersion: 7.0.0
+  # Valhalla 3.9.1, the version the routing data of the regions is built with.
+  ValhallaMobile:
+    url: https://github.com/Rallista/valhalla-mobile.git
+    exactVersion: 0.6.4
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -38,6 +42,8 @@ targets:
         embed: false
       - package: MapLibre
         product: MapLibre
+      - package: ValhallaMobile
+        product: Valhalla
     info:
       path: Outdoor/Info.plist
       properties:

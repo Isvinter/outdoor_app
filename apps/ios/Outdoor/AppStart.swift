@@ -53,6 +53,7 @@ enum AppStart {
             try? files.removeItem(at: documents.appendingPathComponent("Import"))
         }
         let host = try CoreHost(dataDirectory: data, documentsDirectory: documents)
+        host.core.setValhallaEngine(engine: ValhallaMobileEngine())
         if let fixture = options.importFixture {
             let source = URL(fileURLWithPath: fixture)
             try files.createDirectory(at: host.importDirectory, withIntermediateDirectories: true)
