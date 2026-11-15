@@ -647,7 +647,7 @@ noch als Zuwachs übertragen.
 App in `apps/ios/` zeigt Sommer- und Winterkarte samt Hangneigung offline, mit Regionsimport
 über den Ordner `Import` und der eigenen Position. MapLibre Native holt Kacheln und Schriften
 über ein `URLProtocol` (`outdoor-tiles://`) aus dem Kern, den Style füllt der Kern. Im
-Simulator getestet; die Abnahme auf dem iPhone steht aus. Es folgen I2 (Höhenlinien), I3
+Im Simulator getestet und auf dem iPhone 13 Pro Max im Flugmodus abgenommen. Es folgen I2 (Höhenlinien), I3
 (Routing mit valhalla-mobile) und I4 (Freigabe im Heimnetz), siehe
 `docs/superpowers/plans/2026-11-15-ios-i1-karte.md`.
 
