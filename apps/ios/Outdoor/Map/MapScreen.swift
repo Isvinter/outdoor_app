@@ -18,12 +18,21 @@ struct MapScreen: View {
                 ForEach(start.failedImports, id: \.self) { failure in
                     Notice(text: failure, warning: true)
                 }
+                if let hint = controller.locationHint {
+                    Notice(text: hint)
+                        .accessibilityIdentifier("location-hint")
+                        .onTapGesture { controller.locationHint = nil }
+                }
                 if let message = controller.message {
                     Notice(text: message, warning: true)
                         .onTapGesture { controller.message = nil }
                 }
             }
             .padding()
+            LocationButton { controller.centreOnLocation() }
+                .padding(.trailing, 12)
+                .padding(.bottom, 56)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             if start.options.selftest {
                 SelfTestStatus(controller: controller, start: start)
             }
@@ -75,6 +84,8 @@ private struct SelfTestStatus: View {
             "base=\(controller.base.rawValue)",
             "regions=\(start.regions.count)",
         ]
+        let centre = controller.mapView.centerCoordinate
+        parts.append(String(format: "center=%.5f,%.5f", centre.latitude, centre.longitude))
         if let slope = controller.slopeOpacityOnMap {
             parts.append(String(format: "slope=%.2f", slope))
         }

@@ -1,9 +1,12 @@
+import CoreLocation
 import MapLibre
 import SwiftUI
 
 /// The map and what the screen needs to know about it.
 @MainActor
-final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapViewDelegate {
+final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapViewDelegate,
+    @preconcurrency CLLocationManagerDelegate
+{
     let mapView: MLNMapView
     private let core: CoreApp
 
@@ -17,9 +20,18 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     }
     /// A failure worth telling the user, in German.
     @Published var message: String?
+    /// Why the map could not be centred on the own position, if it could not.
+    @Published var locationHint: String?
     /// Styles that could not be loaded; for the self-test.
     private(set) var loadFailures = 0
     private var styleLoaded = false
+    /// Only asks for the permission and tells when it changes; the map locates by itself.
+    private let locationManager = CLLocationManager()
+    /// The user asked for their position and it is not known yet.
+    private var centreWhenLocated = false
+
+    static let noPermissionHint = "Position nicht verfügbar – Standortzugriff in den Einstellungen erlauben."
+    static let noFixHint = "Position noch nicht verfügbar."
 
     /// Where the map starts while no region is installed (as on the desktop).
     private static let fallbackCentre = CLLocationCoordinate2D(latitude: 47.68, longitude: 11.57)
@@ -37,6 +49,69 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         }
         mapView.setCenter(centre, zoomLevel: 11, animated: false)
         show(.summer)
+        locationManager.delegate = self
+        showLocationIfAllowed()
+    }
+
+    // MARK: Own position
+
+    private var mayLocate: Bool {
+        let status = locationManager.authorizationStatus
+        return status == .authorizedWhenInUse || status == .authorizedAlways
+    }
+
+    /// The map draws the dot itself. Without the permission it would ask for it
+    /// at once, so it is only switched on when the permission is there.
+    private func showLocationIfAllowed() {
+        if mayLocate { mapView.showsUserLocation = true }
+    }
+
+    /// Centres on the last known position, at zoom 14 or closer. Asks for the
+    /// permission the first time; says so if there is no permission or no position.
+    func centreOnLocation() {
+        locationHint = nil
+        if locationManager.authorizationStatus == .notDetermined {
+            centreWhenLocated = true
+            locationManager.requestWhenInUseAuthorization()
+        } else if !mayLocate {
+            locationHint = Self.noPermissionHint
+        } else if let location = mapView.userLocation?.location {
+            centre(on: location)
+        } else {
+            mapView.showsUserLocation = true
+            centreWhenLocated = true
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                if let self, self.centreWhenLocated { self.locationHint = Self.noFixHint }
+            }
+        }
+    }
+
+    private func centre(on location: CLLocation) {
+        centreWhenLocated = false
+        locationHint = nil
+        mapView.setCenter(location.coordinate, zoomLevel: max(mapView.zoomLevel, 14), animated: true)
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        showLocationIfAllowed()
+        if centreWhenLocated && !mayLocate && manager.authorizationStatus != .notDetermined {
+            centreWhenLocated = false
+            locationHint = Self.noPermissionHint
+        }
+    }
+
+    func mapView(_ mapView: MLNMapView, didUpdate userLocation: MLNUserLocation?) {
+        if centreWhenLocated, let location = userLocation?.location {
+            centre(on: location)
+        }
+    }
+
+    func mapView(_ mapView: MLNMapView, didFailToLocateUserWithError error: Error) {
+        if centreWhenLocated {
+            centreWhenLocated = false
+            locationHint = mayLocate ? Self.noFixHint : Self.noPermissionHint
+        }
     }
 
     func show(_ base: MapBase) {

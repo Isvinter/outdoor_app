@@ -20,8 +20,9 @@ struct MapStatus {
 
 extension XCUIApplication {
     /// Starts the app in self-test mode without regions, or with the fixture `mini`.
-    static func selftest(withMini: Bool) -> XCUIApplication {
+    static func selftest(withMini: Bool, beforeLaunch: (XCUIApplication) -> Void = { _ in }) -> XCUIApplication {
         let app = XCUIApplication()
+        beforeLaunch(app)
         app.launchArguments = ["-selftest", "-resetData"]
         if withMini, let mini = Bundle(for: MapUITests.self).url(forResource: "mini", withExtension: nil) {
             // The simulator shares the Mac's file system, so the app can copy from here.
