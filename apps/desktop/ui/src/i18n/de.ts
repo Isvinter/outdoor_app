@@ -130,6 +130,7 @@ export const de = {
   "route.time.walk": "Gehzeit (Router)",
   "route.time.din": "Gehzeit (DIN 33466)",
   "route.time": "Zeit",
+  "route.stage": "Etappe {n}",
   "route.leg_failed": "Teilstück {n}: {reason}",
   "route.note.failed_legs": "Ohne {n} nicht berechnete Teilstücke.",
   "route.note.no_elevation": "Keine Höhendaten für diese Route.",

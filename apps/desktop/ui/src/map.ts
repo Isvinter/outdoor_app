@@ -64,6 +64,27 @@ const OVERLAYS = [
   [LIVE, "#d93025"],
 ] as const;
 
+/** One leg of the planned route as drawn on the map. */
+export interface RouteLeg {
+  line: LatLon[];
+  color: string;
+  /** Drawn dashed: the leg could not be computed, `line` is the straight way. */
+  failed: boolean;
+}
+
+function routeData(legs: RouteLeg[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: legs
+      .filter((leg) => leg.line.length >= 2)
+      .map((leg) => ({
+        type: "Feature" as const,
+        properties: { color: leg.color, failed: leg.failed },
+        geometry: { type: "LineString" as const, coordinates: leg.line.map((p) => [p.lon, p.lat]) },
+      })),
+  };
+}
+
 /** What the route panel wants to know about its waypoint markers. */
 export interface WaypointHandlers {
   moved(index: number, to: LatLon): void;
@@ -179,9 +200,10 @@ export class MapView {
   readonly map: MapLibreMap;
   private readonly marker: Marker;
   private markerShown = false;
-  private readonly lines: Record<string, Line> = { [LIVE]: [], [SELECTED]: [], [ROUTE]: [] };
+  private readonly lines: Record<string, Line> = { [LIVE]: [], [SELECTED]: [] };
   private waypointMarkers: Marker[] = [];
   private waypointMenu: Popup | null = null;
+  private routeLegs: RouteLeg[] = [];
   private readonly cursor: Marker;
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
@@ -243,6 +265,10 @@ export class MapView {
     }
     for (const [id, color] of OVERLAYS) {
       if (this.map.getSource(id)) continue;
+      if (id === ROUTE) {
+        this.addRouteLayers();
+        continue;
+      }
       this.map.addSource(id, { type: "geojson", data: multiLine(this.lines[id] ?? []) });
       this.map.addLayer({
         id,
@@ -252,6 +278,26 @@ export class MapView {
         paint: { "line-color": color, "line-width": 4, "line-opacity": 0.9 },
       });
     }
+  }
+
+  /** The planned route: one line per leg in its colour, failed legs dashed. */
+  private addRouteLayers(): void {
+    this.map.addSource(ROUTE, { type: "geojson", data: routeData(this.routeLegs) });
+    this.map.addLayer({
+      id: ROUTE,
+      type: "line",
+      source: ROUTE,
+      filter: ["!", ["get", "failed"]],
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": 4, "line-opacity": 0.9 },
+    });
+    this.map.addLayer({
+      id: `${ROUTE}-failed`,
+      type: "line",
+      source: ROUTE,
+      filter: ["get", "failed"],
+      paint: { "line-color": ["get", "color"], "line-width": 3, "line-dasharray": [2, 2] },
+    });
   }
 
   private setLine(id: string, line: Line): void {
@@ -308,10 +354,16 @@ export class MapView {
     this.map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 600 });
   }
 
-  /** Shows the planned route; an empty line clears it. */
-  showRoute(line: LatLon[], fit = false): void {
-    const points = line.map((p): [number, number] => [p.lon, p.lat]);
-    this.setLine(ROUTE, [points]);
+  /** The colours of the route legs drawn on the map, failed ones included; for tests. */
+  routeColors(): string[] {
+    return this.routeLegs.filter((leg) => leg.line.length >= 2).map((leg) => leg.color);
+  }
+
+  /** Shows the planned route leg by leg; no legs clear it. */
+  showRoute(legs: RouteLeg[], fit = false): void {
+    this.routeLegs = legs;
+    this.map.getSource<GeoJSONSource>(ROUTE)?.setData(routeData(legs));
+    const points = legs.flatMap((leg) => leg.line.map((p): [number, number] => [p.lon, p.lat]));
     if (!fit || points.length === 0) return;
     const bounds = points.reduce((b, p) => b.extend(p), new LngLatBounds(points[0], points[0]));
     this.map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 600 });

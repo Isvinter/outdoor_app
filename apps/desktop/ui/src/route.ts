@@ -22,6 +22,7 @@ import { distance, elevation, hours, renderRows } from "./format";
 import { t, type MessageKey } from "./i18n";
 import type { MapView } from "./map";
 import { renderProfileChart } from "./profile-chart";
+import { FAILED_COLOR, PROFILE_COLORS } from "./profile-colors";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -247,7 +248,14 @@ export class RoutePanel {
 
   private renderPlan(fit = false): void {
     const plan = this.plan;
-    this.view.showRoute(plan?.legs.flatMap((leg) => leg.line) ?? [], fit);
+    this.view.showRoute(
+      (plan?.legs ?? []).map((leg, i) =>
+        leg.error
+          ? { line: [this.waypoints[i], this.waypoints[i + 1]].filter((p) => p !== undefined), color: FAILED_COLOR, failed: true }
+          : { line: leg.line, color: PROFILE_COLORS[leg.profile], failed: false },
+      ),
+      fit,
+    );
     this.view.showProfileCursor(null);
     $("route-result").hidden = plan === null;
     if (!plan) return;
@@ -259,7 +267,16 @@ export class RoutePanel {
     }
     if (total.time_s !== null) rows.push(["route.time", hours(total.time_s)]);
     renderRows($("route-stats"), rows);
-    renderProfileChart($("route-chart"), plan.elevation, (point) => this.view.showProfileCursor(point));
+    // Where each stage ends along the profile: the last sample before its end point.
+    const stageEnds = plan.request.stage_ends.map((end) =>
+      plan.elevation.reduce((at, p) => (p.leg < end ? Math.max(at, p.distance_m) : at), 0),
+    );
+    renderProfileChart($("route-chart"), plan.elevation, (point) => this.view.showProfileCursor(point), {
+      colorOf: (point) => PROFILE_COLORS[plan.legs[point.leg]?.profile ?? "manual"],
+      stageEnds,
+    });
+    renderLegend($("route-legend"), plan.legs.map((leg) => leg.profile));
+    renderStages($("route-stages"), plan);
     const notes: string[] = [];
     if (total.failed_legs > 0) notes.push(t("route.note.failed_legs", { n: total.failed_legs }));
     if (total.ascent_m === null) notes.push(t("route.note.no_elevation"));
@@ -379,4 +396,49 @@ export class RoutePanel {
 /** "MTB + Wandern": the names of the profiles, each once, in order. */
 function profileNames(profiles: Profile[]): string {
   return [...new Set(profiles)].map((profile) => t(`route.profile.${profile}`)).join(" + ");
+}
+
+function swatch(color: string): HTMLElement {
+  const dot = document.createElement("span");
+  dot.className = "swatch";
+  dot.style.background = color;
+  return dot;
+}
+
+/** One entry per profile that occurs in the route, in order. */
+function renderLegend(target: HTMLElement, profiles: Profile[]): void {
+  target.replaceChildren(
+    ...[...new Set(profiles)].map((profile) => {
+      const entry = document.createElement("span");
+      entry.append(swatch(PROFILE_COLORS[profile]), t(`route.profile.${profile}`));
+      return entry;
+    }),
+  );
+}
+
+/** One row per stage, only when there are several. */
+function renderStages(target: HTMLElement, plan: RoutePlan): void {
+  target.hidden = plan.stages.length < 2;
+  if (target.hidden) {
+    target.replaceChildren();
+    return;
+  }
+  target.replaceChildren(
+    ...plan.stages.map((stage, i) => {
+      const row = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "name";
+      name.append(...stage.profiles.map((profile) => swatch(PROFILE_COLORS[profile])), t("route.stage", { n: i + 1 }));
+      const parts = [distance(stage.distance_m)];
+      if (stage.ascent_m !== null && stage.descent_m !== null) {
+        parts.push(`↑ ${elevation(stage.ascent_m)} ↓ ${elevation(stage.descent_m)}`);
+      }
+      if (stage.time_s !== null) parts.push(hours(stage.time_s));
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = parts.join(" · ");
+      row.append(name, meta);
+      return row;
+    }),
+  );
 }
