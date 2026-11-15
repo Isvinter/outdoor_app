@@ -28,6 +28,14 @@ extension XCUIApplication {
         return app
     }
 
+    /// Drags the sheet by its upper edge: -250 from the collapsed step to the
+    /// middle one, -700 all the way up, positive values down again.
+    func pullSheet(by distance: Double) {
+        let totals = staticTexts["plan-totals"]
+        let grip = totals.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -14))
+        grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: distance)))
+    }
+
     /// Switches plan mode on and taps the places one after the other.
     func setWaypoints(_ places: [(Double, Double)]) {
         buttons["plan-pick"].tap()
@@ -189,11 +197,8 @@ final class PlanUITests: XCTestCase {
 
     // MARK: The sheet
 
-    /// Pulls the sheet up from its collapsed step to the middle one.
     private func pullSheetUp(_ app: XCUIApplication) {
-        let totals = app.staticTexts["plan-totals"]
-        let grip = totals.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -14))
-        grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -250)))
+        app.pullSheet(by: -250)
     }
 
     /// The form applies to the last leg: the first one keeps its profile.

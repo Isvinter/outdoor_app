@@ -14,17 +14,36 @@ struct PlanSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             totals
             PlanBar(plan: plan)
+            if let notice = plan.notice, detent != Self.collapsed {
+                Text(notice)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("plan-notice")
+            }
             if detent != Self.collapsed {
-                ScrollView {
-                    details
-                        .padding(.bottom, 24)
+                // A list, for the swipe actions of the saved routes.
+                List {
+                    Section {
+                        details
+                            .listRowSeparator(.hidden)
+                    }
+                    // The saved routes show when the sheet is pulled up all the way.
+                    if detent == .large {
+                        RoutesList(plan: plan)
+                    }
                 }
+                .listStyle(.plain)
+                .padding(.horizontal, -12)
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, 22)
         .frame(maxHeight: .infinity, alignment: .top)
         .modifier(WaypointMenu(plan: plan))
+        .onAppear {
+            plan.onLoaded = { detent = Self.collapsed }
+        }
+        .onChange(of: plan.request) { _ in plan.notice = nil }
     }
 
     /// Distance, ascent and time; before there is a route, what to do.
@@ -79,8 +98,10 @@ struct PlanSheet: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("plan-note")
                 }
+                SaveButtons(plan: plan)
             }
         }
+        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 12, trailing: 12))
     }
 
     private func swatch(_ hex: String) -> some View {

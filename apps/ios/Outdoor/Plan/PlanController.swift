@@ -101,6 +101,12 @@ final class PlanController: ObservableObject {
     @Published private(set) var cursor: ElevationSample?
     /// The waypoint whose menu is open.
     @Published var menuWaypoint: Int?
+    /// The saved routes, newest first.
+    @Published private(set) var routes: [SavedRoute] = []
+    /// The saved route that "save" overwrites: the one loaded or saved last.
+    @Published private(set) var loaded: SavedRoute?
+    /// A short confirmation, e.g. after saving.
+    @Published var notice: String?
 
     /// Computations run here one after the other, off the main thread; so do
     /// the other calls that change what the core holds as the planned route.
@@ -122,6 +128,7 @@ final class PlanController: ObservableObject {
         }
         overlay.onWaypointTap = { [weak self] index in self?.menuWaypoint = index }
         overlay.onWaypointMove = { [weak self] index, to in self?.moveWaypoint(index, to: to) }
+        routes = (try? core.savedRoutes()) ?? []
     }
 
     // MARK: The form
@@ -204,9 +211,87 @@ final class PlanController: ObservableObject {
     func clear() {
         picking = false
         request = planEmpty()
+        loaded = nil
         let core = core
         queue.async { core.startNewRoute() }
         compute()
+    }
+
+    // MARK: Saved routes
+
+    /// What a route is called if the user gives no name, as on the desktop.
+    var defaultName: String {
+        guard let plan else { return "" }
+        return "\(profileNames(plan.legs.map(\.profile))) \(Format.distance(plan.total.distanceM))"
+    }
+
+    /// Runs `work` after the computations that are under way, and `done` with
+    /// its result and the saved routes on the main thread.
+    private func store<T: Sendable>(
+        _ work: @escaping @Sendable (CoreApp) throws -> T, done: @escaping @MainActor (T) -> Void
+    ) {
+        let core = core
+        queue.async { [weak self] in
+            let result = Result { (try work(core), try core.savedRoutes(), core.loadedRouteId()) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let (value, routes, loadedId)):
+                    self.routes = routes
+                    self.loaded = routes.first { $0.id == loadedId }
+                    done(value)
+                case .failure(let error):
+                    self.message = PlanTexts.error(error)
+                }
+            }
+        }
+    }
+
+    /// Stores the planned route: over the route loaded or saved last, or as a
+    /// new one (always, with `asNew`).
+    func save(name: String, asNew: Bool) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmed.isEmpty ? defaultName : trimmed
+        store({ core in
+            _ = asNew ? try core.saveRouteAsNew(name: name) : try core.saveRoute(name: name)
+        }, done: { [weak self] in self?.notice = "Route gespeichert" })
+    }
+
+    /// Shows a saved route with its waypoints and settings, ready to be changed.
+    func load(_ route: SavedRoute) {
+        // Whatever is still being computed belongs to the route before.
+        let number = newest.next()
+        let newest = newest
+        store({ core in try core.loadRoute(id: route.id) }, done: { [weak self] plan in
+            guard let self, newest.current == number else { return }
+            self.planning = false
+            self.picking = false
+            self.message = nil
+            self.plan = plan
+            self.request = plan.request
+            if let last = plan.request.legs.last {
+                self.profile = last.profile
+                self.options = Dictionary(uniqueKeysWithValues: last.options.map { ($0.key, $0.value) })
+            }
+            self.drawWaypoints()
+            self.drawLegs()
+            self.overlay.fit(plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                + plan.legs.flatMap { $0.line.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) } })
+            self.onLoaded?()
+        })
+    }
+
+    /// Called when a saved route was loaded, to make room for the map.
+    var onLoaded: (() -> Void)?
+
+    func rename(_ route: SavedRoute, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        store({ core in try core.renameRoute(id: route.id, name: name) }, done: { _ in })
+    }
+
+    func delete(_ route: SavedRoute) {
+        store({ core in try core.deleteRoute(id: route.id) }, done: { _ in })
     }
 
     // MARK: Computing
@@ -309,6 +394,7 @@ final class PlanController: ObservableObject {
             "route_colors=\(list(drawn.colors))",
             "dashed=\(drawn.dashed)",
         ]
+        parts += ["routes=\(routes.count)", "route_id=\(loaded?.id ?? "-")", "route_rev=\(loaded?.rev ?? 0)"]
         if let cursor {
             parts.append(String(format: "cursor=%.5f,%.5f", cursor.lat, cursor.lon))
         }

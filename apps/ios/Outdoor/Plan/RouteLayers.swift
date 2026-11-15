@@ -122,6 +122,24 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
         mapView.addAnnotations(waypoints)
     }
 
+    /// Moves the map so that all of `points` show, clear of the bars and the sheet.
+    func fit(_ points: [CLLocationCoordinate2D]) {
+        guard let first = points.first else { return }
+        var (south, north, west, east) = (first.latitude, first.latitude, first.longitude, first.longitude)
+        for point in points {
+            south = min(south, point.latitude)
+            north = max(north, point.latitude)
+            west = min(west, point.longitude)
+            east = max(east, point.longitude)
+        }
+        let bounds = MLNCoordinateBounds(
+            sw: CLLocationCoordinate2D(latitude: south, longitude: west),
+            ne: CLLocationCoordinate2D(latitude: north, longitude: east))
+        let camera = mapView.cameraThatFitsCoordinateBounds(
+            bounds, edgePadding: UIEdgeInsets(top: 150, left: 40, bottom: 170, right: 40))
+        mapView.setCamera(camera, animated: true)
+    }
+
     func showCursor(_ at: CLLocationCoordinate2D?) {
         guard let at else {
             if let cursor { mapView.removeAnnotation(cursor) }
