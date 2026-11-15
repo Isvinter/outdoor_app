@@ -660,8 +660,12 @@ dependencies = [
  "core-app",
  "core-location",
  "core-maps",
+ "core-routing",
+ "core-storage",
  "serde_json",
+ "sha2 0.11.1",
  "uniffi",
+ "uuid",
 ]
 
 [[package]]

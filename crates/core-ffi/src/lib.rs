@@ -11,6 +11,15 @@ use core_app::{App, AppError, AppListener, RecordingStatus};
 use core_location::{Fix, SourceStatus};
 use core_maps::{Contours, Layer, StyleOptions, TilePath};
 
+mod plan;
+
+pub use plan::{
+    ElevationSample, EngineFailure, LatLon, LegInput, OptionInfo, OptionValue, PlanInput, PlanLeg,
+    PlanResult, PlanTotals, ProfileChoice, SavedRoute, StageSummary, ValhallaEngine,
+    failed_leg_color, plan_add_waypoint, plan_empty, plan_move_waypoint, plan_remove_waypoint,
+    plan_set_last_leg, plan_toggle_stage_end,
+};
+
 uniffi::setup_scaffolding!();
 
 /// What the app is told about from inside the core.

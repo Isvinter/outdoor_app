@@ -37,6 +37,58 @@ Profilfarben), „Bedienung auf dem iPhone“ und Meilenstein I3. Baut auf I1 un
 - Vor Task 5 auf dem Mac `apps/ios/scripts/build-core.sh` ausführen, weil sich die
   UniFFI-API ändert.
 
+## Stand nach Task 1–4 (Linux, 2026-11-15) – für die Mac-Sitzung
+
+Task 1–4 sind fertig (Branch `feature/ios-i3`). Vor Task 5 `apps/ios/scripts/build-core.sh`
+ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
+
+- **Swift-API** (aus den erzeugten Bindings, zur Probe auf Linux erzeugt):
+  - `CoreApp`:
+    - `setValhallaEngine(engine:)` und `routeProfiles() -> [ProfileChoice]`
+    - `planRoute(request:) throws -> PlanResult` (abseits des Main-Threads aufrufen) und `clearPlannedRoute()`
+    - `saveRoute(name:)`, `saveRouteAsNew(name:)`, `savedRoutes()`, `loadRoute(id:)`, `renameRoute(id:name:)` und `deleteRoute(id:)`
+    - `loadedRouteId() -> String?`
+  - Freie Funktionen:
+    - `planEmpty()`
+    - `planAddWaypoint(request:at:leg:)` und `planMoveWaypoint(request:index:to:)`
+    - `planRemoveWaypoint(request:index:)` und `planToggleStageEnd(request:index:)`
+    - `planSetLastLeg(request:leg:)` und `failedLegColor()`
+- **`ValhallaEngine`** ist in Swift `protocol ValhallaEngine: AnyObject, Sendable`, also eine
+  Klasse.
+  - Methoden: `version() -> String` und `route(tilesPath:requestJson:) throws -> String`.
+  - Bei einem Fehler `throw EngineFailure.Failed(message:)`. Valhallas Meldungen „No path could
+    be found“ und „No suitable edges“ werden im Kern zu `route_not_found`, alles andere zu
+    `routing`.
+- **Versionsprüfung:**
+  - `version()` liefert `"3.9.1"`. Regionen mit `routing.valhalla` ≠ Engine-Version: das
+    Teilstück hat `errorCode == "routing_incompatible"`, die Engine wird gar nicht erst gefragt.
+  - Regionen ohne `routing` im Manifest werden nicht geprüft.
+- **Fehlgeschlagene Teilstücke** in `failedLegColor()` (`#d93025`) zeichnen, wie der Desktop.
+  `PlanLeg.color` ist immer die Profilfarbe. Sie gilt für das Höhenprofil und für
+  erfolgreiche Teilstücke.
+- **Entfernen eines Punkts** (in Task 2 gegen `route.ts` korrigiert): Das Teilstück davor
+  verbindet die Nachbarn. Bei `[hike, mtb, car]` ergibt Entfernen von Punkt 2 `[hike, mtb]`,
+  von Punkt 1 `[hike, car]`.
+- **Optionen** kommen in fester Reihenfolge zurück (`use_hills`, `use_roads`,
+  `avoid_bad_surfaces`, `max_hiking_difficulty`). Es sind nur die gesetzten. Ein unbekannter
+  Schlüssel oder ein unbekanntes Profil ergibt bei `planRoute` den Code `route_plan`. Die
+  `plan…`-Funktionen geben eine Anfrage, die sie nicht lesen können, unverändert zurück.
+- **`PlanResult.elevation`** ist auf rund 1000 Proben ausgedünnt (`for_display`), genug für
+  das Diagramm. Der Cursor nimmt `lat`/`lon` der Probe.
+- **Speichern:**
+  - `saveRoute` überschreibt die zuletzt geladene oder gespeicherte Route (gleiche `id`,
+    `rev + 1`).
+  - Nach `clearPlannedRoute()`, nach dem Löschen der geladenen Route und beim ersten Speichern
+    entsteht eine neue Route.
+  - `saveRouteAsNew` legt immer eine neue an, und `saveRoute` überschreibt danach diese.
+- **Desktop:** Der Knopf „Als neue Route speichern“ ist neu (Command `route_save_new`).
+  `RouteRecord` hat jetzt `rev`.
+- Valhalla-Engine und Router: Der Kern öffnet je Region einmal einen Router und ruft
+  `route(tilesPath:…)` mit dem Pfad der `routing.tar` dieser Region. Die Engine hält je Pfad
+  eine valhalla-mobile-Instanz (Task 5).
+- `cargo check --target aarch64-apple-ios` geht auf Linux nicht (SQLite braucht `xcrun`). Die
+  iOS-Übersetzung prüft erst `build-core.sh` auf dem Mac.
+
 ## Global Constraints
 
 - **Kein Schritt der Planung braucht ein Netz.** Kein Rückgriff auf Online-Routing.
@@ -65,7 +117,8 @@ Profilfarben), „Bedienung auf dem iPhone“ und Meilenstein I3. Baut auf I1 un
   - Rand weiß, Breite 8, Deckkraft 0,95. Linie in Profilfarbe, Breite 4,5, `round` für Ende
     und Ecken.
   - Ein fehlgeschlagenes Teilstück ist eine gerade Linie zwischen seinen Wegpunkten:
-    Profilfarbe, Breite 3, gestrichelt `[2, 2]`.
+    Farbe `failedLegColor()` (`#d93025`, wie `route.ts:255`), Breite 3, gestrichelt `[2, 2]`.
+    *(Korrigiert nach Task 4: vorher stand hier „Profilfarbe“.)*
   - Wegpunkte sind nummerierte Kreise mit 24 pt Durchmesser, Farbe `#0b63ce`, weißer Rand
     2 pt. Ein Etappenende ist ein abgerundetes Quadrat in `#1d1d1f`.
   - Der Profil-Cursor ist ein weißer Kreis von 12 pt mit Rand `#0b63ce` von 3 pt.
@@ -340,7 +393,7 @@ auf dem Profil setzt den Cursor auf der Karte.
 - [ ] **Step 1: Tests schreiben.**
   - `FormatTests`: `12353 m` ergibt „12,4 km“, `850 m` ergibt „850 m“, `3,6 h` ergibt „3:36 h“. Die genauen Werte kommen aus `format.ts`, dort nachsehen und übernehmen.
   - UI-Tests:
-    - `testProfileAppliesToLastLeg`: Drei Punkte mit `manual`, dann „Wandern“ wählen. `route_colors` ergibt `#6a1b9a,#c62828`. Mit `mini` ist das Teilstück fehlgeschlagen, also `failed_legs=1`.
+    - `testProfileAppliesToLastLeg`: Drei Punkte mit `manual`, dann „Wandern“ wählen. Mit `mini` (ohne Routingdaten) schlägt das Wander-Teilstück fehl: `failed_legs=1`, `route_colors` ergibt `#6a1b9a,#d93025`. Das Profil steht trotzdem im Request (`legs` zeigt `manual,hike`, eigenes Status-Feld `leg_profiles=`).
     - `testSheetShowsTotals`: Die eingeklappte Stufe zeigt die Distanz aus `distance_m`, formatiert.
     - `testChartCursor`: Ziehen auf dem Profil ergibt den Status `cursor=<lat>,<lon>` innerhalb der Grenzen von `mini`.
 - [ ] **Step 2:** Ausführen. Erwartet: FAIL.

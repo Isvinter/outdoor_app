@@ -22,10 +22,14 @@ bindgen = ["uniffi/cli"]
 core-app.workspace = true
 core-location.workspace = true
 core-maps.workspace = true
+core-routing.workspace = true
+core-storage.workspace = true
 uniffi.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+sha2.workspace = true
 
 # Not the workspace lints: the code UniFFI generates needs `unsafe`, and the
 # workspace forbids it, which a crate cannot lift locally.
