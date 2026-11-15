@@ -17,6 +17,7 @@ core-location = { path = "crates/core-location" }
 core-maps = { path = "crates/core-maps" }
 core-routing = { path = "crates/core-routing" }
 core-storage = { path = "crates/core-storage" }
+core-ffi = { path = "crates/core-ffi" }
 
 flate2 = "1.1"
 image-webp = "0.2"
@@ -32,6 +33,7 @@ rusqlite = { version = "0.42", features = ["bundled", "uuid"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
+uniffi = "0.32.2"
 uuid = { version = "1.29", features = ["v7", "serde"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 

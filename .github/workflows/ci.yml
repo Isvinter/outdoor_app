@@ -62,7 +62,7 @@ jobs:
           bin="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           triple="$(echo '${{ matrix.target }}' | tr - _)"
           export "CC_${triple}=$bin/${{ matrix.clang }}" "AR_${triple}=$bin/llvm-ar"
-          cargo check -p core-track -p core-gpx -p core-location -p core-maps -p core-storage -p core-routing -p core-app \
+          cargo check -p core-track -p core-gpx -p core-location -p core-maps -p core-storage -p core-routing -p core-app -p core-ffi \
             --target ${{ matrix.target }}
 
   ios-check:
@@ -75,5 +75,5 @@ jobs:
           targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
       - run: >
-          cargo check -p core-track -p core-gpx -p core-location -p core-maps -p core-storage -p core-routing -p core-app
+          cargo check -p core-track -p core-gpx -p core-location -p core-maps -p core-storage -p core-routing -p core-app -p core-ffi
           --target aarch64-apple-ios
