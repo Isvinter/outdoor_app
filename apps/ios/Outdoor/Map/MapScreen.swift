@@ -4,6 +4,7 @@ struct MapScreen: View {
     @ObservedObject var controller: MapController
     @ObservedObject var plan: PlanController
     let start: AppStart.Ready
+    @State private var detent = PlanSheet.collapsed
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -35,21 +36,23 @@ struct MapScreen: View {
                 }
             }
             .padding()
-            VStack(alignment: .trailing, spacing: 12) {
-                LocationButton(accuracy: controller.locationAccuracy) { controller.centreOnLocation() }
-                    .padding(.trailing, 12)
-                PlanBar(plan: plan)
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .padding(.horizontal, 8)
-            }
-            .padding(.bottom, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            LocationButton(accuracy: controller.locationAccuracy) { controller.centreOnLocation() }
+                .padding(.trailing, 12)
+                // Above the collapsed sheet.
+                .padding(.bottom, 108)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             if start.options.selftest {
                 SelfTestStatus(controller: controller, plan: plan, start: start)
             }
         }
-        .modifier(WaypointMenu(plan: plan))
+        // Always there, like the sheet of Apple Maps; the map stays usable beside it.
+        .sheet(isPresented: .constant(true)) {
+            PlanSheet(plan: plan, detent: $detent)
+                .presentationDetents(PlanSheet.detents, selection: $detent)
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                .presentationDragIndicator(.visible)
+                .interactiveDismissDisabled()
+        }
     }
 }
 

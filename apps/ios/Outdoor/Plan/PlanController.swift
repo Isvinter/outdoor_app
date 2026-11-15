@@ -97,6 +97,8 @@ final class PlanController: ObservableObject {
     @Published private(set) var planning = false
     /// Why the route or a leg of it could not be computed.
     @Published var message: String?
+    /// Where the finger was last on the elevation profile.
+    @Published private(set) var cursor: ElevationSample?
     /// The waypoint whose menu is open.
     @Published var menuWaypoint: Int?
 
@@ -259,6 +261,12 @@ final class PlanController: ObservableObject {
 
     // MARK: Drawing
 
+    /// Marks a place of the elevation profile on the map.
+    func showCursor(_ sample: ElevationSample?) {
+        cursor = sample
+        overlay.showCursor(sample.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) })
+    }
+
     private func drawWaypoints() {
         overlay.setWaypoints(
             request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) },
@@ -267,6 +275,8 @@ final class PlanController: ObservableObject {
 
     /// A failed leg is a straight line between its waypoints, in the colour for failures.
     private func drawLegs() {
+        // The cursor belonged to the route before.
+        showCursor(nil)
         guard let plan else { return overlay.show([]) }
         let points = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         let failedColor = failedLegColor()
@@ -299,6 +309,9 @@ final class PlanController: ObservableObject {
             "route_colors=\(list(drawn.colors))",
             "dashed=\(drawn.dashed)",
         ]
+        if let cursor {
+            parts.append(String(format: "cursor=%.5f,%.5f", cursor.lat, cursor.lon))
+        }
         if !planTimes.isEmpty {
             let recent = planTimes.suffix(10).sorted()
             parts.append(String(format: "plan_ms=%.0f", recent[recent.count / 2] * 1000))

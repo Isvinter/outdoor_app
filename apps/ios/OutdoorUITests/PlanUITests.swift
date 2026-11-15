@@ -186,4 +186,76 @@ final class PlanUITests: XCTestCase {
         }
         XCTAssertEqual(winter.int("waypoints"), 3)
     }
+
+    // MARK: The sheet
+
+    /// Pulls the sheet up from its collapsed step to the middle one.
+    private func pullSheetUp(_ app: XCUIApplication) {
+        let totals = app.staticTexts["plan-totals"]
+        let grip = totals.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -14))
+        grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -250)))
+    }
+
+    /// The form applies to the last leg: the first one keeps its profile.
+    func testProfileAppliesToLastLeg() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+
+        app.chooseProfile("Wandern")
+
+        // `mini` has no routing data: the hiking leg fails.
+        let status = app.waitForStatus("last leg is a hike") {
+            $0.int("planning") == 0 && $0.list("leg_profiles") == ["manual", "hike"] && $0.int("failed_legs") == 1
+        }
+        XCTAssertEqual(status.list("route_colors"), ["#6a1b9a", "#d93025"])
+        XCTAssertEqual(status.int("dashed"), 1)
+        XCTAssertGreaterThan(status.int("distance_m"), 0)
+
+        // A new point takes the profile of the form as well.
+        app.place(places[3].0, places[3].1).tap()
+        let more = app.waitForPlan(waypoints: 4)
+        XCTAssertEqual(more.list("leg_profiles"), ["manual", "hike", "hike"])
+    }
+
+    func testSheetShowsTotals() {
+        let app = XCUIApplication.planning()
+        let totals = app.staticTexts["plan-totals"]
+        XCTAssertTrue(totals.label.contains("+ Punkt"), totals.label)
+
+        app.setWaypoints(Array(places.prefix(3)))
+        let status = app.waitForPlan(waypoints: 3)
+
+        let metres = Double(status.int("distance_m"))
+        XCTAssertGreaterThan(metres, 1000)
+        // As `Format.distance` writes it; the status rounds to metres.
+        let shown = totals.label.components(separatedBy: " km").first ?? ""
+        let kilometres = try? XCTUnwrap(Double(shown.replacingOccurrences(of: ",", with: ".")))
+        XCTAssertEqual(kilometres ?? -1, metres / 1000, accuracy: 0.0051, totals.label)
+        XCTAssertTrue(totals.label.contains("↑"), totals.label)
+    }
+
+    func testChartCursor() throws {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+        XCTAssertNil(app.mapStatus.values["cursor"])
+
+        pullSheetUp(app)
+        let chart = app.otherElements["plan-chart"]
+        XCTAssertTrue(chart.waitForExistence(timeout: 5))
+        let from = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.4))
+        from.press(forDuration: 0.1, thenDragTo: chart.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.4)))
+
+        let status = app.waitForStatus("cursor on the map", timeout: 5) { $0.values["cursor"] != nil }
+        let parts = try XCTUnwrap(status.values["cursor"]).split(separator: ",").compactMap { Double($0) }
+        XCTAssertEqual(parts.count, 2)
+        // Inside the fixture `mini`.
+        XCTAssertTrue((47.57...47.58).contains(parts[0]), "\(parts)")
+        XCTAssertTrue((11.54...11.56).contains(parts[1]), "\(parts)")
+
+        // A changed route has no cursor.
+        app.buttons["plan-undo"].tap()
+        app.waitForStatus("cursor gone", timeout: 5) { $0.values["cursor"] == nil && $0.int("waypoints") == 2 }
+    }
 }

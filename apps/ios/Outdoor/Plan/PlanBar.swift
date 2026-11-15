@@ -7,37 +7,7 @@ struct PlanBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Menu {
-                ForEach(plan.profiles, id: \.profile) { choice in
-                    let name = PlanTexts.profile(choice.profile)
-                    Button {
-                        plan.choose(profile: choice.profile)
-                    } label: {
-                        if choice.profile == plan.profile {
-                            Label(name, systemImage: "checkmark")
-                        } else {
-                            Text(choice.available ? name : "\(name) (nicht verfügbar)")
-                        }
-                    }
-                    .disabled(!choice.available)
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(Color(UIColor(hex: plan.profiles.first { $0.profile == plan.profile }?.color ?? "#000000")))
-                        .frame(width: 10, height: 10)
-                    Text(PlanTexts.profile(plan.profile))
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                }
-                .padding(.horizontal, 12)
-                .frame(minHeight: 40)
-                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-            }
-            .accessibilityIdentifier("plan-profile")
-            .accessibilityLabel("Sportart")
-            .accessibilityValue(PlanTexts.profile(plan.profile))
+            ProfileMenu(plan: plan)
 
             Spacer(minLength: 0)
 
