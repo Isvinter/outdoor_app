@@ -69,6 +69,16 @@ pub fn open(dir: &Path) -> App {
 
 /// An app whose only region covers tile X/Y with the elevation ramp.
 pub fn app_with_ramp(name: &str) -> App {
+    open(&ramp_region(name, false))
+}
+
+/// Like [`app_with_ramp`], with a (dummy) routing file in the region, so that
+/// a router given by `App::set_router_for_tests` is used there.
+pub fn app_with_ramp_routing(name: &str) -> App {
+    open(&ramp_region(name, true))
+}
+
+fn ramp_region(name: &str, routing: bool) -> PathBuf {
     let dir = temp_dir(name);
     let region = dir.join("regions/ramp");
     std::fs::create_dir_all(&region).unwrap();
@@ -88,10 +98,18 @@ pub fn app_with_ramp(name: &str) -> App {
         },
     )
     .unwrap();
+    let mut files =
+        vec![serde_json::json!({ "name": "dem.pmtiles", "size": size, "sha256": "0".repeat(64) })];
+    if routing {
+        std::fs::write(region.join("routing.tar"), b"dummy").unwrap();
+        files.push(
+            serde_json::json!({ "name": "routing.tar", "size": 5, "sha256": "0".repeat(64) }),
+        );
+    }
     let manifest = serde_json::json!({
         "format": 1, "id": "ramp", "name": "Ramp", "bbox": bounds, "version": "1", "attribution": [],
-        "files": [{ "name": "dem.pmtiles", "size": size, "sha256": "0".repeat(64) }], "size": size,
+        "files": files, "size": size,
     });
     std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
-    open(&dir)
+    dir
 }

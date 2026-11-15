@@ -2,50 +2,19 @@
 //! with elevation from the installed regions; saved routes.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use core_gpx::{GpxDocument, write_gpx};
-use core_maps::ProfilePoint;
-use core_routing::{
-    DinParams, OptionSpec, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError,
-    din_time_s, manual_route,
-};
+use core_routing::{OptionSpec, Profile, Router, RoutingError};
 use core_storage::RouteRecord;
-use core_track::{Activity, Segment, Track, TrackPoint, elevation_gain};
-use serde::{Deserialize, Serialize};
+use core_track::{Activity, Segment, Track, TrackPoint};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::AppError;
 use crate::app::{App, now_ms};
-
-/// Largest distance between two samples of the elevation profile, in metres.
-const PROFILE_STEP_M: f64 = 25.0;
-/// Smoothing window for ascent and descent. Terrain models are smooth
-/// compared to GPS elevation, a short window is enough.
-const ELE_SMOOTH_M: f64 = 50.0;
-/// Changes of direction smaller than this do not count as ascent or descent.
-const ELE_THRESHOLD_M: f64 = 3.0;
-
-/// A route with everything shown about it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RoutePlan {
-    pub route: Route,
-    /// The settings the route was computed with.
-    pub options: RouteOptions,
-    /// Elevation along the route.
-    pub elevation: Vec<ProfilePoint>,
-    /// `None` if the installed regions have no elevation data for the route.
-    pub ascent_m: Option<f64>,
-    pub descent_m: Option<f64>,
-    pub min_ele_m: Option<f64>,
-    pub max_ele_m: Option<f64>,
-    /// Walking time after DIN 33466, for routes on foot or ski with known ascent.
-    pub hiking_time_s: Option<f64>,
-    /// The region whose routing data was used.
-    pub region: Option<String>,
-    /// Ways above this `mtb:scale` are closed to bicycles in that routing data.
-    pub max_mtb_scale: Option<u8>,
-}
+use crate::plan::{LegCache, RoutePlan};
 
 /// A routing profile as offered to the user.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -62,31 +31,54 @@ pub struct ProfileInfo {
 pub(crate) struct Routing {
     /// Open routers by region id.
     routers: Mutex<HashMap<String, Arc<dyn Router>>>,
+    /// Computed legs, reused while their inputs stay the same.
+    legs: Mutex<LegCache>,
     planned: Mutex<Option<RoutePlan>>,
 }
 
 impl Routing {
-    fn routers(&self) -> MutexGuard<'_, HashMap<String, Arc<dyn Router>>> {
+    pub(crate) fn routers(&self) -> MutexGuard<'_, HashMap<String, Arc<dyn Router>>> {
         self.routers.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn planned(&self) -> MutexGuard<'_, Option<RoutePlan>> {
+    pub(crate) fn legs(&self) -> MutexGuard<'_, LegCache> {
+        self.legs.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The router of a region, opened on first use.
+    pub(crate) fn router(
+        &self,
+        region: &str,
+        tiles: &Path,
+    ) -> Result<Arc<dyn Router>, RoutingError> {
+        let mut routers = self.routers();
+        if let Some(router) = routers.get(region) {
+            return Ok(Arc::clone(router));
+        }
+        let router = open_router(tiles)?;
+        routers.insert(region.to_string(), Arc::clone(&router));
+        Ok(router)
+    }
+
+    pub(crate) fn planned(&self) -> MutexGuard<'_, Option<RoutePlan>> {
         self.planned.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Closes the router of a region whose files are about to change.
+    /// Computed legs may change with any region (routing and elevation data).
     pub(crate) fn forget_region(&self, id: &str) {
         self.routers().remove(id);
+        self.legs().clear();
     }
 }
 
 #[cfg(feature = "valhalla")]
-fn open_router(tiles: &std::path::Path) -> Result<Arc<dyn Router>, RoutingError> {
+fn open_router(tiles: &Path) -> Result<Arc<dyn Router>, RoutingError> {
     Ok(Arc::new(core_routing::ValhallaRouter::open(tiles)?))
 }
 
 #[cfg(not(feature = "valhalla"))]
-fn open_router(_tiles: &std::path::Path) -> Result<Arc<dyn Router>, RoutingError> {
+fn open_router(_tiles: &Path) -> Result<Arc<dyn Router>, RoutingError> {
     Err(RoutingError::Unavailable(
         "this build has no routing engine".into(),
     ))
@@ -120,7 +112,7 @@ fn plan_gpx(plan: &RoutePlan, name: &str) -> Result<String, AppError> {
         name: name.clone(),
         tracks: vec![Track {
             name,
-            activity: activity_of(plan.route.profile),
+            activity: plan.legs.first().and_then(|leg| activity_of(leg.profile)),
             segments: vec![Segment { points }],
         }],
     })?)
@@ -139,87 +131,6 @@ impl App {
             .collect()
     }
 
-    /// Computes a route and remembers it as the planned route. May take a
-    /// moment; call it off the UI thread.
-    pub fn plan_route(&self, request: &RouteRequest) -> Result<RoutePlan, AppError> {
-        let (route, region, max_mtb_scale) = if request.profile == Profile::Manual {
-            (manual_route(&request.waypoints)?, None, None)
-        } else {
-            if request.waypoints.len() < 2 {
-                return Err(RoutingError::TooFewWaypoints.into());
-            }
-            let positions: Vec<(f64, f64)> =
-                request.waypoints.iter().map(|p| (p.lat, p.lon)).collect();
-            let tiles = self
-                .shared
-                .maps
-                .store()
-                .routing_tiles(&positions)
-                .ok_or_else(|| {
-                    RoutingError::Unavailable(
-                        "no installed region with routing data covers all waypoints".into(),
-                    )
-                })?;
-            let router = {
-                let mut routers = self.shared.routing.routers();
-                match routers.get(&tiles.region) {
-                    Some(router) => Arc::clone(router),
-                    None => {
-                        let router = open_router(&tiles.path)?;
-                        routers.insert(tiles.region.clone(), Arc::clone(&router));
-                        router
-                    }
-                }
-            };
-            let scale = tiles.info.map(|info| info.max_mtb_scale);
-            (router.route(request)?, Some(tiles.region), scale)
-        };
-
-        let line: Vec<(f64, f64)> = route.line.iter().map(|p| (p.lat, p.lon)).collect();
-        let elevation = self
-            .shared
-            .maps
-            .store()
-            .elevation_profile(&line, PROFILE_STEP_M)?;
-        let known: Vec<(f64, f64)> = elevation
-            .iter()
-            .filter_map(|point| Some((point.distance_m, f64::from(point.ele?))))
-            .collect();
-        // Gaps in the elevation data would hide ascent; then rather none at all.
-        let complete = known.len() >= 2 && known.len() == elevation.len();
-        let (ascent_m, descent_m) = if complete {
-            let (up, down) = elevation_gain(&known, ELE_SMOOTH_M, ELE_THRESHOLD_M);
-            (Some(up), Some(down))
-        } else {
-            (None, None)
-        };
-        let eles = || known.iter().map(|(_, ele)| *ele);
-        let on_foot = matches!(route.profile, Profile::Hike | Profile::Manual);
-        let hiking_time_s = match (on_foot, ascent_m, descent_m) {
-            (true, Some(up), Some(down)) => Some(din_time_s(
-                route.distance_m,
-                up,
-                down,
-                &DinParams::default(),
-            )),
-            _ => None,
-        };
-        let plan = RoutePlan {
-            route,
-            options: request.options,
-            elevation,
-            ascent_m,
-            descent_m,
-            min_ele_m: eles().reduce(f64::min).filter(|_| complete),
-            max_ele_m: eles().reduce(f64::max).filter(|_| complete),
-            hiking_time_s,
-            region,
-            max_mtb_scale,
-        };
-        *self.shared.routing.planned() = Some(plan.clone());
-        Ok(plan)
-    }
-
     /// The route planned or loaded last.
     pub fn planned_route(&self) -> Option<RoutePlan> {
         self.shared.routing.planned().clone()
@@ -236,9 +147,9 @@ impl App {
         let mut inner = self.shared.inner();
         let id = inner.storage.save_route(
             name,
-            plan.route.profile.as_str(),
-            plan.route.distance_m,
-            plan.ascent_m,
+            plan.legs.first().map_or("", |leg| leg.profile.as_str()),
+            plan.total.distance_m,
+            plan.total.ascent_m,
             &json,
             now_ms(),
         )?;

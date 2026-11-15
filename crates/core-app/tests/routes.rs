@@ -3,25 +3,48 @@
 mod common;
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use common::{app_with_ramp, open, position, temp_dir};
-use core_app::{App, AppError};
+use common::{app_with_ramp, app_with_ramp_routing, open, position, temp_dir};
+use core_app::{App, AppError, LegSpec, PlanRequest};
 use core_routing::{
-    DinParams, LatLon, Profile, RouteOptions, RouteRequest, RoutingError, din_time_s,
+    DinParams, LatLon, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError, din_time_s,
 };
 use uuid::Uuid;
 
-fn manual(waypoints: Vec<LatLon>) -> RouteRequest {
-    RouteRequest {
+/// A route through `waypoints` with every leg in `profile`.
+fn route(profile: Profile, waypoints: Vec<LatLon>) -> PlanRequest {
+    let legs = waypoints.len().saturating_sub(1);
+    PlanRequest {
         waypoints,
-        profile: Profile::Manual,
-        options: RouteOptions::default(),
+        legs: vec![
+            LegSpec {
+                profile,
+                options: RouteOptions::default(),
+            };
+            legs
+        ],
+        stage_ends: Vec::new(),
     }
 }
 
+fn manual(waypoints: Vec<LatLon>) -> PlanRequest {
+    route(Profile::Manual, waypoints)
+}
+
 /// 40 pixels east along the ramp: 80 m up.
-fn uphill() -> RouteRequest {
+fn uphill() -> PlanRequest {
     manual(vec![position(10.0, 32.0), position(50.0, 32.0)])
+}
+
+/// Three points along the ramp, 20 pixels apart: 40 m up per leg.
+fn three_points() -> PlanRequest {
+    manual(vec![
+        position(10.0, 32.0),
+        position(30.0, 32.0),
+        position(50.0, 32.0),
+    ])
 }
 
 #[test]
@@ -30,29 +53,24 @@ fn manual_route_gets_elevation_and_hiking_time_from_the_terrain() {
 
     let plan = app.plan_route(&uphill()).unwrap();
 
-    assert_eq!(plan.route.profile, Profile::Manual);
-    assert!(
-        (plan.route.distance_m - 4090.0).abs() < 60.0,
-        "{}",
-        plan.route.distance_m
-    );
-    assert_eq!(plan.route.duration_s, None);
-    let (ascent, descent) = (plan.ascent_m.unwrap(), plan.descent_m.unwrap());
+    assert_eq!(plan.legs.len(), 1);
+    let leg = &plan.legs[0];
+    assert_eq!(leg.profile, Profile::Manual);
+    assert!((leg.distance_m - 4090.0).abs() < 60.0, "{}", leg.distance_m);
+    assert_eq!(leg.duration_s, None);
+    assert_eq!(plan.total.distance_m, leg.distance_m);
+    let (ascent, descent) = (plan.total.ascent_m.unwrap(), plan.total.descent_m.unwrap());
     assert!((ascent - 80.0).abs() < 1.0, "ascent {ascent}");
     assert!(descent < 0.5, "descent {descent}");
-    assert!((plan.min_ele_m.unwrap() - 1020.0).abs() < 1.0);
-    assert!((plan.max_ele_m.unwrap() - 1100.0).abs() < 1.0);
-    let expected = din_time_s(
-        plan.route.distance_m,
-        ascent,
-        descent,
-        &DinParams::default(),
-    );
-    assert!((plan.hiking_time_s.unwrap() - expected).abs() < 1e-6);
+    assert!((plan.total.min_ele_m.unwrap() - 1020.0).abs() < 1.0);
+    assert!((plan.total.max_ele_m.unwrap() - 1100.0).abs() < 1.0);
+    let expected = din_time_s(leg.distance_m, ascent, descent, &DinParams::default());
+    assert!((plan.total.time_s.unwrap() - expected).abs() < 1e-6);
+    assert_eq!(plan.total.failed_legs, 0);
 
     // The profile runs along the whole route, densely enough to draw a chart.
     let last = plan.elevation.last().unwrap();
-    assert!((last.distance_m - plan.route.distance_m).abs() < 1.0);
+    assert!((last.distance_m - plan.total.distance_m).abs() < 1.0);
     assert!(plan.elevation.len() > 150);
     assert!(
         plan.elevation
@@ -67,29 +85,27 @@ fn route_outside_of_elevation_data_has_no_ascent() {
 
     let plan = app.plan_route(&uphill()).unwrap();
 
-    assert!(plan.route.distance_m > 4000.0);
-    assert_eq!(plan.ascent_m, None);
-    assert_eq!(plan.descent_m, None);
-    assert_eq!(plan.min_ele_m, None);
-    assert_eq!(plan.hiking_time_s, None);
+    assert!(plan.total.distance_m > 4000.0);
+    assert_eq!(plan.total.ascent_m, None);
+    assert_eq!(plan.total.descent_m, None);
+    assert_eq!(plan.total.min_ele_m, None);
+    assert_eq!(plan.total.time_s, None);
+    assert_eq!(plan.stages[0].ascent_m, None);
     assert!(plan.elevation.iter().all(|point| point.ele.is_none()));
 }
 
 #[test]
-fn routed_profiles_need_routing_data() {
+fn routed_leg_without_routing_data_is_marked_failed() {
     let app = app_with_ramp("unavailable");
-    let request = RouteRequest {
-        profile: Profile::Hike,
-        ..uphill()
-    };
 
-    let error = app.plan_route(&request).unwrap_err();
+    let plan = app
+        .plan_route(&route(Profile::Hike, uphill().waypoints))
+        .unwrap();
 
-    assert!(
-        matches!(error, AppError::Routing(RoutingError::Unavailable(_))),
-        "{error}"
-    );
-    assert_eq!(error.code(), "routing_unavailable");
+    let error = plan.legs[0].error.as_ref().unwrap();
+    assert_eq!(error.code, "routing_unavailable");
+    assert!(plan.legs[0].line.is_empty());
+    assert_eq!(plan.total.failed_legs, 1);
 }
 
 #[test]
@@ -99,6 +115,199 @@ fn a_single_waypoint_is_not_a_route() {
         .plan_route(&manual(vec![position(1.0, 1.0)]))
         .unwrap_err();
     assert_eq!(error.code(), "route_too_few_waypoints");
+}
+
+#[test]
+fn legs_must_match_the_waypoints() {
+    let app = app_with_ramp("leg-count");
+    let mut request = three_points();
+    request.legs.pop();
+    let error = app.plan_route(&request).unwrap_err();
+    assert_eq!(error.code(), "route_plan");
+}
+
+#[test]
+fn stage_ends_must_be_inner_ascending_waypoints() {
+    let app = app_with_ramp("stage-ends");
+    let four = manual(vec![
+        position(10.0, 32.0),
+        position(20.0, 32.0),
+        position(30.0, 32.0),
+        position(40.0, 32.0),
+    ]);
+    for ends in [vec![0], vec![3], vec![2, 1], vec![1, 1]] {
+        let request = PlanRequest {
+            stage_ends: ends.clone(),
+            ..four.clone()
+        };
+        let error = app.plan_route(&request).unwrap_err();
+        assert_eq!(error.code(), "route_plan", "{ends:?}");
+    }
+    let request = PlanRequest {
+        stage_ends: vec![1, 2],
+        ..four
+    };
+    assert_eq!(app.plan_route(&request).unwrap().stages.len(), 3);
+}
+
+#[test]
+fn each_stage_has_its_statistics_and_the_total_is_their_sum() {
+    let app = app_with_ramp("stages");
+    let request = PlanRequest {
+        stage_ends: vec![1],
+        ..three_points()
+    };
+
+    let plan = app.plan_route(&request).unwrap();
+
+    assert_eq!(plan.stages.len(), 2);
+    let (first, second) = (&plan.stages[0], &plan.stages[1]);
+    assert_eq!((first.from, first.to), (0, 1));
+    assert_eq!((second.from, second.to), (1, 2));
+    assert_eq!(first.profiles, vec![Profile::Manual]);
+    assert!((first.ascent_m.unwrap() - 40.0).abs() < 1.5);
+    let sum = |f: fn(&core_app::Stage) -> f64| plan.stages.iter().map(f).sum::<f64>();
+    assert!((sum(|s| s.distance_m) - plan.total.distance_m).abs() < 1e-6);
+    assert!((sum(|s| s.ascent_m.unwrap()) - plan.total.ascent_m.unwrap()).abs() < 1e-6);
+    assert!((sum(|s| s.time_s.unwrap()) - plan.total.time_s.unwrap()).abs() < 1e-6);
+}
+
+#[test]
+fn elevation_points_know_their_leg() {
+    let app = app_with_ramp("legs-elevation");
+
+    let plan = app.plan_route(&three_points()).unwrap();
+
+    assert_eq!(plan.elevation.first().unwrap().leg, 0);
+    assert_eq!(plan.elevation.last().unwrap().leg, 1);
+    assert!(plan.elevation.windows(2).all(|w| w[0].leg <= w[1].leg));
+    assert!(
+        plan.elevation
+            .windows(2)
+            .all(|w| w[1].distance_m >= w[0].distance_m)
+    );
+    let last = plan.elevation.last().unwrap();
+    assert!((last.distance_m - plan.total.distance_m).abs() < 1.0);
+}
+
+/// Straight lines, counting how often it was asked; fails towards the far east.
+struct CountingRouter {
+    calls: AtomicUsize,
+}
+
+impl Router for CountingRouter {
+    fn route(&self, request: &RouteRequest) -> Result<Route, RoutingError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if request
+            .waypoints
+            .iter()
+            .any(|p| p.lon > position(55.0, 0.0).lon)
+        {
+            return Err(RoutingError::NoRoute("too far east".into()));
+        }
+        let mut route = core_routing::manual_route(&request.waypoints)?;
+        route.profile = request.profile;
+        route.duration_s = Some(route.distance_m / 4.0);
+        Ok(route)
+    }
+
+    fn profiles(&self) -> Vec<Profile> {
+        vec![Profile::Hike, Profile::Mtb]
+    }
+}
+
+fn counting_app(name: &str) -> (App, Arc<CountingRouter>) {
+    let app = app_with_ramp_routing(name);
+    let router = Arc::new(CountingRouter {
+        calls: AtomicUsize::new(0),
+    });
+    app.set_router_for_tests("ramp", router.clone());
+    (app, router)
+}
+
+#[test]
+fn only_changed_legs_are_computed() {
+    let (app, router) = counting_app("cache");
+    let calls = || router.calls.load(Ordering::SeqCst);
+    let mut request = route(
+        Profile::Hike,
+        vec![
+            position(10.0, 32.0),
+            position(20.0, 32.0),
+            position(30.0, 32.0),
+        ],
+    );
+
+    app.plan_route(&request).unwrap();
+    assert_eq!(calls(), 2);
+
+    request.waypoints.push(position(40.0, 32.0));
+    request.legs.push(request.legs[0]);
+    app.plan_route(&request).unwrap();
+    assert_eq!(calls(), 3, "a new point computes only the new leg");
+
+    request.waypoints[3] = position(40.0, 40.0);
+    app.plan_route(&request).unwrap();
+    assert_eq!(calls(), 4, "moving the last point computes only its leg");
+
+    request.legs[2].profile = Profile::Mtb;
+    let plan = app.plan_route(&request).unwrap();
+    assert_eq!(calls(), 5, "a new profile computes only that leg");
+    assert_eq!(plan.stages[0].profiles, vec![Profile::Hike, Profile::Mtb]);
+
+    request.waypoints.pop();
+    request.legs.pop();
+    app.plan_route(&request).unwrap();
+    assert_eq!(calls(), 5, "undo computes nothing");
+}
+
+#[test]
+fn a_failing_leg_keeps_the_others() {
+    let (app, _router) = counting_app("failing-leg");
+    let request = route(
+        Profile::Hike,
+        vec![
+            position(10.0, 32.0),
+            position(30.0, 32.0),
+            position(60.0, 32.0),
+            position(40.0, 32.0),
+        ],
+    );
+
+    let plan = app.plan_route(&request).unwrap();
+
+    assert!(plan.legs[0].error.is_none());
+    assert!(!plan.legs[0].line.is_empty());
+    let failed = plan.legs[1].error.as_ref().unwrap();
+    assert_eq!(failed.code, "route_not_found");
+    assert!(plan.legs[1].line.is_empty());
+    assert_eq!(plan.total.failed_legs, 2);
+    assert!(
+        (plan.total.distance_m - plan.legs[0].distance_m).abs() < 1e-6,
+        "failed legs add nothing"
+    );
+}
+
+#[test]
+fn routed_and_manual_legs_mix_with_their_own_times() {
+    let (app, _router) = counting_app("mixed");
+    let mut request = three_points();
+    request.legs[0].profile = Profile::Mtb;
+
+    let plan = app.plan_route(&request).unwrap();
+
+    assert_eq!(plan.legs[0].time_s, plan.legs[0].duration_s);
+    let manual = &plan.legs[1];
+    let din = din_time_s(
+        manual.distance_m,
+        manual.ascent_m.unwrap(),
+        manual.descent_m.unwrap(),
+        &DinParams::default(),
+    );
+    assert!((manual.time_s.unwrap() - din).abs() < 1e-6);
+    assert_eq!(plan.stages[0].profiles, vec![Profile::Mtb, Profile::Manual]);
+    let total = plan.legs[0].time_s.unwrap() + manual.time_s.unwrap();
+    assert!((plan.total.time_s.unwrap() - total).abs() < 1e-6);
 }
 
 #[test]
@@ -135,8 +344,8 @@ fn planned_route_is_saved_listed_loaded_renamed_and_deleted() {
 
     assert_eq!(record.name, "Rampe");
     assert_eq!(record.profile, "manual");
-    assert_eq!(record.distance_m, plan.route.distance_m);
-    assert_eq!(record.ascent_m, plan.ascent_m);
+    assert_eq!(record.distance_m, plan.total.distance_m);
+    assert_eq!(record.ascent_m, plan.total.ascent_m);
     assert_eq!(app.saved_routes().unwrap(), vec![record.clone()]);
     assert_eq!(app.saved_route(record.id).unwrap(), plan);
 
@@ -224,12 +433,8 @@ mod valhalla {
         open(&dir)
     }
 
-    fn hike(to: LatLon) -> RouteRequest {
-        RouteRequest {
-            waypoints: vec![STATION, to],
-            profile: Profile::Hike,
-            options: RouteOptions::default(),
-        }
+    fn hike(to: LatLon) -> PlanRequest {
+        route(Profile::Hike, vec![STATION, to])
     }
 
     #[test]
@@ -238,18 +443,33 @@ mod valhalla {
 
         let plan = app.plan_route(&hike(NEUREUTH)).unwrap();
 
-        assert!(
-            (plan.route.distance_m - 3630.0).abs() < 50.0,
-            "{}",
-            plan.route.distance_m
-        );
-        assert!(plan.route.duration_s.unwrap() > 1800.0);
-        assert_eq!(plan.region.as_deref(), Some("tegernsee"));
-        assert_eq!(plan.max_mtb_scale, Some(2));
-        // No elevation tiles in this region.
-        assert_eq!(plan.ascent_m, None);
+        let leg = &plan.legs[0];
+        assert!(leg.error.is_none(), "{:?}", leg.error);
+        assert!((leg.distance_m - 3630.0).abs() < 50.0, "{}", leg.distance_m);
+        assert!(leg.duration_s.unwrap() > 1800.0);
+        assert_eq!(leg.region.as_deref(), Some("tegernsee"));
+        assert_eq!(leg.max_mtb_scale, Some(2));
+        // No elevation tiles in this region: no DIN time, the router's time instead.
+        assert_eq!(leg.ascent_m, None);
+        assert_eq!(leg.time_s, leg.duration_s);
         // The second request reuses the router.
         assert!(app.plan_route(&hike(NEUREUTH)).is_ok());
+    }
+
+    #[test]
+    fn mixed_hike_and_mtb_legs_on_the_fixture() {
+        let app = app_with_routing("valhalla-mixed");
+        let mut request = route(Profile::Hike, vec![STATION, NEUREUTH, STATION]);
+        request.legs[1].profile = Profile::Mtb;
+
+        let plan = app.plan_route(&request).unwrap();
+
+        assert!(
+            plan.legs.iter().all(|leg| leg.error.is_none()),
+            "{:?}",
+            plan.legs
+        );
+        assert_eq!(plan.stages[0].profiles, vec![Profile::Hike, Profile::Mtb]);
     }
 
     #[test]
@@ -259,27 +479,31 @@ mod valhalla {
             lat: 47.60,
             lon: 11.50,
         };
-        let error = app.plan_route(&hike(far)).unwrap_err();
-        assert_eq!(error.code(), "routing_unavailable");
+        let plan = app.plan_route(&hike(far)).unwrap();
+        assert_eq!(
+            plan.legs[0].error.as_ref().unwrap().code,
+            "routing_unavailable"
+        );
     }
 
     #[test]
     fn unreachable_destination_is_reported_as_no_route() {
         let app = app_with_routing("valhalla-car");
-        let request = RouteRequest {
-            profile: Profile::Car,
-            ..hike(NEUREUTH)
-        };
-        let error = app.plan_route(&request).unwrap_err();
-        assert_eq!(error.code(), "route_not_found");
+        let plan = app
+            .plan_route(&route(Profile::Car, vec![STATION, NEUREUTH]))
+            .unwrap();
+        assert_eq!(plan.legs[0].error.as_ref().unwrap().code, "route_not_found");
     }
 
     #[test]
-    fn deleting_the_region_removes_its_router() {
+    fn deleting_the_region_removes_its_router_and_legs() {
         let app = app_with_routing("valhalla-delete");
         app.plan_route(&hike(NEUREUTH)).unwrap();
         app.delete_region("tegernsee").unwrap();
-        let error = app.plan_route(&hike(NEUREUTH)).unwrap_err();
-        assert_eq!(error.code(), "routing_unavailable");
+        let plan = app.plan_route(&hike(NEUREUTH)).unwrap();
+        assert_eq!(
+            plan.legs[0].error.as_ref().unwrap().code,
+            "routing_unavailable"
+        );
     }
 }
