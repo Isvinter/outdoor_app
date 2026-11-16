@@ -1,0 +1,35 @@
+# Wegwerf-Test: Ortung und Akku auf dem iPhone (docs/superpowers/spikes/2026-11-16-ios-ortung-energie-spike.md)
+# Projekt erzeugen: xcodegen generate
+name: OrtungSpike
+options:
+  bundleIdPrefix: de.zeibig.spike
+  deploymentTarget:
+    iOS: "16.4"
+targets:
+  OrtungSpike:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Ortung-Test
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        # Protokolle über die Dateien-App abholbar.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIBackgroundModes: [location]
+        NSLocationWhenInUseUsageDescription: Zeichnet für den Messversuch die Position auf.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Startet die Aufzeichnung nach einer Beendigung durch iOS wieder.
+        NSMotionUsageDescription: Erkennt, wann du nach einer Pause wieder losfährst.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: de.zeibig.spike.ortung
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 29WG4SD523

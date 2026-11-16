@@ -106,6 +106,80 @@ Tests.
    Akku. Beispielrechnung: Wie viele Tage reicht ein Akku plus eine 10-Ah-Powerbank je Stufe
    bei 8 h Fahrt am Tag?
 
+## Stand Mac-Sitzung (2026-11-16)
+
+Mini-App gebaut und im Simulator geprüft. Sie ist auf dem iPhone installiert, als
+„Ortung-Test“. **Die Messungen draußen stehen noch aus.**
+
+- Projekt: `spikes/ios-location/` (`xcodegen generate`, Schema `OrtungSpike`, für das Gerät
+  Release bauen). Der Code liegt in `Sources/Recorder.swift`, die Stellschrauben stehen in
+  `enum Werte`.
+- Auswertung: `python3 spikes/ios-location/auswerten.py --grundlinie <%/h Leerlauf> lauf-*.csv`
+  gibt die Tabelle für „Erfolg 1“ als Markdown aus. Außerdem legt das Skript neben jede CSV eine
+  GPX, damit man im Desktop die Ecken in den Kurven ansehen kann.
+- Im Simulator geprüft: Genau, „Stillstand eigen“ (erkennt den Stillstand, macht Proben und
+  erkennt die Bewegung wieder), N1 (Takt an/aus) und das Fortsetzen im selben Protokoll nach
+  einem Neustart. Der Simulator kann weder Akku noch Hintergrund-Verhalten noch Flugmodus
+  zeigen, das geht nur auf dem Gerät.
+
+### Was die Stufen genau tun
+
+| Stufe | `desiredAccuracy` | `distanceFilter` | sonst |
+| --- | --- | --- | --- |
+| Leerlauf | – | – | Ortung aus, Grundlinie |
+| Genau | Best | keiner | |
+| Ausgewogen | Best | 10 m | |
+| Sparsam | HundredMeters | 50 m | |
+| N0 (Gegenprobe) | Best ↔ `stopUpdatingLocation` | keiner | Takt wie N1. Erwartet: Im Hintergrund bleibt sie nach dem ersten „aus“ stehen |
+| N1 | Best ↔ ThreeKilometers | keiner | alle 5 min an, bis 5 s nach dem ersten Fix ≤ 25 m, höchstens 60 s |
+| N2 | – | – | nur `startMonitoringSignificantLocationChanges` |
+| Genau + Stillstand eigen | Best ↔ ThreeKilometers | keiner | 3 min innerhalb von 20 m → still. Dann alle 60 s eine Probe (Best, ≤ 30 s), sofort auch, wenn der Bewegungssensor Gehen/Rad meldet. Ab 25 m vom Anker gilt das als bewegt |
+| Genau + Stillstand iOS | Best | keiner | `pausesLocationUpdatesAutomatically = true`, optional „Region-Weckruf“ (100-m-Region beim Pausieren) |
+
+- Aktivität: Rad = `activityType .otherNavigation`, behält höchstens 1 Punkt/s. Wandern =
+  `.fitness`, höchstens 1 Punkt alle 3 s. Mit `CLLocationManager` lässt sich der Takt des
+  Empfängers nicht einstellen. Die 3 s werden also nur beim Speichern ausgedünnt und sparen
+  kaum Strom. Das zeigt der Vergleich.
+- „Neustart-Absicherung“ (für Frage 5) schaltet für jede Stufe
+  `startMonitoringSignificantLocationChanges` und eine 100-m-Region um die letzte gute Position
+  zu. **Nur für den Test von Frage 5 einschalten**, sonst verfälscht sie die Akkuwerte.
+- Protokoll: Die Spalte `behalten` = 1 markiert die Punkte, die die echte App speichern würde.
+  „Takt-Lücke“ heißt, der 5-s-Takt der App ist ausgefallen, die App war also angehalten. Das ist
+  der Beleg für Frage 3. Akkuzeilen kommen alle 5 min und bei jedem 1-%-Schritt.
+- MetricKit: Einmal am Tag legt iOS eine `metrickit-metrik-*.json` ab, die u. a. die
+  GPS-Zeit je Genauigkeit enthält. Sie kommt frühestens am Tag nach der Messung und taucht
+  dann unter „Protokolle“ auf.
+
+### Messanleitung
+
+1. Ortung-Test öffnen, „Beim Verwenden“ erlauben, dann „Ortung ‚Immer‘ erlauben“ tippen und
+   in den Einstellungen auf „Immer“ stellen. Die Erlaubnis für Bewegung kommt beim ersten Lauf
+   mit „Stillstand eigen“.
+2. Stromsparmodus aus, Flugmodus an, Akku ≥ 80 %, nicht laden. Das Protokoll hält
+   Stromsparmodus und Ladezustand fest.
+3. Stufe und Aktivität wählen, „Start“, Bildschirm sperren. Nach ≥ 1,5 h die App öffnen,
+   „Stopp“. Man kann auch während des Laufs die Stufe umstellen: Die Auswertung teilt nach Stufe
+   auf, aber jeder Abschnitt braucht ≥ 1,5 h.
+4. Reihenfolge (Vorschlag): Leerlauf (zu Hause), Genau, Ausgewogen, Sparsam, N1 (≥ 3 h),
+   Stillstand eigen und Stillstand iOS mit je 20 min Pause, N0 kurz (15 min reichen), N2 kurz.
+5. **Frage 5:** „Neustart-Absicherung“ an, Start, „Beenden-Test“, sofort sperren und
+   weiterfahren. Im Protokoll suchen: „App neu gestartet, durch Ortung: true“? Danach einmal
+   dasselbe mit einem Neustart des iPhones. Eine Gegenprobe ist das Beenden per Wischen in der
+   App-Übersicht: Laut Apple startet iOS die App dann nicht neu.
+6. Protokolle holen: In der App bei „Protokolle“ auf die Datei tippen und teilen, oder über
+   die Dateien-App → Auf meinem iPhone → Ortung-Test.
+
+Stolpersteine:
+- **Kostenloses Entwicklerkonto:** Höchstens 3 selbst signierte Apps dürfen gleichzeitig
+  installiert sein, und dabei zählt auch `OutdoorUITests-Runner` mit. Zum Installieren musste
+  der Runner weg. Vor den nächsten UI-Tests von Outdoor muss Ortung-Test wieder
+  gelöscht werden. Außerdem laufen die Profile nach 7 Tagen ab. Wenn die Messreihe länger
+  dauert, die App neu aufspielen. Die Protokolle gehen dabei nicht verloren, solange die App
+  nicht gelöscht wird.
+- Simulator: Er liefert im Stand keine Positionen, deshalb zählt bei „Stillstand eigen“ auch
+  „lange kein Punkt“ als Stillstand. Mit `-autostart <stufe> -schnell` (Zeiten /10) startet ein
+  Lauf ohne Tippen.
+
 ## Ergebnis
 
-*(von der Mac-Sitzung auszufüllen)*
+*(nach den Messungen draußen auszufüllen)*
