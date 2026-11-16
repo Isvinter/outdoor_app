@@ -482,3 +482,57 @@ fn serves_app_content() {
     assert_eq!(route.info.name, "Runde");
     assert!(route.plan.get("format").is_some());
 }
+
+/// Panics on the route list, answers everything else.
+struct Panicky;
+
+impl ShareContent for Panicky {
+    fn catalog(&self) -> Catalog {
+        Catalog {
+            format: core_maps::FORMAT,
+            regions: Vec::new(),
+        }
+    }
+    fn region_file(&self, _: &str, _: &str) -> Option<(PathBuf, u64)> {
+        None
+    }
+    fn routes(&self) -> Result<Vec<SharedRouteInfo>, String> {
+        panic!("content failed");
+    }
+    fn route(&self, _: Uuid) -> Option<SharedRoute> {
+        None
+    }
+}
+
+#[test]
+fn panicking_content_keeps_the_workers() {
+    let server = start(Panicky, ShareOptions::default());
+    let agent = agent();
+    // More panics than there are workers.
+    for _ in 0..8 {
+        assert!(agent.get(url(&server, "/routes.json")).call().is_err());
+    }
+    let response = agent.get(url(&server, "/catalog.json")).call().unwrap();
+    assert_eq!(response.status(), 200);
+    let started = std::time::Instant::now();
+    server.stop();
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn stop_does_not_wait_for_idle_clients() {
+    let server = start(big_fake("idle"), ShareOptions::default());
+    // More silent connections than workers: some are being read, some wait.
+    let idle: Vec<TcpStream> = (0..6)
+        .map(|_| TcpStream::connect(server.local_addr()).unwrap())
+        .collect();
+    std::thread::sleep(Duration::from_millis(200));
+    let started = std::time::Instant::now();
+    server.stop();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    drop(idle);
+}

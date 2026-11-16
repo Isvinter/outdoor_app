@@ -8,7 +8,8 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -60,8 +61,28 @@ const WORKERS: usize = 4;
 const CHUNK: usize = 64 << 10;
 /// Requests with a longer head are refused.
 const MAX_HEAD: usize = 16 << 10;
-const READ_TIMEOUT: Duration = Duration::from_secs(15);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+/// How often idle workers look for a new connection.
+const ACCEPT_POLL: Duration = Duration::from_millis(100);
+
+/// Overall time limits of one connection, so that a client trickling bytes
+/// cannot hold a worker.
+#[derive(Debug, Clone, Copy)]
+struct Deadlines {
+    /// For the whole request head, from accepting the connection.
+    head: Duration,
+    /// For reading what the client still sends after the response.
+    finish: Duration,
+}
+
+impl Default for Deadlines {
+    fn default() -> Self {
+        Deadlines {
+            head: Duration::from_secs(15),
+            finish: Duration::from_secs(2),
+        }
+    }
+}
 
 /// The running share. Dropping it stops it, like [`ShareServer::stop`].
 pub struct ShareServer {
@@ -74,6 +95,7 @@ struct Shared {
     listener: TcpListener,
     content: Arc<dyn ShareContent>,
     options: ShareOptions,
+    deadlines: Deadlines,
     stop: AtomicBool,
     /// Connections being answered, to shut them down on stop.
     active: Mutex<HashMap<u64, TcpStream>>,
@@ -87,12 +109,25 @@ impl ShareServer {
         content: Arc<dyn ShareContent>,
         options: ShareOptions,
     ) -> io::Result<ShareServer> {
+        Self::start_with(addr, content, options, Deadlines::default())
+    }
+
+    fn start_with(
+        addr: SocketAddr,
+        content: Arc<dyn ShareContent>,
+        options: ShareOptions,
+        deadlines: Deadlines,
+    ) -> io::Result<ShareServer> {
         let listener = TcpListener::bind(addr)?;
+        // Workers poll, so that stopping never depends on waking a blocked
+        // `accept`.
+        listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
         let shared = Arc::new(Shared {
             listener,
             content,
             options,
+            deadlines,
             stop: AtomicBool::new(false),
             active: Mutex::default(),
             next_id: AtomicU64::new(0),
@@ -135,12 +170,7 @@ impl ShareServer {
         {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        // Wake the workers blocked in `accept`; each one takes a connection,
-        // sees the stop flag and ends.
-        let wake = wake_addr(self.addr);
-        for _ in &self.workers {
-            let _ = TcpStream::connect_timeout(&wake, Duration::from_secs(1));
-        }
+        // Idle workers see the flag within one poll interval.
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
@@ -154,16 +184,6 @@ impl Drop for ShareServer {
     }
 }
 
-/// Where to connect to reach a listener bound to `addr`.
-fn wake_addr(addr: SocketAddr) -> SocketAddr {
-    let ip = match addr.ip() {
-        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
-        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
-        ip => ip,
-    };
-    SocketAddr::new(ip, addr.port())
-}
-
 impl Shared {
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
@@ -173,12 +193,16 @@ impl Shared {
         while !self.stopped() {
             let stream = match self.listener.accept() {
                 Ok((stream, _)) => stream,
+                // Nothing waiting, or e.g. too many open files: do not spin.
                 Err(_) => {
-                    // E.g. too many open files; do not spin.
-                    thread::sleep(Duration::from_millis(50));
+                    thread::sleep(ACCEPT_POLL);
                     continue;
                 }
             };
+            // Accepted sockets inherit non-blocking mode on some systems.
+            if stream.set_nonblocking(false).is_err() {
+                continue;
+            }
             if self.stopped() {
                 break;
             }
@@ -187,30 +211,27 @@ impl Shared {
     }
 
     fn connection(&self, mut stream: TcpStream) {
+        let accepted = Instant::now();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        if let Ok(clone) = stream.try_clone() {
-            self.active
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(id, clone);
-        }
+        let _registered = Registered::new(self, id, &stream);
         // Checked after registering: either `shutdown` sees this connection
         // or this sees the flag.
-        if !self.stopped() {
-            let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
-            let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
-            if self.answer(&mut stream).is_ok() && !self.stopped() {
-                finish(&mut stream);
-            }
+        if self.stopped() {
+            return;
         }
-        self.active
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&id);
+        let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
+        // A panic in the content (or here) ends only this connection; the
+        // worker goes on, and `_registered` still removes the entry.
+        let answered = catch_unwind(AssertUnwindSafe(|| {
+            self.answer(&mut stream, accepted + self.deadlines.head)
+        }));
+        if matches!(answered, Ok(Ok(()))) && !self.stopped() {
+            finish(&mut stream, Instant::now() + self.deadlines.finish);
+        }
     }
 
-    fn answer(&self, stream: &mut TcpStream) -> io::Result<()> {
-        let Some(request) = read_request(stream)? else {
+    fn answer(&self, stream: &mut TcpStream, head_deadline: Instant) -> io::Result<()> {
+        let Some(request) = read_request(stream, head_deadline)? else {
             return respond_empty(stream, 400, &[]);
         };
         if request.method != "GET" {
@@ -295,17 +316,57 @@ impl Shared {
 
 /// Lets the client read the whole response before the connection closes:
 /// closing with unread input would reset it and could drop the response.
-fn finish(stream: &mut TcpStream) {
+fn finish(stream: &mut TcpStream, deadline: Instant) {
     let _ = stream.flush();
     let _ = stream.shutdown(Shutdown::Write);
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let mut sink = [0u8; 4096];
     let mut drained = 0;
     while drained < CHUNK {
-        match stream.read(&mut sink) {
+        match read_until(stream, &mut sink, deadline) {
             Ok(0) | Err(_) => break,
             Ok(n) => drained += n,
         }
+    }
+}
+
+/// Reads with the time left until `deadline` as the timeout; fails with
+/// `TimedOut` once it has passed.
+fn read_until(stream: &mut TcpStream, buf: &mut [u8], deadline: Instant) -> io::Result<usize> {
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Err(io::ErrorKind::TimedOut.into());
+    }
+    stream.set_read_timeout(Some(left))?;
+    stream.read(buf)
+}
+
+/// Keeps a connection in `Shared::active` for as long as it lives, also
+/// when answering panics.
+struct Registered<'a> {
+    shared: &'a Shared,
+    id: u64,
+}
+
+impl<'a> Registered<'a> {
+    fn new(shared: &'a Shared, id: u64, stream: &TcpStream) -> Self {
+        if let Ok(clone) = stream.try_clone() {
+            shared
+                .active
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(id, clone);
+        }
+        Registered { shared, id }
+    }
+}
+
+impl Drop for Registered<'_> {
+    fn drop(&mut self) {
+        self.shared
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.id);
     }
 }
 
@@ -371,21 +432,24 @@ impl Request {
 }
 
 /// Reads the request line and headers. `None` for a malformed request.
-fn read_request(stream: &mut TcpStream) -> io::Result<Option<Request>> {
+/// The whole head must arrive before `deadline`.
+fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Option<Request>> {
     let mut head = Vec::with_capacity(1024);
     let mut buf = [0u8; 2048];
     let end = loop {
-        if let Some(end) = head.windows(4).position(|w| w == b"\r\n\r\n") {
-            break end;
-        }
         if head.len() > MAX_HEAD {
             return Ok(None);
         }
-        let n = stream.read(&mut buf)?;
+        let n = read_until(stream, &mut buf, deadline)?;
         if n == 0 {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
+        // Only the new bytes can complete the end of the head.
+        let scan_from = head.len().saturating_sub(3);
         head.extend_from_slice(&buf[..n]);
+        if let Some(at) = head[scan_from..].windows(4).position(|w| w == b"\r\n\r\n") {
+            break scan_from + at;
+        }
     };
     let Ok(head) = std::str::from_utf8(&head[..end]) else {
         return Ok(None);
@@ -502,4 +566,101 @@ fn respond_json(stream: &mut TcpStream, value: &impl serde::Serialize) -> io::Re
         body.len() as u64,
     )?;
     stream.write_all(&body)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    struct Empty;
+
+    impl ShareContent for Empty {
+        fn catalog(&self) -> Catalog {
+            Catalog {
+                format: core_maps::FORMAT,
+                regions: Vec::new(),
+            }
+        }
+        fn region_file(&self, _: &str, _: &str) -> Option<(PathBuf, u64)> {
+            None
+        }
+        fn routes(&self) -> Result<Vec<SharedRouteInfo>, String> {
+            Ok(Vec::new())
+        }
+        fn route(&self, _: Uuid) -> Option<SharedRoute> {
+            None
+        }
+    }
+
+    #[test]
+    fn slow_head_is_dropped_after_the_deadline() {
+        let deadlines = Deadlines {
+            head: Duration::from_millis(400),
+            finish: Duration::from_millis(400),
+        };
+        let server = ShareServer::start_with(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::new(Empty),
+            ShareOptions::default(),
+            deadlines,
+        )
+        .unwrap();
+        let mut client = TcpStream::connect(server.local_addr()).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        let started = Instant::now();
+        // One byte every 50 ms: each read on its own would be in time.
+        let closed = loop {
+            if started.elapsed() > Duration::from_secs(5) {
+                break None;
+            }
+            let _ = client.write_all(b"G");
+            match client.read(&mut [0u8; 64]) {
+                Ok(0) => break Some(started.elapsed()),
+                Ok(_) => panic!("answered a request that never ended"),
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => break Some(started.elapsed()),
+            }
+        };
+        let closed = closed.expect("the connection stayed open");
+        assert!(closed >= Duration::from_millis(350), "{closed:?}");
+        assert!(closed < Duration::from_secs(2), "{closed:?}");
+
+        // The worker is free again.
+        let mut next = TcpStream::connect(server.local_addr()).unwrap();
+        next.write_all(b"GET /catalog.json HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+        next.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut response = Vec::new();
+        let _ = next.read_to_end(&mut response);
+        assert!(response.starts_with(b"HTTP/1.1 200 OK"));
+    }
+
+    #[test]
+    fn head_end_split_across_reads_is_found() {
+        let server = ShareServer::start(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::new(Empty),
+            ShareOptions::default(),
+        )
+        .unwrap();
+        let mut client = TcpStream::connect(server.local_addr()).unwrap();
+        for piece in ["GET /catalog.json HTTP/1.1\r\nHost: x\r", "\n\r", "\n"] {
+            client.write_all(piece.as_bytes()).unwrap();
+            client.flush().unwrap();
+            thread::sleep(Duration::from_millis(30));
+        }
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut response = Vec::new();
+        let _ = client.read_to_end(&mut response);
+        assert!(response.starts_with(b"HTTP/1.1 200 OK"));
+    }
 }
