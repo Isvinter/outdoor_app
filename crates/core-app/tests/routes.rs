@@ -2,7 +2,6 @@
 
 mod common;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -405,6 +404,8 @@ fn routes_are_exported_as_gpx_with_elevation() {
 
 #[cfg(feature = "valhalla")]
 mod valhalla {
+    use std::path::PathBuf;
+
     use super::*;
 
     const STATION: LatLon = LatLon {

@@ -342,11 +342,18 @@ impl RegionStore {
             return Ok(());
         }
         region.info.enabled = enabled;
+        if let Err(e) = self.write_disabled(&regions) {
+            // Keep memory and disk in step.
+            if let Some(region) = regions.get_mut(id) {
+                region.info.enabled = !enabled;
+            }
+            return Err(e);
+        }
         self.dem_cache
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
-        self.write_disabled(&regions)
+        Ok(())
     }
 
     /// Writes the list of disabled regions atomically (temp file, then rename).
@@ -682,12 +689,12 @@ pub fn fetch_document(fetcher: &dyn Fetcher, location: &str) -> Result<String, M
     Ok(text)
 }
 
-/// The directory (or URL) a catalog source refers to.
 /// Location of `relative` next to the catalog at `source`.
 pub fn catalog_location(source: &str, relative: &str) -> String {
     join(&catalog_base(source), relative)
 }
 
+/// The directory (or URL) a catalog source refers to.
 fn catalog_base(source: &str) -> String {
     let source = source.trim();
     let base = source.strip_suffix("catalog.json").unwrap_or(source);

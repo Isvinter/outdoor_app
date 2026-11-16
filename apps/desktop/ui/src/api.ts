@@ -84,6 +84,8 @@ export interface RegionInfo {
   state: RegionState;
   /** This device has the definition of the region and can build it. */
   buildable: boolean;
+  /** The map and routing use the region. */
+  enabled?: boolean;
 }
 
 export interface RegionsOverview {

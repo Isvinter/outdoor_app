@@ -15,6 +15,10 @@ use crate::app::{App, now_ms};
 
 /// Settings key holding the catalog location (a URL or a directory).
 const CATALOG_SOURCE_KEY: &str = "maps.catalog_source";
+/// Settings key holding the port of the home-network share.
+const SHARE_PORT_KEY: &str = "share.port";
+/// Port of the share unless set otherwise.
+const DEFAULT_SHARE_PORT: u16 = 8765;
 /// Download progress is sent to the listener at most this often.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(150);
 
@@ -109,6 +113,18 @@ pub struct RegionInfo {
     pub state: RegionState,
     /// This device has the definition of the region and can build it.
     pub buildable: bool,
+    /// The map and routing use the region. `true` for regions not installed.
+    pub enabled: bool,
+}
+
+/// The installed regions only, for the map; read without the catalog.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MapOverview {
+    pub regions: Vec<RegionInfo>,
+    /// Attribution lines of all enabled regions, without duplicates.
+    pub attribution: Vec<String>,
+    /// Smallest box around all enabled regions (west, south, east, north).
+    pub installed_bounds: Option<[f64; 4]>,
 }
 
 /// Everything the region list needs.
@@ -119,9 +135,9 @@ pub struct RegionsOverview {
     /// Why the catalog could not be read, if so. Installed regions are listed regardless.
     pub catalog_error: Option<String>,
     pub regions: Vec<RegionInfo>,
-    /// Attribution lines of all installed regions, without duplicates.
+    /// Attribution lines of all enabled regions, without duplicates.
     pub attribution: Vec<String>,
-    /// Smallest box around all installed regions (west, south, east, north);
+    /// Smallest box around all enabled regions (west, south, east, north);
     /// there are no offline tiles outside of it.
     pub installed_bounds: Option<[f64; 4]>,
 }
@@ -146,6 +162,25 @@ impl App {
             .set_setting(CATALOG_SOURCE_KEY, source.trim(), now_ms())?)
     }
 
+    /// The port the home-network share listens on.
+    pub fn share_port(&self) -> Result<u16, AppError> {
+        Ok(self
+            .shared
+            .inner()
+            .storage
+            .setting(SHARE_PORT_KEY)?
+            .and_then(|port| port.parse().ok())
+            .unwrap_or(DEFAULT_SHARE_PORT))
+    }
+
+    pub fn set_share_port(&self, port: u16) -> Result<(), AppError> {
+        Ok(self
+            .shared
+            .inner()
+            .storage
+            .set_setting(SHARE_PORT_KEY, &port.to_string(), now_ms())?)
+    }
+
     /// Lists installed regions and what the catalog offers. Reads the catalog,
     /// which may take a while over the network; never fails because of it.
     pub fn regions(&self) -> Result<RegionsOverview, AppError> {
@@ -159,49 +194,15 @@ impl App {
                 Err(e) => (Vec::new(), Some(e.to_string())),
             }
         };
-        let installed = maps.store.installed();
-        let downloading = maps.downloads();
-
-        let mut attribution: Vec<String> = Vec::new();
-        for line in installed
-            .iter()
-            .flat_map(|region| &region.manifest.attribution)
-        {
-            if !attribution.contains(line) {
-                attribution.push(line.clone());
-            }
-        }
-
-        let installed_bounds =
-            installed
-                .iter()
-                .map(|region| region.manifest.bbox)
-                .reduce(|a, b| {
-                    [
-                        a[0].min(b[0]),
-                        a[1].min(b[1]),
-                        a[2].max(b[2]),
-                        a[3].max(b[3]),
-                    ]
-                });
-
-        let mut regions: BTreeMap<String, RegionInfo> = BTreeMap::new();
-        for InstalledRegion {
-            manifest, bytes, ..
-        } in installed
-        {
-            let info = RegionInfo {
-                id: manifest.id.clone(),
-                name: manifest.name,
-                bbox: manifest.bbox,
-                size: bytes,
-                version: manifest.version.clone(),
-                installed_version: Some(manifest.version),
-                state: RegionState::Installed,
-                buildable: false,
-            };
-            regions.insert(manifest.id, info);
-        }
+        let MapOverview {
+            regions: installed,
+            attribution,
+            installed_bounds,
+        } = self.map_overview();
+        let mut regions: BTreeMap<String, RegionInfo> = installed
+            .into_iter()
+            .map(|info| (info.id.clone(), info))
+            .collect();
         for entry in catalog {
             match regions.get_mut(&entry.id) {
                 Some(info) => {
@@ -220,6 +221,7 @@ impl App {
                         installed_version: None,
                         state: RegionState::Available,
                         buildable: false,
+                        enabled: true,
                     };
                     regions.insert(entry.id, info);
                 }
@@ -237,9 +239,11 @@ impl App {
                     installed_version: None,
                     state: RegionState::NotBuilt,
                     buildable: false,
+                    enabled: true,
                 })
                 .buildable = true;
         }
+        let downloading = maps.downloads();
         for info in regions
             .values_mut()
             .filter(|info| downloading.contains_key(&info.id))
@@ -253,6 +257,77 @@ impl App {
             attribution,
             installed_bounds,
         })
+    }
+
+    /// The installed regions, without reading the catalog (which may need the
+    /// network). Safe to call at start-up and offline.
+    pub fn map_overview(&self) -> MapOverview {
+        let maps = &self.shared.maps;
+        let downloading = maps.downloads();
+        let installed = maps.store.installed();
+
+        let mut attribution: Vec<String> = Vec::new();
+        for line in installed
+            .iter()
+            .filter(|region| region.enabled)
+            .flat_map(|region| &region.manifest.attribution)
+        {
+            if !attribution.contains(line) {
+                attribution.push(line.clone());
+            }
+        }
+        let installed_bounds = installed
+            .iter()
+            .filter(|region| region.enabled)
+            .map(|region| region.manifest.bbox)
+            .reduce(|a, b| {
+                [
+                    a[0].min(b[0]),
+                    a[1].min(b[1]),
+                    a[2].max(b[2]),
+                    a[3].max(b[3]),
+                ]
+            });
+
+        let mut regions: Vec<RegionInfo> = installed
+            .into_iter()
+            .map(
+                |InstalledRegion {
+                     manifest,
+                     bytes,
+                     enabled,
+                 }| RegionInfo {
+                    state: if downloading.contains_key(&manifest.id) {
+                        RegionState::Downloading
+                    } else {
+                        RegionState::Installed
+                    },
+                    id: manifest.id,
+                    name: manifest.name,
+                    bbox: manifest.bbox,
+                    size: bytes,
+                    version: manifest.version.clone(),
+                    installed_version: Some(manifest.version),
+                    buildable: false,
+                    enabled,
+                },
+            )
+            .collect();
+        regions.sort_by(|a, b| a.id.cmp(&b.id));
+        MapOverview {
+            regions,
+            attribution,
+            installed_bounds,
+        }
+    }
+
+    /// Enables or disables an installed region: the map, routing and
+    /// elevation use enabled regions only. The choice is kept.
+    pub fn set_region_enabled(&self, id: &str, enabled: bool) -> Result<(), AppError> {
+        self.shared.maps.store.set_enabled(id, enabled)?;
+        // The open router may belong to the old state.
+        self.shared.routing.forget_region(id);
+        Ok(())
     }
 
     /// Downloads a region from the catalog and makes it available. Blocks until

@@ -127,3 +127,19 @@ fn ramp_region_with(name: &str, routing: bool, valhalla: Option<&str>) -> PathBu
     std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
     dir
 }
+
+/// An app with the `mini` region from the fixtures installed. Returns the
+/// directory of the app data, too.
+pub fn app_with_mini(name: &str) -> (App, PathBuf) {
+    let dir = temp_dir(name);
+    let package = dir.join("mini-package");
+    std::fs::create_dir_all(&package).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/regions/mini");
+    for entry in std::fs::read_dir(fixture).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(entry.path(), package.join(entry.file_name())).unwrap();
+    }
+    let app = open(&dir);
+    app.install_local_region(&package).unwrap();
+    (app, dir)
+}
