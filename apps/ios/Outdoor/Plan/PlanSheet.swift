@@ -7,6 +7,7 @@ struct PlanSheet: View {
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
     @Binding var detent: PresentationDetent
+    @State private var showingRemoteRoutes = false
 
     static let collapsed = PresentationDetent.height(112)
     static let detents: Set<PresentationDetent> = [collapsed, .medium, .large]
@@ -30,7 +31,7 @@ struct PlanSheet: View {
                     }
                     // The saved routes show when the sheet is pulled up all the way.
                     if detent == .large {
-                        RoutesList(plan: plan, regions: regions)
+                        RoutesList(plan: plan, regions: regions) { showingRemoteRoutes = true }
                     }
                 }
                 .listStyle(.plain)
@@ -44,6 +45,9 @@ struct PlanSheet: View {
         // From here, because the map already presents this sheet.
         .sheet(isPresented: $regions.showing) {
             RegionsScreen(regions: regions)
+        }
+        .sheet(isPresented: $showingRemoteRoutes) {
+            RemoteRoutesList(plan: plan)
         }
         .onAppear {
             plan.onLoaded = { detent = Self.collapsed }

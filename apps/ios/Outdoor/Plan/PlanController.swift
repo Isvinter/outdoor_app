@@ -108,6 +108,21 @@ final class PlanController: ObservableObject {
     /// A short confirmation, e.g. after saving.
     @Published var notice: String?
 
+    /// The routes the desktop offers, as read last; nil before the first reading.
+    @Published private(set) var remoteRoutes: [RemoteRouteEntry]?
+    /// Why the desktop's routes could not be read.
+    @Published private(set) var remoteFailure: String?
+    /// No address of the desktop is set yet.
+    @Published private(set) var remoteNoSource = false
+    /// A route is being taken over.
+    @Published private(set) var remoteImporting = false
+    /// What became of the route taken over last, as a text.
+    @Published var remoteNotice: String?
+    /// The same as the core's code; for the self-test.
+    private var importOutcome: String?
+    /// Counts the readings of the desktop's routes, so that a slow one cannot replace a newer one.
+    private var remoteReads = 0
+
     /// Computations run here one after the other, off the main thread; so do
     /// the other calls that change what the core holds as the planned route.
     private let queue = DispatchQueue(label: "de.zeibig.outdoor.plan", qos: .userInitiated)
@@ -276,21 +291,26 @@ final class PlanController: ObservableObject {
         let newest = newest
         store({ core in try core.loadRoute(id: route.id) }, done: { [weak self] plan in
             guard let self, newest.current == number else { return }
-            self.planning = false
-            self.picking = false
-            self.message = nil
-            self.plan = plan
-            self.request = plan.request
-            if let last = plan.request.legs.last {
-                self.profile = last.profile
-                self.options = Dictionary(uniqueKeysWithValues: last.options.map { ($0.key, $0.value) })
-            }
-            self.drawWaypoints()
-            self.drawLegs()
-            self.overlay.fit(plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-                + plan.legs.flatMap { $0.line.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) } })
+            self.show(loaded: plan)
             self.onLoaded?()
         })
+    }
+
+    /// Puts a route the core has loaded on the screen and the map.
+    private func show(loaded plan: PlanResult) {
+        planning = false
+        picking = false
+        message = nil
+        self.plan = plan
+        request = plan.request
+        if let last = plan.request.legs.last {
+            profile = last.profile
+            options = Dictionary(uniqueKeysWithValues: last.options.map { ($0.key, $0.value) })
+        }
+        drawWaypoints()
+        drawLegs()
+        overlay.fit(plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            + plan.legs.flatMap { $0.line.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) } })
     }
 
     /// Called when a saved route was loaded, to make room for the map.
@@ -304,6 +324,72 @@ final class PlanController: ObservableObject {
 
     func delete(_ route: SavedRoute) {
         store({ core in try core.deleteRoute(id: route.id) }, done: { _ in })
+    }
+
+    // MARK: Routes of the desktop
+
+    /// Reads the routes the desktop offers, off the main thread.
+    func readRemoteRoutes() {
+        Task { await loadRemoteRoutes() }
+    }
+
+    func loadRemoteRoutes() async {
+        remoteReads += 1
+        let number = remoteReads
+        let core = core
+        let result = await Task.detached(priority: .userInitiated) { Result { try core.remoteRoutes() } }.value
+        guard number == remoteReads else { return }
+        remoteNoSource = false
+        remoteFailure = nil
+        switch result {
+        case .success(let routes):
+            remoteRoutes = routes
+        case .failure(CoreError.Failed("no_catalog", _)):
+            remoteRoutes = nil
+            remoteNoSource = true
+        case .failure(let error):
+            remoteRoutes = nil
+            remoteFailure = describe(error)
+        }
+    }
+
+    /// Takes a route of the desktop over. The core decides what that means
+    /// (add, replace, restore or copy). If it replaced the route that is
+    /// loaded here, the screen shows the desktop's version from then on, so
+    /// that "save" cannot write the old planning over it.
+    func importRemote(_ route: RemoteRouteEntry) {
+        guard !remoteImporting else { return }
+        remoteImporting = true
+        remoteNotice = nil
+        // Whatever is still being computed belongs to the version before.
+        let number = newest.current
+        let newest = newest
+        let core = core
+        queue.async { [weak self] in
+            let result = Result { () -> (ImportedRoute, PlanResult?, [SavedRoute], String?) in
+                let imported = try core.importRoute(id: route.id)
+                let replacedLoaded = imported.outcome != "copied" && imported.outcome != "added"
+                    && core.loadedRouteId() == imported.id
+                let plan = replacedLoaded ? try core.loadRoute(id: imported.id) : nil
+                return (imported, plan, try core.savedRoutes(), core.loadedRouteId())
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.remoteImporting = false
+                switch result {
+                case .success(let (imported, plan, routes, loadedId)):
+                    self.routes = routes
+                    self.loaded = routes.first { $0.id == loadedId }
+                    if let plan, newest.current == number { self.show(loaded: plan) }
+                    self.importOutcome = imported.outcome
+                    let name = routes.first { $0.id == imported.id }?.name ?? route.name
+                    self.remoteNotice = RemoteRouteTexts.outcome(imported.outcome, name: name)
+                    self.readRemoteRoutes()
+                case .failure(let error):
+                    self.remoteNotice = RegionTexts.error(error)
+                }
+            }
+        }
     }
 
     // MARK: Computing
@@ -407,6 +493,11 @@ final class PlanController: ObservableObject {
             "dashed=\(drawn.dashed)",
         ]
         parts += ["routes=\(routes.count)", "route_id=\(loaded?.id ?? "-")", "route_rev=\(loaded?.rev ?? 0)"]
+        if let remoteRoutes {
+            parts.append("remote_routes=\(remoteRoutes.count)")
+            parts.append("remote_states=\(list(remoteRoutes.map(\.state)))")
+        }
+        if let importOutcome { parts.append("import_outcome=\(importOutcome)") }
         if let cursor {
             parts.append(String(format: "cursor=%.5f,%.5f", cursor.lat, cursor.lon))
         }

@@ -53,11 +53,15 @@ struct SaveButtons: View {
 struct RoutesList: View {
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
+    /// Opens the list of the desktop's routes.
+    let fromDesktop: () -> Void
     @State private var renaming: SavedRoute?
     @State private var name = ""
 
     var body: some View {
         Section {
+            Button("Vom Desktop übernehmen", action: fromDesktop)
+                .accessibilityIdentifier("routes-from-desktop")
             if plan.routes.isEmpty {
                 Text("Noch keine gespeicherten Routen")
                     .font(.callout)
