@@ -661,6 +661,7 @@ dependencies = [
  "core-location",
  "core-maps",
  "core-routing",
+ "core-share",
  "core-storage",
  "serde_json",
  "sha2 0.11.1",

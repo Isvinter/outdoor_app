@@ -10,6 +10,7 @@ use outdoor_core::{CoreApp, CoreError, CoreListener};
 struct Quiet;
 impl CoreListener for Quiet {
     fn on_error(&self, _message: String) {}
+    fn on_region_progress(&self, _region: String, _done: u64, _total: u64) {}
 }
 
 fn repo() -> PathBuf {

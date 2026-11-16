@@ -12,6 +12,7 @@ use core_location::{Fix, SourceStatus};
 use core_maps::{Contours, Layer, StyleOptions, TilePath};
 
 mod plan;
+mod share;
 
 pub use plan::{
     ElevationSample, EngineFailure, LatLon, LegInput, OptionInfo, OptionValue, PlanInput, PlanLeg,
@@ -19,6 +20,7 @@ pub use plan::{
     failed_leg_color, plan_add_waypoint, plan_empty, plan_move_waypoint, plan_remove_waypoint,
     plan_set_last_leg, plan_toggle_stage_end,
 };
+pub use share::{ImportedRoute, RegionEntry, RegionList, RemoteRouteEntry};
 
 uniffi::setup_scaffolding!();
 
@@ -27,6 +29,8 @@ uniffi::setup_scaffolding!();
 pub trait CoreListener: Send + Sync {
     /// A background operation failed.
     fn on_error(&self, message: String);
+    /// Download progress of a region, in bytes.
+    fn on_region_progress(&self, region: String, done: u64, total: u64);
 }
 
 /// A failure, with a stable code for a translated message.
@@ -73,6 +77,9 @@ pub struct RegionSummary {
     pub id: String,
     pub name: String,
     pub version: String,
+    pub enabled: bool,
+    /// Space the region takes on disk.
+    pub bytes: u64,
 }
 
 /// The installed regions.
@@ -94,11 +101,15 @@ impl AppListener for Listener {
     fn on_error(&self, message: &str) {
         self.0.on_error(message.into());
     }
+    fn on_region_progress(&self, progress: &core_maps::Progress) {
+        self.0
+            .on_region_progress(progress.region.clone(), progress.done, progress.total);
+    }
 }
 
 #[derive(uniffi::Object)]
 pub struct CoreApp {
-    app: App,
+    pub(crate) app: App,
 }
 
 #[uniffi::export]
@@ -113,7 +124,7 @@ impl CoreApp {
     }
 
     pub fn overview(&self) -> Result<MapOverview, CoreError> {
-        let overview = self.app.regions()?;
+        let overview = self.app.map_overview();
         Ok(MapOverview {
             regions: overview
                 .regions
@@ -123,6 +134,8 @@ impl CoreApp {
                         id: region.id,
                         name: region.name,
                         version,
+                        enabled: region.enabled,
+                        bytes: region.size,
                     })
                 })
                 .collect(),
@@ -139,6 +152,8 @@ impl CoreApp {
             id: region.manifest.id,
             name: region.manifest.name,
             version: region.manifest.version,
+            enabled: region.enabled,
+            bytes: region.bytes,
         })
     }
 
@@ -163,7 +178,7 @@ impl CoreApp {
         style_json: String,
         tiles_base: String,
     ) -> Result<String, CoreError> {
-        let overview = self.app.regions()?;
+        let overview = self.app.map_overview();
         let options = StyleOptions {
             tiles_base: &tiles_base,
             bounds: overview.installed_bounds,

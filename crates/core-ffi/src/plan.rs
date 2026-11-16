@@ -371,7 +371,7 @@ fn saved_to(record: RouteRecord) -> SavedRoute {
     }
 }
 
-fn route_id(id: &str) -> Result<Uuid, CoreError> {
+pub(crate) fn route_id(id: &str) -> Result<Uuid, CoreError> {
     id.parse()
         .map_err(|_| failed("route_id", format!("not a route id: {id}")))
 }
