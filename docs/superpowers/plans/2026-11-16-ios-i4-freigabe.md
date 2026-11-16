@@ -48,6 +48,67 @@ deaktivieren und löschen. Baut auf I1–I3 auf (in `main`, 48b0eca).
   Übernimmt man die Route danach noch einmal, während die iPhone-Fassung weiter geändert ist,
   entsteht eine weitere Kopie. So geht nichts verloren.
 
+## Stand nach Task 1–6 (Linux, 2026-11-16) – für die Mac-Sitzung
+
+Task 1–6 sind fertig (Branch `feature/ios-i4`). Vor Task 7 `apps/ios/scripts/build-core.sh`
+ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
+
+- **Swift-API** (aus den erzeugten Bindings, zur Probe auf Linux erzeugt):
+  - `CoreListener` hat eine neue Methode `onRegionProgress(region:done:total:)` (`UInt64`,
+    Bytes). **`CoreHost` in `apps/ios/Outdoor/Core/CoreHost.swift` muss sie umsetzen**, sonst
+    baut die App nicht. Sie kommt von dem Thread, der `installRegion` ausführt, höchstens alle
+    paar hundert Millisekunden und beim Ende immer mit `done == total`.
+  - `CoreApp`:
+    - `catalogSource() throws -> String` und `setCatalogSource(source:) throws -> String`
+    - `regions() throws -> RegionList`: **blockiert** und liest den Katalog, also nur auf einem
+      Hintergrund-Thread und nur, wenn der Kartenbildschirm geöffnet oder aktualisiert wird.
+    - `installRegion(id:) throws -> RegionSummary`: **blockiert**, Fortschritt über den Listener
+    - `cancelRegionDownload(id:)`, `deleteRegion(id:) throws`, `setRegionEnabled(id:enabled:) throws`
+    - `remoteRoutes() throws -> [RemoteRouteEntry]` (blockiert, liest über das Netz)
+    - `importRoute(id:) throws -> ImportedRoute`
+  - Typen:
+    - `RegionSummary { id, name, version, enabled: Bool, bytes: UInt64 }` (neu: `enabled`, `bytes`)
+    - `RegionEntry { id, name, size: UInt64, version, installedVersion: String?, state, enabled }`
+    - `RegionList { source, catalogError: String?, regions: [RegionEntry] }`
+    - `RemoteRouteEntry { id, name, profile, distanceM: Double, ascentM: Double?, rev: Int64, state }`
+    - `ImportedRoute { outcome, id }`
+  - Zustände als Strings:
+    - `RegionEntry.state`: `available`, `installed`, `update_available`, `downloading`
+      (`not_built` gibt es auf dem iPhone nicht)
+    - `RemoteRouteEntry.state`: `new`, `up_to_date`, `desktop_newer`, `changed_here`, `deleted_here`
+    - `ImportedRoute.outcome`: `added`, `replaced`, `restored`, `copied`
+- **Start ohne Netz:** `overview()` und `offlineStyle(...)` lesen den Katalog **nie** mehr
+  (`App::map_overview()`), auch nicht bei gesetzter, toter Quelle. `MapOverview.bounds` und
+  `attribution` zählen nur aktivierte Regionen. `overview().regions` enthält alle
+  installierten, auch die deaktivierten (`enabled == false`).
+- **Adresse:** `setCatalogSource` normalisiert im Kern (nur FFI, der Desktop nimmt weiter auch
+  Ordner): Ohne `://` kommt `http://` davor. Ohne `/` am Ende kommt `/` dazu, außer der Pfad
+  endet auf `.json`. Leer (auch nur Leerzeichen) heißt keine Quelle. Der Rückgabewert ist das
+  Gespeicherte, das die Oberfläche anzeigt. Swift normalisiert nichts.
+- **Fehlercodes** (neu zu übersetzen): `download`, `checksum`, `busy`, `no_catalog`,
+  `route_import`. `no_catalog` heißt: keine Quelle gesetzt.
+- **Rulings aus den Linux-Tasks:**
+  - Task 4 nutzt einen eigenen `std::net`-HTTP-Server, nicht `tiny_http`: `tiny_http` ließ
+    abgebrochene Verbindungen offen, und „Aus ist aus“ ließ sich so nicht halten.
+  - `share-serve` (Bin in `core-share`, für Selbsttests am iPhone) hat die Optionen `--data`,
+    `--port`, `--seed-region`, `--seed-route` und `--throttle`. Er gibt
+    `serving http://127.0.0.1:<port>/` aus.
+  - `ShareServer::start(addr, content, ShareOptions)` hat einen dritten Parameter
+    `ShareOptions` (Fristen, Drosselung für Tests).
+  - Der Schalter der Freigabe am Desktop hat den Selbsttest `OUTDOOR_SELFTEST_SHARE=1`.
+  - Fehler beim Holen von `routes/<id>.json` behalten ihren eigenen Code (zum Beispiel
+    `download`). Nur ungültiger Inhalt ergibt `route_import`.
+- **Entscheidungen in Task 6:**
+  - `RegionSummary.bytes` ist der belegte Platz auf dem Gerät, `RegionEntry.size` bei
+    installierten Regionen ebenso, sonst die Downloadgröße.
+  - `regions()` nimmt `not_built` heraus. Ist der Katalog nicht erreichbar, bleibt
+    `catalogError` gesetzt und die installierten Regionen stehen trotzdem in der Liste.
+  - Eine ungültige Routen-`id` in `importRoute` ergibt den Code `route_id`.
+  - Die Tests von `core-ffi` bedienen ein zweites `App` über `core-share` auf `127.0.0.1:0`
+    (Dev-Abhängigkeit).
+  - Die Bindings lassen sich auf Linux nur aus der `.a` erzeugen
+    (`target/release/liboutdoor_core.a`), die `.so` baut `crate-type` nicht.
+
 ## Global Constraints
 
 - **Kein Schritt der Planung braucht ein Netz.** Der App-Start und die Karte lesen den
