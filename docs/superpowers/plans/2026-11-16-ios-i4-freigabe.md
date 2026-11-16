@@ -145,6 +145,40 @@ Task 7–9 sind fertig und im Simulator (iPhone 17) grün. Entscheidungen dabei:
 auf dem iPhone 13 Pro Max grün. Der Nutzer hat den Ablauf aus Step 2 von Hand durchgespielt,
 mit QR-Scan: fehlerfrei. Die Download-Geschwindigkeit wurde nicht gemessen.
 
+## Nach der Gesamtprüfung (2026-11-16)
+
+Die Prüfung über I3 und I4 ergab zehn Befunde. Sieben sind vor dem Merge behoben:
+
+- **Laden oder Übernehmen wird von einer Eingabe überholt:** Solange eine Route geladen oder
+  übernommen wird, ändert die App die Planung nicht (`PlanController.replacing`). Sonst zeigte
+  der Bildschirm die alte Planung, „Speichern“ schrieb sie aber über die neue Route.
+- **Ladeanzeige bleibt stehen:** Schlägt das Laden fehl, wird die Planung auf dem Bildschirm
+  neu berechnet.
+- **Ungespeicherte Änderungen (Entscheidung des Nutzers):** Ist die geladene Route anders
+  geplant als gespeichert, gilt sie als „auf dem iPhone geändert“. Die Desktop-Fassung kommt
+  als Kopie „(Desktop)“, die Planung bleibt (`App::loaded_route_is_edited`). Das ergänzt die
+  Merge-Regel aus den Global Constraints.
+- **`import_route` gibt den neu geladenen Plan zurück** (`ImportedRoute.reloaded`). Die App
+  entscheidet nicht mehr selbst, ob die geladene Route ersetzt wurde, und lädt nicht doppelt.
+- **Alte Valhalla-Instanz nach einem Update:** Die App vergisst die Instanz direkt nach dem
+  Download. Dazu sagt der Kern der Engine jedes Mal Bescheid, wenn er den Router einer Region
+  neu öffnet (`ValhallaEngine::forget`, neu im Protokoll).
+- **Ungültiger Plan vom Desktop:** Der Import nimmt nur Pläne, auf denen die Bearbeitung
+  arbeiten kann (`PlanRequest::validate`, ein berechnetes Teilstück je Teilstück).
+- **Löschen einer Region:** Erst wird die Liste der deaktivierten Regionen geschrieben, dann der
+  Ordner entfernt. Scheitert das Schreiben, ist nichts gelöscht.
+
+Offen, bewusst zurückgestellt:
+
+- Eine Region mit der Id `routes` stünde im Katalog, ließe sich aber nicht laden, weil der
+  Server `/routes/…` für die Routen nimmt (`core-share/src/server.rs`). Abhilfe: die Id beim
+  Anlegen sperren.
+- Der Server hat vier Arbeits-Threads, je Verbindung einen bis zum Ende. Vier lange Downloads
+  zugleich machen Katalog und Routen so lange unerreichbar.
+- Doppeltipp im Planmodus (`RouteLayers.swift`, aus I3): Ob der Doppeltipp die wartenden
+  Einzeltipps verwirft, hängt an der Reihenfolge zweier Gesten, die UIKit nicht zusagt. Im
+  ungünstigen Fall setzt ein Doppeltipp einen Wegpunkt.
+
 ## Global Constraints
 
 - **Kein Schritt der Planung braucht ein Netz.** Der App-Start und die Karte lesen den

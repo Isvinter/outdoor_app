@@ -98,6 +98,7 @@ fn encode_polyline6(points: &[(f64, f64)]) -> String {
 struct FakeEngine {
     version: String,
     asked: Mutex<Vec<(String, String)>>,
+    forgotten: Mutex<Vec<String>>,
 }
 
 impl ValhallaEngine for FakeEngine {
@@ -120,12 +121,17 @@ impl ValhallaEngine for FakeEngine {
         }})
         .to_string())
     }
+
+    fn forget(&self, tiles_path: String) {
+        self.forgotten.lock().unwrap().push(tiles_path);
+    }
 }
 
 fn engine(version: &str) -> Arc<FakeEngine> {
     Arc::new(FakeEngine {
         version: version.into(),
         asked: Mutex::new(Vec::new()),
+        forgotten: Mutex::new(Vec::new()),
     })
 }
 
@@ -145,6 +151,32 @@ fn manual_plan_without_engine() {
     assert_eq!(result.legs[0].color, "#6a1b9a");
     assert_eq!(result.request, plan("manual", &points()));
     assert_eq!(result.stages.len(), 1);
+}
+
+/// The engine keeps something open per file. Whenever the core opens the
+/// router of a region (anew after the region changed), the engine is told to
+/// let go of it first, so that no answer comes from replaced routing data.
+#[test]
+fn engine_forgets_before_the_router_is_opened_anew() {
+    let core = core_with_mini("forget", true);
+    let engine = engine("3.9.1");
+    core.set_valhalla_engine(engine.clone());
+    core.plan_route(plan("hike", &points()[..2])).unwrap();
+    let tiles = engine.asked.lock().unwrap()[0].0.clone();
+    assert_eq!(
+        *engine.forgotten.lock().unwrap(),
+        std::slice::from_ref(&tiles)
+    );
+    // The same router goes on without it.
+    core.plan_route(plan("hike", &points()[1..])).unwrap();
+    assert_eq!(engine.forgotten.lock().unwrap().len(), 1);
+
+    core.set_region_enabled("mini".into(), false).unwrap();
+    core.set_region_enabled("mini".into(), true).unwrap();
+    assert_eq!(engine.asked.lock().unwrap().len(), 2);
+    core.plan_route(plan("hike", &points()[..2])).unwrap();
+    assert_eq!(*engine.forgotten.lock().unwrap(), [tiles.clone(), tiles]);
+    assert_eq!(engine.asked.lock().unwrap().len(), 3);
 }
 
 #[test]

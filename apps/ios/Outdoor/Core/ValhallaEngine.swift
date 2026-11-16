@@ -38,7 +38,9 @@ final class ValhallaMobileEngine: ValhallaEngine, @unchecked Sendable {
 
     /// Lets go of the instance for `tilesPath`: the file was replaced or
     /// deleted, and the next request has to open what lies there now. A
-    /// request that is running ends on the old instance.
+    /// request that is running ends on the old instance. The core calls this
+    /// before it opens the router of a region (anew); the app calls it after
+    /// an update and a deletion, which also closes the old file.
     func forget(tilesPath: String) {
         lock.withLock { _ = regions.removeValue(forKey: tilesPath) }
     }

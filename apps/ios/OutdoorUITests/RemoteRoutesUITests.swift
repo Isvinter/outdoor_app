@@ -95,6 +95,30 @@ final class RemoteRoutesUITests: XCTestCase {
         XCTAssertEqual(copy.count, 1)
     }
 
+    /// The loaded route was planned on and not saved: that counts as changed
+    /// here. The desktop's version comes as a copy and the planning stays.
+    func testUnsavedChangeMakesCopy() throws {
+        let app = try appWithRegion()
+        openRemote(app, expecting: ["new"])
+        importFirst(app, outcome: "added", then: ["up_to_date"])
+        closeRemote(app)
+
+        app.buttons["route-row-1"].tap()
+        let loaded = app.waitForStatus("route loaded") { $0.int("waypoints") == 2 && $0.int("planning") == 0 }
+        app.buttons["plan-pick"].tap()
+        app.place(0.5, 0.2).tap()
+        let edited = app.waitForPlan(waypoints: 3)
+        XCTAssertEqual(edited.int("route_rev"), loaded.int("route_rev"), "nothing was saved")
+
+        app.pullSheet(by: -700)
+        openRemote(app, expecting: ["changed_here"])
+        let copied = importFirst(app, outcome: "copied", then: ["changed_here"])
+        XCTAssertEqual(copied.int("routes"), 2)
+        XCTAssertEqual(copied.values["route_id"], loaded.values["route_id"])
+        XCTAssertEqual(copied.int("waypoints"), 3)
+        XCTAssertEqual(copied.int("distance_m"), edited.int("distance_m"))
+    }
+
     func testDeletedHereIsRestored() throws {
         let app = try appWithRegion()
         openRemote(app, expecting: ["new"])

@@ -126,6 +126,11 @@ final class PlanController: ObservableObject {
     /// Computations run here one after the other, off the main thread; so do
     /// the other calls that change what the core holds as the planned route.
     private let queue = DispatchQueue(label: "de.zeibig.outdoor.plan", qos: .userInitiated)
+    /// A saved route is being loaded or one of the desktop taken over. Until
+    /// that is done the planning is not changed: the core is about to replace
+    /// the planned route and the route "save" overwrites, and a change made
+    /// meanwhile would end up saved over the wrong route.
+    private var replacing = false
     /// Counts the computations, so that a slow answer cannot replace a newer one.
     private let newest = Newest()
     /// From the user's input to the drawn route, per computed plan; for the self-test.
@@ -155,7 +160,8 @@ final class PlanController: ObservableObject {
     /// planned route is computed again with the data that is there.
     func regionsChanged() {
         profiles = Self.profiles(of: core)
-        if request.waypoints.count >= 2 { compute() }
+        // A route that is being loaded is computed with the new data anyway.
+        if request.waypoints.count >= 2, !replacing { compute() }
     }
 
     // MARK: The form
@@ -177,13 +183,14 @@ final class PlanController: ObservableObject {
     }
 
     func choose(profile: String) {
-        guard profile != self.profile else { return }
+        guard !replacing, profile != self.profile else { return }
         self.profile = profile
         options = [:]
         formChanged()
     }
 
     func set(option key: String, to value: Double) {
+        guard !replacing else { return }
         options[key] = value
         formChanged()
     }
@@ -207,23 +214,28 @@ final class PlanController: ObservableObject {
     }
 
     private func addWaypoint(_ at: CLLocationCoordinate2D) {
+        guard !replacing else { return }
         request = planAddWaypoint(
             request: request, at: LatLon(lat: at.latitude, lon: at.longitude), leg: formLeg)
         compute()
     }
 
     private func moveWaypoint(_ index: Int, to: CLLocationCoordinate2D) {
+        // The pin goes back to where the route has it.
+        guard !replacing else { return drawWaypoints() }
         request = planMoveWaypoint(
             request: request, index: UInt32(index), to: LatLon(lat: to.latitude, lon: to.longitude))
         compute()
     }
 
     func removeWaypoint(_ index: Int) {
+        guard !replacing else { return }
         request = planRemoveWaypoint(request: request, index: UInt32(index))
         compute()
     }
 
     func toggleStageEnd(_ index: Int) {
+        guard !replacing else { return }
         request = planToggleStageEnd(request: request, index: UInt32(index))
         compute()
     }
@@ -236,6 +248,7 @@ final class PlanController: ObservableObject {
 
     /// Starts afresh; the next "save" stores a new route.
     func clear() {
+        guard !replacing else { return }
         picking = false
         request = planEmpty()
         loaded = nil
@@ -255,7 +268,8 @@ final class PlanController: ObservableObject {
     /// Runs `work` after the computations that are under way, and `done` with
     /// its result and the saved routes on the main thread.
     private func store<T: Sendable>(
-        _ work: @escaping @Sendable (CoreApp) throws -> T, done: @escaping @MainActor (T) -> Void
+        _ work: @escaping @Sendable (CoreApp) throws -> T, done: @escaping @MainActor (T) -> Void,
+        failed: @escaping @MainActor () -> Void = {}
     ) {
         let core = core
         queue.async { [weak self] in
@@ -268,6 +282,7 @@ final class PlanController: ObservableObject {
                     self.loaded = routes.first { $0.id == loadedId }
                     done(value)
                 case .failure(let error):
+                    failed()
                     self.message = PlanTexts.error(error)
                 }
             }
@@ -286,13 +301,22 @@ final class PlanController: ObservableObject {
 
     /// Shows a saved route with its waypoints and settings, ready to be changed.
     func load(_ route: SavedRoute) {
+        guard !replacing else { return }
+        replacing = true
+        planning = true
         // Whatever is still being computed belongs to the route before.
-        let number = newest.next()
-        let newest = newest
+        _ = newest.next()
         store({ core in try core.loadRoute(id: route.id) }, done: { [weak self] plan in
-            guard let self, newest.current == number else { return }
+            guard let self else { return }
+            self.replacing = false
             self.show(loaded: plan)
             self.onLoaded?()
+        }, failed: { [weak self] in
+            guard let self else { return }
+            self.replacing = false
+            // Nothing was loaded: the planning on the screen stays, and its
+            // route is computed again, because the answer under way was dropped.
+            self.compute()
         })
     }
 
@@ -354,33 +378,33 @@ final class PlanController: ObservableObject {
     }
 
     /// Takes a route of the desktop over. The core decides what that means
-    /// (add, replace, restore or copy). If it replaced the route that is
-    /// loaded here, the screen shows the desktop's version from then on, so
-    /// that "save" cannot write the old planning over it.
+    /// (add, replace, restore or copy; a copy also if the loaded route was
+    /// planned on and not saved). If it replaced the route that is loaded
+    /// here, the core hands the desktop's version back and the screen shows
+    /// it, so that "save" cannot write the old planning over it.
     func importRemote(_ route: RemoteRouteEntry) {
-        guard !remoteImporting else { return }
+        guard !remoteImporting, !replacing else { return }
         remoteImporting = true
+        replacing = true
         remoteNotice = nil
-        // Whatever is still being computed belongs to the version before.
-        let number = newest.current
-        let newest = newest
         let core = core
+        // After the computations under way: the core compares the planned
+        // route with the saved one to tell whether it was changed here.
         queue.async { [weak self] in
-            let result = Result { () -> (ImportedRoute, PlanResult?, [SavedRoute], String?) in
-                let imported = try core.importRoute(id: route.id)
-                let replacedLoaded = imported.outcome != "copied" && imported.outcome != "added"
-                    && core.loadedRouteId() == imported.id
-                let plan = replacedLoaded ? try core.loadRoute(id: imported.id) : nil
-                return (imported, plan, try core.savedRoutes(), core.loadedRouteId())
-            }
+            let result = Result { (try core.importRoute(id: route.id), try core.savedRoutes(), core.loadedRouteId()) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.remoteImporting = false
+                self.replacing = false
                 switch result {
-                case .success(let (imported, plan, routes, loadedId)):
+                case .success(let (imported, routes, loadedId)):
                     self.routes = routes
                     self.loaded = routes.first { $0.id == loadedId }
-                    if let plan, newest.current == number { self.show(loaded: plan) }
+                    if let plan = imported.reloaded {
+                        // An answer still on its way belongs to the version before.
+                        _ = self.newest.next()
+                        self.show(loaded: plan)
+                    }
                     self.importOutcome = imported.outcome
                     let name = routes.first { $0.id == imported.id }?.name ?? route.name
                     self.remoteNotice = RemoteRouteTexts.outcome(imported.outcome, name: name)

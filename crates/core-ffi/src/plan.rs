@@ -19,6 +19,9 @@ pub trait ValhallaEngine: Send + Sync {
     fn version(&self) -> String;
     /// Valhalla's answer to `request_json` on the routing tiles `tiles_path`.
     fn route(&self, tiles_path: String, request_json: String) -> Result<String, EngineFailure>;
+    /// The file at `tiles_path` was replaced or is to be read anew: whatever
+    /// is open for it must be let go of before the next `route`.
+    fn forget(&self, tiles_path: String);
 }
 
 #[derive(Debug, uniffi::Error)]
@@ -61,9 +64,14 @@ struct EngineFactory(Arc<dyn ValhallaEngine>);
 
 impl RouterFactory for EngineFactory {
     fn open(&self, tiles: &Path) -> Result<Arc<dyn Router>, RoutingError> {
+        let tiles = tiles.display().to_string();
+        // The core opens a router at first use and again after the region
+        // changed (update, switched off and on): from here on, no answer may
+        // come from what the engine had open for the file before.
+        self.0.forget(tiles.clone());
         Ok(Arc::new(JsonRouter::new(Arc::new(RegionEngine {
             engine: Arc::clone(&self.0),
-            tiles: tiles.display().to_string(),
+            tiles,
         }))))
     }
 
@@ -304,7 +312,7 @@ fn request_to(request: &PlanRequest) -> PlanInput {
     }
 }
 
-fn result_to(plan: &RoutePlan) -> PlanResult {
+pub(crate) fn result_to(plan: &RoutePlan) -> PlanResult {
     let plan = plan.for_display(CHART_SAMPLES);
     PlanResult {
         request: request_to(&plan.request),

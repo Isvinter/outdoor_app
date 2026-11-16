@@ -192,6 +192,7 @@ fn import_route_over_http() {
     let imported = core.import_route(id.clone()).unwrap();
     assert_eq!(imported.outcome, "added");
     assert_eq!(imported.id, id);
+    assert_eq!(imported.reloaded, None);
     assert_eq!(core.remote_routes().unwrap()[0].state, "up_to_date");
     assert!(core.saved_routes().unwrap().iter().any(|r| r.id == id));
 }

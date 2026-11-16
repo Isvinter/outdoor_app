@@ -270,9 +270,25 @@ fn read_plan(value: &serde_json::Value) -> Result<ReadPlan, AppError> {
     Ok(ReadPlan::Old(OldPlan::deserialize(value).map_err(broken)?))
 }
 
-/// Whether a plan can be read, as a current or an old one.
+/// Whether a plan from elsewhere can be taken as it is: readable as a current
+/// or an old one, and with a request the planner can work on (the editing
+/// functions rely on one leg between each two waypoints).
 pub(crate) fn check_plan(value: &serde_json::Value) -> Result<(), AppError> {
-    read_plan(value).map(|_| ())
+    match read_plan(value)? {
+        ReadPlan::Current(plan) => {
+            plan.request.validate()?;
+            if plan.legs.len() != plan.request.legs.len() {
+                return Err(AppError::RoutePlan(
+                    "the plan has not one computed leg per leg of its request".into(),
+                ));
+            }
+            Ok(())
+        }
+        ReadPlan::Old(old) if old.route.waypoints.len() < 2 => {
+            Err(RoutingError::TooFewWaypoints.into())
+        }
+        ReadPlan::Old(_) => Ok(()),
+    }
 }
 
 impl App {
@@ -398,6 +414,31 @@ impl App {
             legs,
             stage_ends: Vec::new(),
         })
+    }
+
+    /// Whether saved route `id` is the loaded one and planned differently
+    /// than it is saved: waypoints, legs or stage ends were changed and not
+    /// saved yet.
+    pub(crate) fn loaded_route_is_edited(&self, id: Uuid) -> bool {
+        if self.loaded_route() != Some(id) {
+            return false;
+        }
+        // Fewer than two points are left of it: that is a change as well.
+        let Some(planned) = self.planned_route() else {
+            return true;
+        };
+        let Ok(json) = self.shared.inner().storage.route_plan(id) else {
+            return false;
+        };
+        let saved = serde_json::from_str::<serde_json::Value>(&json)
+            .map_err(|e| AppError::RoutePlan(e.to_string()))
+            .and_then(|value| read_plan(&value));
+        match saved {
+            Ok(ReadPlan::Current(saved)) => saved.request != planned.request,
+            // Loading computed it anew from its waypoints, all legs alike.
+            Ok(ReadPlan::Old(old)) => old.route.waypoints != planned.request.waypoints,
+            Err(_) => false,
+        }
     }
 
     /// Loads a saved route; it becomes the planned route.

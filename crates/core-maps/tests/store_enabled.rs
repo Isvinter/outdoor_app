@@ -86,6 +86,27 @@ fn delete_clears_disabled() {
     assert!(store.installed()[0].enabled);
 }
 
+/// The list of the disabled regions cannot be written: nothing is deleted,
+/// and the failure is no lie about a region that is gone.
+#[test]
+fn delete_that_cannot_update_the_list_deletes_nothing() {
+    let (store, dir) = store("en-delete-fails");
+    store.set_enabled("mini", false).unwrap();
+    // A directory in the way of the temporary file.
+    std::fs::create_dir(dir.join(".disabled.json.tmp")).unwrap();
+
+    assert!(store.delete("mini").is_err());
+
+    let installed = store.installed();
+    assert_eq!(installed.len(), 1);
+    assert!(!installed[0].enabled);
+    assert!(dir.join("mini/manifest.json").is_file());
+
+    std::fs::remove_dir(dir.join(".disabled.json.tmp")).unwrap();
+    store.delete("mini").unwrap();
+    assert!(store.installed().is_empty());
+}
+
 #[test]
 fn set_enabled_unknown_region_fails() {
     let (store, _) = store("en-unknown");

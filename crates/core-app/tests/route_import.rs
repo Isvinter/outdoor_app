@@ -90,10 +90,9 @@ fn new_route_is_added_with_same_id() {
     let id = p.plan_on_desktop(&TWO, "Tour");
     p.publish();
     assert_eq!(p.states(), [RemoteRouteState::New]);
-    assert_eq!(
-        p.phone.import_route(id).unwrap(),
-        (ImportOutcome::Added, id)
-    );
+    let imported = p.phone.import_route(id).unwrap();
+    assert_eq!((imported.outcome, imported.id), (ImportOutcome::Added, id));
+    assert_eq!(imported.reloaded, None);
     assert_eq!(p.states(), [RemoteRouteState::UpToDate]);
     assert_eq!(p.phone.saved_routes().unwrap()[0].id, id);
 }
@@ -107,10 +106,12 @@ fn desktop_change_replaces_unchanged() {
     p.desktop.rename_route(id, "Tour neu").unwrap();
     p.publish();
     assert_eq!(p.states(), [RemoteRouteState::DesktopNewer]);
+    let imported = p.phone.import_route(id).unwrap();
     assert_eq!(
-        p.phone.import_route(id).unwrap(),
+        (imported.outcome, imported.id),
         (ImportOutcome::Replaced, id)
     );
+    assert_eq!(imported.reloaded, None);
     assert_eq!(p.phone.saved_routes().unwrap()[0].name, "Tour neu");
     assert_eq!(p.states(), [RemoteRouteState::UpToDate]);
 }
@@ -123,8 +124,10 @@ fn iphone_change_makes_copy() {
     p.phone.import_route(id).unwrap();
     p.phone.rename_route(id, "Mein Name").unwrap();
     assert_eq!(p.states(), [RemoteRouteState::ChangedHere]);
-    let (outcome, other) = p.phone.import_route(id).unwrap();
-    assert_eq!(outcome, ImportOutcome::Copied);
+    let imported = p.phone.import_route(id).unwrap();
+    let other = imported.id;
+    assert_eq!(imported.outcome, ImportOutcome::Copied);
+    assert_eq!(imported.reloaded, None);
     assert_ne!(other, id);
     let routes = p.phone.saved_routes().unwrap();
     assert_eq!(routes.len(), 2);
@@ -144,10 +147,12 @@ fn deleted_here_is_restored() {
     p.phone.import_route(id).unwrap();
     p.phone.delete_route(id).unwrap();
     assert_eq!(p.states(), [RemoteRouteState::DeletedHere]);
+    let imported = p.phone.import_route(id).unwrap();
     assert_eq!(
-        p.phone.import_route(id).unwrap(),
+        (imported.outcome, imported.id),
         (ImportOutcome::Restored, id)
     );
+    assert_eq!(imported.reloaded, None);
     assert_eq!(p.phone.saved_routes().unwrap().len(), 1);
 }
 
@@ -165,7 +170,10 @@ fn import_replaces_loaded_route_in_memory() {
         .unwrap();
     p.desktop.save_planned_route("Tour").unwrap();
     p.publish();
-    p.phone.import_route(id).unwrap();
+    let imported = p.phone.import_route(id).unwrap();
+    assert_eq!(imported.outcome, ImportOutcome::Replaced);
+    // What the app shows from now on is what the core holds as planned.
+    assert_eq!(imported.reloaded, p.phone.planned_route());
     assert_eq!(p.phone.planned_route().unwrap().request.waypoints.len(), 3);
     assert_eq!(p.phone.loaded_route(), Some(id));
 
@@ -173,6 +181,74 @@ fn import_replaces_loaded_route_in_memory() {
     assert_eq!(p.phone.planned_route().unwrap().request.waypoints.len(), 3);
     p.phone.saved_route(id).unwrap();
     assert_eq!(p.phone.planned_route().unwrap().request.waypoints.len(), 3);
+}
+
+/// The loaded route was planned on and not saved: the desktop's version
+/// comes as a copy, and the planning stays.
+#[test]
+fn unsaved_edit_of_loaded_route_makes_copy() {
+    let p = pair("ri-unsaved");
+    let id = p.plan_on_desktop(&TWO, "Tour");
+    p.publish();
+    p.phone.import_route(id).unwrap();
+    p.phone.saved_route(id).unwrap();
+    // Loaded and untouched is not a change.
+    assert_eq!(p.states(), [RemoteRouteState::UpToDate]);
+    p.desktop.rename_route(id, "Tour neu").unwrap();
+    p.publish();
+    assert_eq!(p.states(), [RemoteRouteState::DesktopNewer]);
+
+    let edited = request(&[(10.0, 32.0), (30.0, 20.0), (50.0, 32.0)]);
+    p.phone.plan_route(&edited).unwrap();
+    assert_eq!(p.states(), [RemoteRouteState::ChangedHere]);
+    let imported = p.phone.import_route(id).unwrap();
+    assert_eq!(imported.outcome, ImportOutcome::Copied);
+    assert_ne!(imported.id, id);
+    assert_eq!(imported.reloaded, None);
+    assert_eq!(p.phone.planned_route().unwrap().request, edited);
+    assert_eq!(p.phone.loaded_route(), Some(id));
+    let routes = p.phone.saved_routes().unwrap();
+    assert_eq!(routes.len(), 2);
+    assert_eq!(routes.iter().find(|r| r.id == id).unwrap().name, "Tour");
+
+    // Saved, it is a change of the stored route as before.
+    p.phone.save_planned_route("Tour").unwrap();
+    assert_eq!(p.states(), [RemoteRouteState::ChangedHere]);
+}
+
+/// Fewer than two points are left of the loaded route: a change as well.
+#[test]
+fn cleared_planning_of_loaded_route_makes_copy() {
+    let p = pair("ri-cleared");
+    let id = p.plan_on_desktop(&TWO, "Tour");
+    p.publish();
+    p.phone.import_route(id).unwrap();
+    p.phone.saved_route(id).unwrap();
+    p.phone.clear_planned_route();
+    assert_eq!(p.states(), [RemoteRouteState::ChangedHere]);
+    assert_eq!(
+        p.phone.import_route(id).unwrap().outcome,
+        ImportOutcome::Copied
+    );
+    assert_eq!(p.phone.planned_route(), None);
+}
+
+/// A plan the editing functions could not work on is not taken over.
+#[test]
+fn plan_with_missing_legs_is_rejected() {
+    let p = pair("ri-legs");
+    let a = p.plan_on_desktop(&[(10.0, 32.0), (30.0, 20.0), (50.0, 32.0)], "Tour");
+    p.publish();
+    let file = p.share.join(format!("routes/{a}.json"));
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    value["plan"]["request"]["legs"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    std::fs::write(&file, value.to_string()).unwrap();
+    assert_eq!(p.phone.import_route(a).unwrap_err().code(), "route_import");
+    assert!(p.phone.saved_routes().unwrap().is_empty());
 }
 
 #[test]

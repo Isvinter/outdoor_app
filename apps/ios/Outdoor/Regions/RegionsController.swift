@@ -140,22 +140,26 @@ final class RegionsController: ObservableObject {
         lastDownload = (id, nil)
         error = nil
         let core = host.core
-        let wasInstalled = installed.contains { $0.id == id }
+        let engine = engine
+        let tiles = host.routingTiles(region: id)
         Task.detached(priority: .userInitiated) { [weak self] in
             let result = Result { try core.installRegion(id: id) }
+            // An update put new routing data where the open instance reads.
+            // At once, before the catalog is read: that may take long, and the
+            // user may plan meanwhile. (The core asks for the same when it
+            // opens the region's router anew; this also frees the old file.)
+            engine.forget(tilesPath: tiles)
             // The states of the catalog changed with it; the desktop was just there.
             let list = (try? result.get()) == nil ? nil : try? core.regions()
-            await self?.finished(id, result, list: list, replaced: wasInstalled)
+            await self?.finished(id, result, list: list)
         }
     }
 
-    private func finished(_ id: String, _ result: Result<RegionSummary, Error>, list: RegionList?, replaced: Bool) {
+    private func finished(_ id: String, _ result: Result<RegionSummary, Error>, list: RegionList?) {
         // Reports of the download are on their way to the main thread before this.
         downloads[id] = nil
         switch result {
         case .success:
-            // An update put new routing data where the open instance reads.
-            if replaced { engine.forget(tilesPath: host.routingTiles(region: id)) }
             reload { [weak self] in
                 if let list { self?.show(list) }
             }

@@ -5,6 +5,7 @@
 
 use core_app::{ImportOutcome, RegionInfo, RegionState, RemoteRoute, RemoteRouteState};
 
+use crate::plan::PlanResult;
 use crate::{CoreApp, CoreError, RegionSummary};
 
 /// A region of the list, installed or on offer. Regions that are only defined
@@ -48,6 +49,9 @@ pub struct ImportedRoute {
     /// `added`, `replaced`, `restored` or `copied`.
     pub outcome: String,
     pub id: String,
+    /// Set if the route that was loaded was replaced: the planned route is
+    /// the desktop's version now, and this is it, to be shown.
+    pub reloaded: Option<PlanResult>,
 }
 
 fn entry(region: RegionInfo) -> Option<RegionEntry> {
@@ -169,8 +173,8 @@ impl CoreApp {
     /// Takes a route of the desktop over; the core applies the merge rule.
     pub fn import_route(&self, id: String) -> Result<ImportedRoute, CoreError> {
         let uuid = crate::plan::route_id(&id)?;
-        let (outcome, id) = self.app.import_route(uuid)?;
-        let outcome = match outcome {
+        let imported = self.app.import_route(uuid)?;
+        let outcome = match imported.outcome {
             ImportOutcome::Added => "added",
             ImportOutcome::Replaced => "replaced",
             ImportOutcome::Restored => "restored",
@@ -178,7 +182,8 @@ impl CoreApp {
         };
         Ok(ImportedRoute {
             outcome: outcome.into(),
-            id: id.to_string(),
+            id: imported.id.to_string(),
+            reloaded: imported.reloaded.as_ref().map(crate::plan::result_to),
         })
     }
 }

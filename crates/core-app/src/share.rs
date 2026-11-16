@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::AppError;
 use crate::app::{App, now_ms};
+use crate::plan::RoutePlan;
 
 /// A saved route as listed by the share.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,6 +125,17 @@ pub enum ImportOutcome {
     Copied,
 }
 
+/// A route taken over from the desktop.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedRoute {
+    pub outcome: ImportOutcome,
+    /// The route on this device; a new one if it was copied.
+    pub id: Uuid,
+    /// The planned route, if taking over replaced the route that was loaded:
+    /// the desktop's version, which "save" overwrites from now on.
+    pub reloaded: Option<RoutePlan>,
+}
+
 impl App {
     /// The routes the desktop offers at the catalog source, with their state
     /// on this device. Reads over the network, which may take a while.
@@ -138,6 +150,10 @@ impl App {
         )?;
         let list: Vec<SharedRouteInfo> = serde_json::from_str(&json)
             .map_err(|e| AppError::RouteImport(format!("route list: {e}")))?;
+        // Asked before the storage is locked: it reads the saved plan itself.
+        let edited = self
+            .loaded_route()
+            .filter(|&id| self.loaded_route_is_edited(id));
         let inner = self.shared.inner();
         list.into_iter()
             .map(|info| {
@@ -145,6 +161,7 @@ impl App {
                     None => RemoteRouteState::New,
                     Some(sync) if sync.deleted => RemoteRouteState::DeletedHere,
                     Some(sync) if sync.rev != sync.synced_rev => RemoteRouteState::ChangedHere,
+                    Some(_) if edited == Some(info.id) => RemoteRouteState::ChangedHere,
                     Some(sync) if sync.source_rev == Some(info.rev) => RemoteRouteState::UpToDate,
                     Some(_) => RemoteRouteState::DesktopNewer,
                 };
@@ -153,9 +170,12 @@ impl App {
             .collect()
     }
 
-    /// Takes a route over from the desktop. Returns what happened and the id
-    /// of the route on this device (a new one if it was copied).
-    pub fn import_route(&self, id: Uuid) -> Result<(ImportOutcome, Uuid), AppError> {
+    /// Takes a route over from the desktop and says what happened.
+    ///
+    /// A route counts as changed here, and the desktop's version comes as a
+    /// copy, also while it is loaded and planned differently than it is
+    /// saved: replacing it would throw the unsaved planning away.
+    pub fn import_route(&self, id: Uuid) -> Result<ImportedRoute, AppError> {
         let source = self.catalog_source()?;
         if source.is_empty() {
             return Err(AppError::NoCatalog);
@@ -177,6 +197,7 @@ impl App {
             serde_json::to_string(&route.plan).map_err(|e| AppError::RouteImport(e.to_string()))?;
         let info = &route.info;
         let now = now_ms();
+        let edited = self.loaded_route_is_edited(id);
 
         let (outcome, stored) = {
             let mut inner = self.shared.inner();
@@ -197,7 +218,7 @@ impl App {
                     inner.storage.put_synced_route(id, &synced, now)?;
                     (ImportOutcome::Restored, id)
                 }
-                Some(sync) if sync.rev == sync.synced_rev => {
+                Some(sync) if sync.rev == sync.synced_rev && !edited => {
                     inner.storage.put_synced_route(id, &synced, now)?;
                     (ImportOutcome::Replaced, id)
                 }
@@ -216,9 +237,15 @@ impl App {
         };
         // The planned route must follow the new version, or "save" would
         // write the old plan over it.
-        if outcome != ImportOutcome::Copied && self.loaded_route() == Some(id) {
-            self.saved_route(id)?;
-        }
-        Ok((outcome, stored))
+        let reloaded = if outcome != ImportOutcome::Copied && self.loaded_route() == Some(id) {
+            Some(self.saved_route(id)?)
+        } else {
+            None
+        };
+        Ok(ImportedRoute {
+            outcome,
+            id: stored,
+            reloaded,
+        })
     }
 }

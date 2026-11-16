@@ -319,16 +319,27 @@ impl RegionStore {
     /// Removes an installed region and its files.
     pub fn delete(&self, id: &str) -> Result<(), MapsError> {
         let mut regions = self.regions.write().unwrap_or_else(PoisonError::into_inner);
-        if regions.remove(id).is_none() {
-            return Err(MapsError::NotInstalled(id.to_string()));
+        let region = regions
+            .get_mut(id)
+            .ok_or_else(|| MapsError::NotInstalled(id.to_string()))?;
+        // First the list of the disabled regions, while nothing is lost yet:
+        // if it cannot be written, the region stays as it was.
+        if !region.info.enabled {
+            region.info.enabled = true;
+            if let Err(e) = self.write_disabled(&regions) {
+                if let Some(region) = regions.get_mut(id) {
+                    region.info.enabled = false;
+                }
+                return Err(e);
+            }
         }
+        regions.remove(id);
         self.dem_cache
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
         let target = self.dir.join(id);
-        fs::remove_dir_all(&target).map_err(MapsError::io(&target))?;
-        self.write_disabled(&regions)
+        fs::remove_dir_all(&target).map_err(MapsError::io(&target))
     }
 
     /// Enables or disables an installed region. The choice survives restarts
