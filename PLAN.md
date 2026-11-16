@@ -678,6 +678,18 @@ Referenzpunkte an und kommt auf 12 352 m (Desktop 12 353 m), ein neues Teilstüc
 dem iPhone 41 ms im Median, siehe `docs/superpowers/plans/2026-11-15-ios-i3-planung.md` und
 `docs/MESSPROTOKOLL.md`. Es folgt I4 (Freigabe im Heimnetz).
 
+**Stand 2026-11-16, iOS I4 (Abnahme am iPhone steht aus):** Regionen und Routen kommen im
+Heimnetz vom Desktop aufs iPhone. Der Desktop liefert sie mit einem eigenen Server nur aus
+(`core-share`), das iPhone lädt über den vorhandenen `DefaultFetcher` mit Prüfsummen und
+Fortsetzen per `Range`. Katalogabgleich, Zustände der Regionen, Merge-Regel der Routen und die
+Normalisierung der Adresse liegen im Kern. Swift zeigt an, scannt den QR-Code (VisionKit) und
+sortiert dabei nur fremde Codes aus. Der Bildschirm „Regionen“ lädt, aktualisiert, löscht,
+aktiviert und deaktiviert. Eine deaktivierte Region bleibt auf dem Gerät und fehlt in Karte,
+Höhen und Routing. Der Start und die Karte lesen den Katalog nie, nur dieser Bildschirm. Nach
+Update und Löschen verwirft die App ihre Valhalla-Instanz für die Region. Im Simulator grün
+(66 Tests, Download über echtes HTTP von `share-serve`), siehe
+`docs/superpowers/plans/2026-11-16-ios-i4-freigabe.md` und `docs/MESSPROTOKOLL.md`.
+
 | | A: Tauri Mobile | B: Native UI + UniFFI |
 |---|---|---|
 | UI | dasselbe TypeScript-Frontend im WebView | SwiftUI bzw. Jetpack Compose |

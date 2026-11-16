@@ -151,6 +151,7 @@ als QR-Code; hat der Rechner mehrere Heimnetz-Adressen, lässt sich die gezeigte
 Firewall den Port nicht durch, nennt die App den passenden Befehl, z. B.
 `sudo ufw allow from 192.168.2.0/24 to any port 8765 proto tcp`. Ist der Port belegt, bleibt der
 Schalter aus. Schalter aus oder App beenden stoppt den Server sofort, auch laufende Downloads.
+Das iPhone holt sich von dort Regionen und Routen, siehe „iOS“ weiter unten.
 
 Kartenstil: Wanderwege nach SAC-Skala (braun gestrichelt = Wanderweg, rot = Bergwanderweg,
 blau gepunktet = alpin), MTB-Trails farbig hinterlegt nach Singletrail-Skala (grün S0, blau
@@ -251,7 +252,8 @@ cargo run --release -p track-cli -- record tour.gpx --db test.sqlite         # G
 Die iOS-App (`apps/ios/`, SwiftUI und MapLibre Native) zeigt die Sommer- und Winterkarte
 samt Hangneigung und Höhenlinien offline aus installierten Regionen, dazu die eigene
 Position. Routen plant sie ohne Netz, mit Valhalla in der App (valhalla-mobile) und der
-Planungslogik des Rust-Kerns. Aufzeichnung und die Übernahme vom Desktop folgen.
+Planungslogik des Rust-Kerns. Regionen und Routen holt sie im Heimnetz vom Desktop, ohne
+Kabel. Die Aufzeichnung folgt.
 
 Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
 `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
@@ -269,11 +271,42 @@ mit Routing (die Karte bleibt dann leer). Ohne Paket werden diese Tests überspr
 iPhone läuft die Abnahme mit der dort installierten Region:
 `DEVICE=<udid> apps/ios/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`.
 
+Die Tests der Regionsverwaltung und der Routen vom Desktop laden über echtes HTTP: `test.sh`
+startet dafür zweimal `share-serve` (die Freigabe ohne Desktop-App, aus `crates/core-share`)
+mit der Testregion `mini` und einer Route, auf Port 8766 und gedrosselt auf 8767
+(`SHARE_PORT` wählt einen anderen ersten Port). Diese Tests beginnen mit `-resetData` und
+löschen damit Regionen und Routen der App. Im Simulator ist das gewollt, auf einem iPhone mit
+eigenen Daten nicht: dort nur gezielt mit `-only-testing:` laufen lassen.
+
 Signiert wird mit dem „Personal Team“ aus `project.yml` (Profil gilt 7 Tage). Auf dem iPhone
 muss der Entwickler einmal unter Einstellungen → Allgemein → VPN & Geräteverwaltung vertraut
 werden.
 
-**Region aufs iPhone bringen:** Das iPhone anschließen und im Finder unter dem Gerät →
+**Regionen vom Desktop laden:** Am Desktop **Karten → Im Heimnetz freigeben** einschalten.
+Auf dem iPhone „Regionen“ öffnen: über den Knopf im Hinweis auf der Karte, solange noch keine
+Region da ist, sonst im ganz hochgezogenen Bereich neben „Routen“. **„QR-Code scannen“** liest
+die Adresse vom Bildschirm des Desktops, **„Adresse eingeben“** nimmt sie getippt
+(`192.168.178.20:8765` genügt). Beim ersten Mal fragt iOS nach dem Zugriff auf das lokale
+Netzwerk und auf die Kamera.
+
+- **Vom Desktop:** die Regionen, die der Desktop anbietet. „Laden“ holt eine, mit
+  Fortschrittsbalken. „Abbrechen“ oder ein ausgeschalteter Desktop verwirft nichts: Das
+  nächste „Laden“ setzt dort fort. Ist der Desktop nicht erreichbar, steht das dort mit dem
+  Grund. Karte und Planung laufen davon unberührt weiter.
+- **Auf dem iPhone:** die geladenen Regionen mit Größe und Stand. Der Schalter nimmt eine
+  Region aus Karte, Höhen und Routing heraus, ohne sie zu löschen, auch über ein Update
+  hinweg. „Aktualisieren“ erscheint, wenn der Desktop eine neuere Fassung hat. Wischen nach
+  links bietet „Löschen“, mit Rückfrage.
+- Den Katalog liest die App nur, wenn „Regionen“ geöffnet oder die Liste heruntergezogen
+  wird. Der Start und die Karte brauchen nie ein Netz.
+
+**Routen vom Desktop übernehmen:** Im ganz hochgezogenen Bereich steht über den Routen
+**„Vom Desktop übernehmen“**. Die Liste zeigt je Route, was „Übernehmen“ täte: „Neu“,
+„Aktuell“ (kein Knopf), „Am Desktop geändert“ (ersetzt die Fassung auf dem iPhone), „Auf dem
+iPhone gelöscht“ (holt sie zurück) oder „Auf dem iPhone geändert“. Im letzten Fall kommt die
+Desktop-Fassung als Kopie „… (Desktop)“ dazu, und die eigene Fassung bleibt.
+
+**Region per Kabel aufs iPhone bringen:** Das iPhone anschließen und im Finder unter dem Gerät →
 Dateien → Outdoor den Regionsordner (mit `manifest.json` und allen dort genannten Dateien)
 in den Ordner `Import` ziehen, oder die Dateien direkt hinein. Das geht auch in der App „Dateien“ unter Auf meinem iPhone → Outdoor → Import.
 Dann die App beenden (im App-Umschalter wegwischen) und neu starten: Sie prüft die Dateien,
@@ -335,7 +368,7 @@ Abweichung geprüft.
 | `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
 | `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
 | `crates/core-ffi` | UniFFI-Hülle um `core-app` für die mobilen Apps |
-| `apps/ios` | iOS-App (SwiftUI, MapLibre Native, valhalla-mobile): Karte, Regionsimport, Position, Routenplanung; keine Fachlogik |
+| `apps/ios` | iOS-App (SwiftUI, MapLibre Native, valhalla-mobile): Karte, Regionsverwaltung und Übernahme vom Desktop, Position, Routenplanung; keine Fachlogik |
 | `crates/region-builder` | nur Desktop: Regionen in der App bauen – Beschreibung, Wahl der Geofabrik-Auszüge, Lauf des Bauskripts mit Fortschritt und Abbruch |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |

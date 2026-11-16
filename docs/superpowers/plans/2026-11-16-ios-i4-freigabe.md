@@ -87,6 +87,9 @@ ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
   Gespeicherte, das die Oberfläche anzeigt. Swift normalisiert nichts.
 - **Fehlercodes** (neu zu übersetzen): `download`, `checksum`, `busy`, `no_catalog`,
   `route_import`. `no_catalog` heißt: keine Quelle gesetzt.
+  - Berichtigt auf dem Mac: Die Codes der Regionen heißen wie am Desktop `region_download`,
+    `region_checksum` und `region_busy`. Ein abgebrochener Download endet mit
+    `region_cancelled`, die App zeigt dafür keinen Fehler.
 - **Rulings aus den Linux-Tasks:**
   - Task 4 nutzt einen eigenen `std::net`-HTTP-Server, nicht `tiny_http`: `tiny_http` ließ
     abgebrochene Verbindungen offen, und „Aus ist aus“ ließ sich so nicht halten.
@@ -108,6 +111,35 @@ ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
     (Dev-Abhängigkeit).
   - Die Bindings lassen sich auf Linux nur aus der `.a` erzeugen
     (`target/release/liboutdoor_core.a`), die `.so` baut `crate-type` nicht.
+
+## Stand nach Task 7–9 (Mac, 2026-11-16)
+
+Task 7–9 sind fertig und im Simulator (iPhone 17) grün. Entscheidungen dabei:
+
+- **Status `map-status`:** `regions=` listet jetzt `<id>:<0|1>` statt der Anzahl. Die Tests aus
+  I1–I3 lesen die Liste. Dazu kommen `bounds=<0|1>` (Grenzen der aktiven Regionen) und
+  `download_start_pct`: der Stand der ersten Meldung eines Downloads. Daran prüft
+  `testInterruptedDownloadResumes`, dass fortgesetzt und nicht neu begonnen wird.
+- **Liste „Vom Desktop“:** Sie zeigt die Katalog-Einträge, die nicht installiert sind. Nach dem
+  Löschen steht eine Region deshalb ohne erneutes Lesen des Katalogs wieder dort. Nach einem
+  Download liest die App den Katalog einmal neu, damit „Aktualisieren“ verschwindet.
+- **Engine vergessen:** `ValhallaMobileEngine.forget(tilesPath:)` nach Update und Löschen, mit
+  dem Pfad `<regions>/<id>/routing.tar` (`CoreHost.routingTiles`). Der Test prüft, dass das der
+  Pfad ist, mit dem der Kern die Engine fragt. Deaktivieren braucht das nicht: Die Datei
+  bleibt, und der Kern fragt für die Region nicht mehr.
+- **Erste Region:** Kommt die erste aktive Region dazu und liegt die Kartenmitte außerhalb,
+  springt die Karte dorthin. Sonst bleibt sie, wo sie ist.
+- **Profile:** Die Liste der Sportarten wird nach jeder Änderung der Regionen neu gelesen
+  (verfügbar oder nicht).
+- **Geladene Route ersetzt (Review Focus 2):** Nach `replaced` oder `restored` der geladenen
+  Route lädt die App sie neu (`loadRoute`) und zeigt die Desktop-Fassung. Auf dem iPhone gibt
+  es dafür keinen UI-Test: `share-serve` bietet eine feste Route an und kann sie nicht ändern.
+  Der Kern-Test `import_replaces_loaded_route_in_memory` deckt den Fall ab.
+- **Scanner:** Der Simulator hat keine Kamera. `testScannerWithoutCamera` prüft dort nur den
+  Hinweis und dass „Adresse eingeben“ bleibt. Den Scan selbst prüft der Nutzer am iPhone.
+- **Tests auf dem iPhone:** Die neuen UI-Tests starten mit `-resetData`. Auf einem iPhone mit
+  eigenen Regionen und Routen laufen sie deshalb nur nach Rückfrage. Für `DEVICE=<udid>` nimmt
+  `test.sh` die WLAN-Adresse des Macs (`en0`) als Freigabe.
 
 ## Global Constraints
 

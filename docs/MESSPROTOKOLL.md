@@ -149,6 +149,25 @@ Stand 2026-11-16, MacBook Air (Xcode 27.2), valhalla-mobile 0.6.4 (Valhalla 3.9.
   Abschnitt `logging` der Konfiguration nicht an Valhalla weiter, abstellen lässt es sich
   dort also nicht. Die Warnung zur fehlenden `traffic.tar` ist weg.
 
+## iOS I4: Freigabe
+
+Stand 2026-11-16, MacBook Air (Xcode 27.2), Simulator iPhone 17. Die Freigabe ist
+`share-serve` auf demselben Mac, mit der Testregion `mini` (843 KiB) und einer Route.
+
+| Messung | Ergebnis |
+|---|---|
+| App-Größe (Release, arm64, unkomprimiert, ohne Regionen) | 31 MB, davon 19,7 MB Programm und 8,0 MB MapLibre. Zuwachs gegenüber I3: rund 1 MB (Regionsverwaltung, Übernahme, Scanner; VisionKit gehört zum System) |
+| Simulator: Tests | 66 grün (29 Unit, 37 UI), davon neu 7 für die Regionen, 3 für die Routen vom Desktop, 2 für den Scanner und die getippte Adresse |
+| Simulator: Start mit nicht erreichbarer Quelle (`http://127.0.0.1:9/`) | Karte in unter 5 s gezeichnet, der Start liest den Katalog nicht (`testDesktopUnreachable`) |
+| Simulator: Download bei 200 KiB/s abgebrochen und fortgesetzt | Die erste Meldung des zweiten Laufs steht bei ≥ 15 %, die Region wird danach installiert (`testInterruptedDownloadResumes`) |
+| iPhone 13 Pro Max: Download einer großen Region im WLAN | **offen**, bei der Abnahme durch den Nutzer zu messen |
+| iPhone: QR-Code scannen, Erlaubnis für das lokale Netzwerk | **offen**, Abnahme durch den Nutzer |
+
+- Der Simulator lädt von `127.0.0.1`. Das sagt nichts über die Geschwindigkeit im WLAN und
+  fragt nicht nach dem lokalen Netzwerk.
+- Den Scanner kann der Simulator nicht prüfen (keine Kamera). Dort ist nur geprüft, dass der
+  Hinweis erscheint und „Adresse eingeben“ bleibt.
+
 ## Höhenlinien im Regionspaket
 
 Gemessen am 2026-11-15 mit `scripts/build-region.sh <id> --steps contours,manifest`
