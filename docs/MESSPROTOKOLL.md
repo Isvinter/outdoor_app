@@ -160,6 +160,7 @@ Stand 2026-11-16, MacBook Air (Xcode 27.2), Simulator iPhone 17. Die Freigabe is
 | Simulator: Tests | 66 grün (29 Unit, 37 UI), davon neu 7 für die Regionen, 3 für die Routen vom Desktop, 2 für den Scanner und die getippte Adresse |
 | Simulator: Start mit nicht erreichbarer Quelle (`http://127.0.0.1:9/`) | Karte in unter 5 s gezeichnet, der Start liest den Katalog nicht (`testDesktopUnreachable`) |
 | Simulator: Download bei 200 KiB/s abgebrochen und fortgesetzt | Die erste Meldung des zweiten Laufs steht bei ≥ 15 %, die Region wird danach installiert (`testInterruptedDownloadResumes`) |
+| iPhone 13 Pro Max (iOS 27.2), `share-serve` auf dem Mac im WLAN: UI-Tests der Regionen und der Routen vom Desktop | 9 grün, 1 übersprungen (Scanner-Hinweis, nur Simulator). Beim allerersten Lauf scheiterten drei Tests, solange iOS nach dem Zugriff auf das lokale Netzwerk fragte; danach liefen sie durch |
 | iPhone 13 Pro Max: Download einer großen Region im WLAN | **offen**, bei der Abnahme durch den Nutzer zu messen |
 | iPhone: QR-Code scannen, Erlaubnis für das lokale Netzwerk | **offen**, Abnahme durch den Nutzer |
 
