@@ -172,4 +172,46 @@ final class RegionsUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(resumed.int("download_start_pct"), 15)
         app.waitForStatus("mini installed", timeout: 30) { $0.list("regions") == ["mini:1"] }
     }
+
+    /// The address typed instead of scanned; the core puts it into shape.
+    func testTypedAddress() throws {
+        let source = try XCTUnwrap(URL(string: ProcessInfo.processInfo.environment["SHARE_URL"] ?? ""))
+        guard let host = source.host, let port = source.port else { throw XCTSkip("SHARE_URL is not set") }
+        let app = XCUIApplication.selftest(withMini: false)
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.buttons["regions-hint-open"].tap()
+        // No address yet: nothing to read, nothing offered.
+        let empty = app.waitForStatus("list without a catalog") { $0.int("catalog") == 0 }
+        XCTAssertEqual(empty.int("catalog_error"), 0)
+        XCTAssertFalse(app.staticTexts["catalog-source"].exists)
+
+        app.buttons["source-type"].tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("\(host):\(port)")
+        app.alerts.buttons["Übernehmen"].tap()
+
+        app.waitForStatus("catalog read") { $0.int("catalog") == 1 && $0.int("catalog_error") == 0 }
+        XCTAssertEqual(app.staticTexts["catalog-source"].label, "http://\(host):\(port)/")
+        XCTAssertTrue(app.buttons["region-load-mini"].exists)
+    }
+
+    /// The simulator has no camera: the scanner says so and leaves the way to type.
+    func testScannerWithoutCamera() throws {
+        #if !targetEnvironment(simulator)
+        throw XCTSkip("a device has a camera; the user tries the scanner there")
+        #else
+        let app = XCUIApplication.selftest(withMini: false)
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.buttons["regions-hint-open"].tap()
+
+        app.buttons["source-scan"].tap()
+
+        let hint = app.staticTexts["scan-unavailable"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 5))
+        XCTAssertTrue(hint.label.contains("Adresse eingeben"), hint.label)
+        app.buttons["scan-cancel"].tap()
+        XCTAssertTrue(app.buttons["source-type"].waitForExistence(timeout: 5))
+        #endif
+    }
 }

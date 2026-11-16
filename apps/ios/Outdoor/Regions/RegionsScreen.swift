@@ -6,6 +6,7 @@ struct RegionsScreen: View {
     @ObservedObject var regions: RegionsController
     @State private var deleting: RegionSummary?
     @State private var typing = false
+    @State private var scanning = false
     @State private var address = ""
 
     var body: some View {
@@ -60,6 +61,10 @@ struct RegionsScreen: View {
         } message: { region in
             Text("„\(region.name)“ wird vom iPhone entfernt (\(Format.bytes(region.bytes))). "
                 + "Vom Desktop lässt sie sich wieder laden.")
+        }
+        .sheet(isPresented: $scanning) {
+            // The scanner closes itself; the core stores the address and the catalog is read.
+            ScanSheet { regions.setSource($0) }
         }
         .alert("Adresse des Desktops", isPresented: $typing) {
             TextField("192.168.178.20:8765", text: $address)
@@ -128,12 +133,17 @@ struct RegionsScreen: View {
                     if regions.reading { ProgressView() }
                 }
             }
-            Button("Adresse eingeben") {
-                address = regions.source
-                typing = true
+            HStack {
+                Button("QR-Code scannen") { scanning = true }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("source-scan")
+                Button("Adresse eingeben") {
+                    address = regions.source
+                    typing = true
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("source-type")
             }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("source-type")
         }
     }
 
