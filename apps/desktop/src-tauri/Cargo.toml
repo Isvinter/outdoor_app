@@ -21,6 +21,7 @@ core-gpx.workspace = true
 core-location.workspace = true
 core-maps.workspace = true
 core-routing.workspace = true
+core-share.workspace = true
 core-storage.workspace = true
 core-track.workspace = true
 region-builder.workspace = true
@@ -28,6 +29,7 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12", features = ["custom-protocol"] }
 tauri-plugin-dialog = "2.8"
+ureq.workspace = true
 uuid.workspace = true
 
 [lints]

@@ -35,6 +35,14 @@ impl CommandError {
         }
     }
 
+    /// The share server cannot listen on `port`, mostly because it is taken.
+    pub fn share(port: u16, e: &std::io::Error) -> Self {
+        Self {
+            code: "share",
+            message: format!("Port {port}: {e}"),
+        }
+    }
+
     pub fn io(path: &str, e: &std::io::Error) -> Self {
         Self {
             code: "io",

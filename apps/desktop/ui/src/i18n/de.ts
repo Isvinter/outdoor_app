@@ -103,6 +103,15 @@ export const de = {
   "maps.build.step.routing": "Routingdaten",
   "maps.build.step.manifest": "Abschluss",
 
+  "share.toggle": "Im Heimnetz freigeben",
+  "share.port": "Port",
+  "share.port_invalid": "Der Port muss eine Zahl von 1 bis 65535 sein",
+  "share.address": "Adresse",
+  "share.copy": "Kopieren",
+  "share.copied": "Kopiert",
+  "share.firewall": "Erreicht das iPhone die Adresse nicht, lässt die Firewall den Port vielleicht nicht durch:",
+  "share.no_address": "Keine Heimnetz-Adresse gefunden. Ist der Rechner im WLAN oder per Kabel verbunden?",
+
   "route.title": "Route planen",
   "route.profile": "Profil",
   "route.profile.hike": "Wandern",
@@ -217,6 +226,7 @@ export const de = {
   "error.build_busy": "Es wird gerade eine Region gebaut",
   "error.build_unknown_region": "Für diese Region gibt es keine Beschreibung",
   "error.build_io": "Baudateien können nicht gelesen oder geschrieben werden",
+  "error.share": "Die Freigabe kann nicht starten – ist der Port schon belegt?",
   "error.io": "Datei kann nicht gelesen oder geschrieben werden",
   "error.unknown": "Unerwarteter Fehler",
 } as const;

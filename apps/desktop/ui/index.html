@@ -95,6 +95,33 @@
         </div>
         <p id="catalog-hint" class="hint"></p>
         <ul id="region-list"></ul>
+        <div id="share">
+          <label class="check share-switch">
+            <input type="checkbox" id="share-on" class="switch" disabled />
+            <span id="share-on-label" data-i18n="share.toggle"></span>
+          </label>
+          <label class="field">
+            <span data-i18n="share.port"></span>
+            <input id="share-port" type="number" min="1" max="65535" step="1" />
+          </label>
+          <p id="share-none" class="hint" hidden></p>
+          <div id="share-details" hidden>
+            <label class="field" id="share-address-field" hidden>
+              <span data-i18n="share.address"></span>
+              <select id="share-address"></select>
+            </label>
+            <div class="copyable">
+              <code id="share-url"></code>
+              <button id="share-url-copy" data-i18n="share.copy"></button>
+            </div>
+            <div id="share-qr"></div>
+            <p class="hint" data-i18n="share.firewall"></p>
+            <div class="copyable">
+              <code id="share-firewall"></code>
+              <button id="share-firewall-copy" data-i18n="share.copy"></button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section>

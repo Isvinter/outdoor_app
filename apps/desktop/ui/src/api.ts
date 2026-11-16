@@ -249,6 +249,27 @@ export interface RouteRecord {
   rev: number;
 }
 
+/** A private IPv4 address of this machine in the home network. */
+export interface LocalAddress {
+  ip: string;
+  interface: string;
+  prefix: number;
+  /** The address the default route leaves from. */
+  default_route: boolean;
+}
+
+export interface ShareStatus {
+  running: boolean;
+  port: number;
+  /** Default route first. */
+  addresses: LocalAddress[];
+  /** The address the URL, QR code and firewall hint are for. */
+  selected: string | null;
+  url: string | null;
+  qr_svg: string | null;
+  firewall_hint: string | null;
+}
+
 export interface SnapshotRequest {
   path: string;
   /** Longitude, latitude and zoom to show, if given. */
@@ -306,6 +327,11 @@ export const api = {
   routeLoad: (id: string) => invoke<RoutePlan>("route_load", { id }),
   routeDelete: (id: string) => invoke<void>("route_delete", { id }),
   routeExportGpx: (name: string, path: string) => invoke<void>("route_export_gpx", { name, path }),
+
+  shareStatus: () => invoke<ShareStatus>("share_status"),
+  /** Starts the share (stores a changed port); while it runs, only picks the address shown. */
+  shareStart: (port: number, ip: string | null) => invoke<ShareStatus>("share_start", { port, ip }),
+  shareStop: () => invoke<void>("share_stop"),
 
   snapshotRequest: () => invoke<SnapshotRequest | null>("snapshot_request"),
   snapshotSave: (png: number[]) => invoke<void>("snapshot_save", { png }),

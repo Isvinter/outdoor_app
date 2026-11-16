@@ -2850,6 +2850,7 @@ dependencies = [
  "core-location",
  "core-maps",
  "core-routing",
+ "core-share",
  "core-storage",
  "core-track",
  "region-builder",
@@ -2858,6 +2859,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "ureq",
  "uuid",
 ]
 

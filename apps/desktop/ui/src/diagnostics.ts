@@ -13,6 +13,9 @@
  *  - OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]: plan a hike through
  *    these points with the real controls, save it, report, exit. Together with
  *    OUTDOOR_SNAPSHOT the picture shows the route.
+ *  - OUTDOOR_SELFTEST_SHARE=1: switch the home-network share on and off with
+ *    real clicks, read the catalog and routes from it, report, exit. Together
+ *    with OUTDOOR_SNAPSHOT the picture shows the share controls.
  *  - OUTDOOR_SELFTEST=<gpx file>: drive the real controls through a recording
  *    with a simulated receiver, report what the page shows, exit.
  */
@@ -388,6 +391,128 @@ async function routeSelfTest(view: MapView, spec: string, exit: boolean): Promis
   else api.log("info", JSON.stringify(report));
 }
 
+/** Clicks `el` with real mouse events at its centre, as a user would. */
+function clickElement(el: HTMLElement): void {
+  el.scrollIntoView({ block: "center" });
+  const box = el.getBoundingClientRect();
+  const init = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2, bubbles: true, cancelable: true, button: 0 };
+  el.dispatchEvent(new MouseEvent("mousedown", { ...init, buttons: 1 }));
+  el.dispatchEvent(new MouseEvent("mouseup", init));
+  el.dispatchEvent(new MouseEvent("click", init));
+}
+
+/**
+ * Draws the element `id` with the page's style sheets into a PNG through an
+ * SVG image, since the snapshot of the map does not show the sidebar.
+ */
+async function elementPng(id: string): Promise<number[]> {
+  const source = document.getElementById(id);
+  if (!source) return [];
+  const copy = source.cloneNode(true) as HTMLElement;
+  // What the user entered lives in properties, which a copy does not keep.
+  const fields = source.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select");
+  copy.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select").forEach((field, i) => {
+    const original = fields[i];
+    if (!original) return;
+    if (field instanceof HTMLInputElement && original instanceof HTMLInputElement) {
+      field.setAttribute("value", original.value);
+      if (original.checked) field.setAttribute("checked", "");
+    } else {
+      field.querySelectorAll("option").forEach((option) => {
+        if (option.value === original.value) option.setAttribute("selected", "");
+      });
+    }
+  });
+  const css = [...document.styleSheets]
+    .flatMap((sheet) => [...sheet.cssRules].map((rule) => rule.cssText))
+    .join("\n");
+  const width = Math.ceil(source.getBoundingClientRect().width) + 24;
+  const height = Math.ceil(source.scrollHeight) + 40;
+  const page = document.createElement("div");
+  page.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+  page.style.cssText = `width:${width}px;padding:12px;background:#ffffff;font:14px/1.4 system-ui,sans-serif`;
+  const style = document.createElement("style");
+  style.textContent = css;
+  page.append(style, copy);
+  const scale = 2;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width * scale}" height="${height * scale}" viewBox="0 0 ${width} ${height}">` +
+    `<foreignObject x="0" y="0" width="${width}" height="${height}">${new XMLSerializer().serializeToString(page)}</foreignObject></svg>`;
+  const image = new Image();
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("cannot draw the element"));
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const context = canvas.getContext("2d");
+  if (!context) return [];
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  return blob ? Array.from(new Uint8Array(await blob.arrayBuffer())) : [];
+}
+
+async function shareSelfTest(shot: boolean): Promise<void> {
+  const el = (id: string) => document.getElementById(id) as HTMLElement;
+  const toggle = () => el("share-on") as HTMLInputElement;
+  const url = () => (el("share-details").hidden ? "" : text("share-url"));
+  const get = (target: string) => invoke<string>("selftest_fetch", { url: target });
+  const report: Record<string, unknown> = {};
+  let png: number[] = [];
+  try {
+    await until("share controls", () => !toggle().disabled);
+    report.running_before = toggle().checked;
+    clickElement(toggle());
+    await until("share url shown", () => url() !== "" || text("share-none") !== "", 15_000);
+    report.running_after_on = toggle().checked && (await invoke<{ running: boolean }>("share_status")).running;
+    report.url = url();
+    report.addresses = (el("share-address") as HTMLSelectElement).options.length;
+    report.address_choice_shown = el("share-address-field").offsetParent !== null;
+    report.qr_present = el("share-qr").querySelector("svg") !== null;
+    report.firewall_hint = text("share-firewall");
+    const middle = (id: string) => {
+      const box = el(id).getBoundingClientRect();
+      return box.top + box.height / 2;
+    };
+    report.switch_beside_label = Math.abs(middle("share-on") - middle("share-on-label")) < 4;
+    report.port_locked = (el("share-port") as HTMLInputElement).disabled;
+    const base = String(report.url);
+    const catalog = JSON.parse(await get(`${base}catalog.json`)) as { regions: unknown[] };
+    report.catalog_regions = catalog.regions.length;
+    const routes = JSON.parse(await get(`${base}routes.json`)) as unknown[];
+    report.routes = routes.length;
+    report.layout_problems = layoutProblems();
+    if (shot) png = await elementPng("share");
+    clickElement(toggle());
+    await until("share off", () => !toggle().checked && el("share-details").hidden && !toggle().disabled);
+    report.running_after_off = (await invoke<{ running: boolean }>("share_status")).running;
+    report.fetch_after_off_failed = await get(`${base}catalog.json`).then(
+      () => false,
+      () => true,
+    );
+    report.message = text("message");
+    report.ok =
+      report.running_after_on === true &&
+      Number(report.catalog_regions) >= 1 &&
+      report.qr_present === true &&
+      report.fetch_after_off_failed === true;
+  } catch (e) {
+    report.ok = false;
+    report.error = String(e);
+    report.message = text("message");
+  }
+  if (shot) {
+    api.log("info", JSON.stringify(report));
+    await api.snapshotSave(png);
+  } else {
+    await api.probeReport(report);
+  }
+}
+
 /** Saves a picture of the map once everything in view is drawn (OUTDOOR_SNAPSHOT). */
 async function snapshot(view: MapView, target: [number, number, number] | null, style: string | null): Promise<void> {
   const map = view.map;
@@ -419,6 +544,7 @@ async function startupProbe(view: MapView): Promise<void> {
 export async function runDiagnostics(view: MapView): Promise<void> {
   if (await invoke<boolean>("startup_probe")) await startupProbe(view);
   const shot = await api.snapshotRequest();
+  if (await invoke<boolean>("selftest_share")) return shareSelfTest(shot !== null);
   const route = await invoke<string | null>("selftest_route");
   if (route) await routeSelfTest(view, route, shot === null);
   if (shot) await snapshot(view, shot.view, shot.style);

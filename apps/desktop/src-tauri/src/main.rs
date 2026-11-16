@@ -4,6 +4,7 @@ mod build;
 mod commands;
 mod error;
 mod events;
+mod share;
 mod tiles;
 
 use std::path::PathBuf;
@@ -41,6 +42,7 @@ fn main() -> ExitCode {
             let core = App::open(&dir.join("outdoor.sqlite"), listener)?;
             app.manage(core);
             app.manage(build::Builds::new(&dir));
+            app.manage(share::Share::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -60,6 +62,11 @@ fn main() -> ExitCode {
             commands::location_start_replay,
             commands::location_start_gpsd,
             commands::location_stop,
+            share::share_status,
+            share::share_start,
+            share::share_stop,
+            share::selftest_share,
+            share::selftest_fetch,
             commands::regions_overview,
             commands::regions_set_source,
             commands::region_install,
@@ -96,6 +103,7 @@ fn main() -> ExitCode {
         Ok(app) => {
             app.run(|handle, event| {
                 if let tauri::RunEvent::ExitRequested { .. } = event {
+                    share::stop(handle);
                     build::shutdown(handle);
                 }
             });

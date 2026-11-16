@@ -58,7 +58,8 @@ In der App:
   Geländemodell („Gelände“) – GPS-Höhen rauschen; der Track selbst bleibt unverändert.
 - **Karten** – Kartenstil wählen, Legende, neue Region auf der Karte wählen und bauen,
   Katalog einstellen, Regionen herunterladen, anzeigen und löschen
-  (siehe [Offline-Karten](#offline-karten)).
+  (siehe [Offline-Karten](#offline-karten)), Regionen und Routen im Heimnetz freigeben
+  (siehe [Im Heimnetz freigeben](#im-heimnetz-freigeben)).
 - **Über / Datenquellen** – Attribution der installierten Regionen und der Software.
 
 Die Daten liegen unter `~/.local/share/de.outdoor-app.desktop/`: Datenbank `outdoor.sqlite`,
@@ -76,6 +77,7 @@ Kartenregionen in `regions/`, Beschreibungen der in der App gebauten Regionen in
 | `OUTDOOR_REPO=<ordner>` | Projektordner mit `scripts/build-region.sh` für „Region bauen“ (Standard: der Ordner, aus dem die App gebaut wurde) |
 | `OUTDOOR_BUILD_SCRIPT=<datei>` | anderes Bauskript (Tests, z. B. `crates/region-builder/tests/fixtures/fake-build.sh`) |
 | `OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]` | plant über die Oberfläche eine Wanderroute durch die Punkte, speichert sie, gibt das Ergebnis als JSON aus, beendet die App (zusammen mit `OUTDOOR_SNAPSHOT` zeigt das Bild die Route). Ab vier Punkten: letztes Teilstück MTB, Etappenende am zweiten Punkt über das Menü, danach „Letzten entfernen“ |
+| `OUTDOOR_SELFTEST_SHARE=1` | schaltet „Im Heimnetz freigeben“ per Klick ein, liest `catalog.json` und `routes.json` über die gezeigte Adresse, schaltet per Klick aus, prüft, dass nichts mehr antwortet, gibt das Ergebnis als JSON aus, beendet die App. Mit `OUTDOOR_SNAPSHOT` steht der Bericht im Protokoll (`[ui:info]`), und das Bild zeigt den Bereich der Freigabe statt der Karte |
 | `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt und `OUTDOOR_SNAPSHOT_STYLE=topo\|winter\|online` für einen Stil |
 
 ## Offline-Karten
@@ -138,6 +140,17 @@ Ausgabe; das ganze Protokoll liegt in `region-build/<id>/build.log`.
 2. Bei der Region **Herunterladen** drücken. Der Download lässt sich abbrechen und wird beim
    nächsten Mal fortgesetzt; jede Datei wird per SHA-256 geprüft, bevor die Region erscheint.
 3. Kartenstil **Topo Sommer (offline)** – ab jetzt wird kein Netz mehr gebraucht.
+
+### Im Heimnetz freigeben
+
+**Karten → Im Heimnetz freigeben** startet einen kleinen Server, der die installierten
+Regionen und die gespeicherten Routen nur ausliefert (nur lesen, nur `GET`). Er lauscht auf
+allen Schnittstellen auf dem Port aus dem Feld **Port** (Standard 8765, nur bei ausgeschaltetem
+Schalter änderbar; ein geänderter Port wird gespeichert). Die App zeigt die Adresse als Text und
+als QR-Code; hat der Rechner mehrere Heimnetz-Adressen, lässt sich die gezeigte wählen. Lässt die
+Firewall den Port nicht durch, nennt die App den passenden Befehl, z. B.
+`sudo ufw allow from 192.168.2.0/24 to any port 8765 proto tcp`. Ist der Port belegt, bleibt der
+Schalter aus. Schalter aus oder App beenden stoppt den Server sofort, auch laufende Downloads.
 
 Kartenstil: Wanderwege nach SAC-Skala (braun gestrichelt = Wanderweg, rot = Bergwanderweg,
 blau gepunktet = alpin), MTB-Trails farbig hinterlegt nach Singletrail-Skala (grün S0, blau
