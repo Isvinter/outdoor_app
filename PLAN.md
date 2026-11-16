@@ -189,6 +189,9 @@ LocationSource ──Fix──► Recorder (core-track) ──► core-storage (
 | PMTiles lesen | eigener Leser in `core-maps` | – | – | – | M3: das Crate `pmtiles` 0.28.1 liest nur asynchron über tokio; der eigene synchrone Leser (v3, ~300 Zeilen, gegen go-pmtiles-Archive getestet) hält den Kern frei von einer Async-Laufzeit. Geschrieben wird mit Planetiler und go-pmtiles |
 | Bilder (WebP/PNG) | `image` | 0.25.10 | 2026-03-10 | MIT/Apache-2.0 | DEM-WebP dekodieren, Kacheln kodieren; reines Rust |
 | Prüfsummen | `sha2` | 0.11.1 | 2026-10-12 | MIT/Apache-2.0 | Regionspakete verifizieren |
+| Heimnetz-Server | eigener Server auf `std::net` | – | – | – | I4: nur `GET`, vier Threads, `Range: bytes=<n>-`, `Connection: close`; beim Ausschalten werden laufende Antworten wirklich abgebrochen. `tiny_http` siehe unten |
+| QR-Code | `qrcode` (nur `svg`) | 0.14.1 | 2024-07-05 | MIT/Apache-2.0 | QR-Code der Freigabe-Adresse als SVG; ohne die Funktion `image`, damit kein `image`-Baum mitkommt |
+| Netzwerkadressen | `if-addrs` | 0.15.0 | 2026-02-08 | MIT/BSD-3-Clause | Adressen und Netzmasken der Schnittstellen für Adresse und Firewall-Hinweis |
 | CLI | `clap` | 4.6.7 | 2026-09-14 | MIT/Apache-2.0 | |
 | Routing | `valhalla` | 0.7.6 | 2026-11-07 | MIT | siehe 3.3 |
 | Logging | `tracing` | 0.1.44 | 2025-12-18 | MIT | |
@@ -204,6 +207,11 @@ Bewusst **nicht** verwendet:
   (`TPV`, `SKY`, `WATCH`); wir parsen die wenigen Nachrichten selbst mit `serde`.
 - `geo` – Haversine und Peilung sind wenige Zeilen; spart einen Abhängigkeitsbaum.
 - `chrono` – `time` reicht.
+- `tiny_http` 0.12.0 – letztes Release 2022-10. Bricht eine Antwort mitten im Senden ab, hält
+  der Server die Verbindung trotzdem offen und wartet auf die nächste Anfrage; das iPhone hinge
+  dann bis zu seinem Zeitlimit, statt sofort einen Fehler zu sehen. Außerdem schickt es große
+  Antworten ab 32 KiB von sich aus `chunked`. Der eigene Server hat ~500 Zeilen, nur `GET`. Der gepflegte
+  Fork `tiny_http_dh` 0.12.4 verlangt Rust 1.98.
 - GDAL – nicht nötig, weil DEM bereits als Terrarium-Kacheln vorliegt (siehe 4).
 
 MPL-2.0 (`uniffi`) ist dateibezogenes Copyleft und für eine private App unproblematisch.
