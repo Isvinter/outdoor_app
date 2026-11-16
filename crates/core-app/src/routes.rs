@@ -253,6 +253,28 @@ struct OldRoute {
     waypoints: Vec<LatLon>,
 }
 
+/// A plan as read from its JSON.
+enum ReadPlan {
+    Current(Box<RoutePlan>),
+    Old(OldPlan),
+}
+
+/// Reads a current plan (it has a `format`) or an old one.
+fn read_plan(value: &serde_json::Value) -> Result<ReadPlan, AppError> {
+    let broken = |e: serde_json::Error| AppError::RoutePlan(e.to_string());
+    if value.get("format").is_some() {
+        return Ok(ReadPlan::Current(Box::new(
+            RoutePlan::deserialize(value).map_err(broken)?,
+        )));
+    }
+    Ok(ReadPlan::Old(OldPlan::deserialize(value).map_err(broken)?))
+}
+
+/// Whether a plan can be read, as a current or an old one.
+pub(crate) fn check_plan(value: &serde_json::Value) -> Result<(), AppError> {
+    read_plan(value).map(|_| ())
+}
+
 impl App {
     /// Routes from now on with routers of `factory`, e.g. Valhalla in the app.
     pub fn set_router_factory(&self, factory: Arc<dyn RouterFactory>) {
@@ -360,12 +382,12 @@ impl App {
     /// its waypoints, all legs in its one profile.
     fn load_plan(&self, id: Uuid) -> Result<RoutePlan, AppError> {
         let json = self.shared.inner().storage.route_plan(id)?;
-        let broken = |e: serde_json::Error| AppError::RoutePlan(e.to_string());
-        let value: serde_json::Value = serde_json::from_str(&json).map_err(broken)?;
-        if value.get("format").is_some() {
-            return serde_json::from_value(value).map_err(broken);
-        }
-        let old: OldPlan = serde_json::from_value(value).map_err(broken)?;
+        let value: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| AppError::RoutePlan(e.to_string()))?;
+        let old = match read_plan(&value)? {
+            ReadPlan::Current(plan) => return Ok(*plan),
+            ReadPlan::Old(old) => old,
+        };
         let spec = LegSpec {
             profile: old.route.profile,
             options: old.options,

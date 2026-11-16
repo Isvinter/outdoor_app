@@ -14,4 +14,4 @@ pub use error::AppError;
 pub use plan::{Leg, LegError, LegSpec, PlanRequest, RoutePlan, RoutePoint, Stage, Totals};
 pub use regions::{MapOverview, RegionInfo, RegionState, RegionsOverview};
 pub use routes::{ProfileInfo, RouterFactory};
-pub use share::{SharedRoute, SharedRouteInfo};
+pub use share::{ImportOutcome, RemoteRoute, RemoteRouteState, SharedRoute, SharedRouteInfo};

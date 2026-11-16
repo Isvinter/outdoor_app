@@ -445,6 +445,58 @@ impl Storage {
         )
     }
 
+    /// The synchronisation state of a route, deleted ones included.
+    pub fn route_sync(&self, id: Uuid) -> Result<Option<RouteSync>, StorageError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT rev, synced_rev, source_rev, deleted_at IS NOT NULL FROM routes WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok(RouteSync {
+                        rev: row.get(0)?,
+                        synced_rev: row.get(1)?,
+                        source_rev: row.get(2)?,
+                        deleted: row.get(3)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Stores a route taken over from another device under its id: inserted
+    /// at `rev` 1, or replaced (and restored if deleted) with `rev` bumped.
+    /// Afterwards it counts as synchronised.
+    pub fn put_synced_route(
+        &mut self,
+        id: Uuid,
+        route: &SyncedRoute<'_>,
+        now_ms: i64,
+    ) -> Result<(), StorageError> {
+        self.conn.execute(
+            "INSERT INTO routes (id, name, profile, distance_m, ascent_m, plan_json, created_at,
+                                 updated_at, rev, synced_rev, source_rev)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1, 1, ?8)
+             ON CONFLICT (id) DO UPDATE SET
+                 name = excluded.name, profile = excluded.profile,
+                 distance_m = excluded.distance_m, ascent_m = excluded.ascent_m,
+                 plan_json = excluded.plan_json, updated_at = excluded.updated_at,
+                 deleted_at = NULL, rev = rev + 1, synced_rev = rev + 1,
+                 source_rev = excluded.source_rev",
+            params![
+                id,
+                route.name,
+                route.profile,
+                route.distance_m,
+                route.ascent_m,
+                route.plan_json,
+                now_ms,
+                route.source_rev
+            ],
+        )?;
+        Ok(())
+    }
+
     fn update_route(
         &mut self,
         id: Uuid,
@@ -557,6 +609,27 @@ impl RawTrack {
             rev: self.rev,
         })
     }
+}
+
+/// What decides whether a route changed since it was taken over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RouteSync {
+    pub rev: i64,
+    /// The `rev` at the last takeover; equal to `rev` while unchanged here.
+    pub synced_rev: i64,
+    /// The `rev` of the other device's version; `None` if made on this device.
+    pub source_rev: Option<i64>,
+    pub deleted: bool,
+}
+
+/// A route as another device hands it over.
+pub struct SyncedRoute<'a> {
+    pub name: &'a str,
+    pub profile: &'a str,
+    pub distance_m: f64,
+    pub ascent_m: Option<f64>,
+    pub plan_json: &'a str,
+    pub source_rev: i64,
 }
 
 /// A saved route as shown in lists; the plan itself is loaded separately.

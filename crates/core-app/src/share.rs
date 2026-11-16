@@ -3,12 +3,13 @@
 
 use std::path::PathBuf;
 
-use core_maps::{Catalog, CatalogEntry};
+use core_maps::{Catalog, CatalogEntry, catalog_location, fetch_document};
+use core_storage::SyncedRoute;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::AppError;
-use crate::app::App;
+use crate::app::{App, now_ms};
 
 /// A saved route as listed by the share.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,5 +89,136 @@ impl App {
         let json = self.shared.inner().storage.route_plan(id)?;
         let plan = serde_json::from_str(&json).map_err(|e| AppError::RoutePlan(e.to_string()))?;
         Ok(SharedRoute { info, plan })
+    }
+}
+
+/// How a route offered by the desktop relates to this device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteRouteState {
+    /// Not on this device.
+    New,
+    UpToDate,
+    /// Changed on the desktop since it was taken over, unchanged here.
+    DesktopNewer,
+    /// Changed on this device since it was taken over.
+    ChangedHere,
+    DeletedHere,
+}
+
+/// A route the desktop offers, with its state here.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RemoteRoute {
+    pub info: SharedRouteInfo,
+    pub state: RemoteRouteState,
+}
+
+/// What taking a route over did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportOutcome {
+    Added,
+    Replaced,
+    Restored,
+    /// Changed here: the desktop version was stored as a new route.
+    Copied,
+}
+
+impl App {
+    /// The routes the desktop offers at the catalog source, with their state
+    /// on this device. Reads over the network, which may take a while.
+    pub fn remote_routes(&self) -> Result<Vec<RemoteRoute>, AppError> {
+        let source = self.catalog_source()?;
+        if source.is_empty() {
+            return Err(AppError::NoCatalog);
+        }
+        let json = fetch_document(
+            self.shared.maps.fetcher(),
+            &catalog_location(&source, "routes.json"),
+        )?;
+        let list: Vec<SharedRouteInfo> = serde_json::from_str(&json)
+            .map_err(|e| AppError::RouteImport(format!("route list: {e}")))?;
+        let inner = self.shared.inner();
+        list.into_iter()
+            .map(|info| {
+                let state = match inner.storage.route_sync(info.id)? {
+                    None => RemoteRouteState::New,
+                    Some(sync) if sync.deleted => RemoteRouteState::DeletedHere,
+                    Some(sync) if sync.rev != sync.synced_rev => RemoteRouteState::ChangedHere,
+                    Some(sync) if sync.source_rev == Some(info.rev) => RemoteRouteState::UpToDate,
+                    Some(_) => RemoteRouteState::DesktopNewer,
+                };
+                Ok(RemoteRoute { info, state })
+            })
+            .collect()
+    }
+
+    /// Takes a route over from the desktop. Returns what happened and the id
+    /// of the route on this device (a new one if it was copied).
+    pub fn import_route(&self, id: Uuid) -> Result<(ImportOutcome, Uuid), AppError> {
+        let source = self.catalog_source()?;
+        if source.is_empty() {
+            return Err(AppError::NoCatalog);
+        }
+        let json = fetch_document(
+            self.shared.maps.fetcher(),
+            &catalog_location(&source, &format!("routes/{id}.json")),
+        )?;
+        let route: SharedRoute =
+            serde_json::from_str(&json).map_err(|e| AppError::RouteImport(e.to_string()))?;
+        if route.info.id != id {
+            return Err(AppError::RouteImport(format!(
+                "the file is for route {}, not {id}",
+                route.info.id
+            )));
+        }
+        crate::routes::check_plan(&route.plan).map_err(|e| AppError::RouteImport(e.to_string()))?;
+        let plan_json =
+            serde_json::to_string(&route.plan).map_err(|e| AppError::RouteImport(e.to_string()))?;
+        let info = &route.info;
+        let now = now_ms();
+
+        let (outcome, stored) = {
+            let mut inner = self.shared.inner();
+            let synced = SyncedRoute {
+                name: &info.name,
+                profile: &info.profile,
+                distance_m: info.distance_m,
+                ascent_m: info.ascent_m,
+                plan_json: &plan_json,
+                source_rev: info.rev,
+            };
+            match inner.storage.route_sync(id)? {
+                None => {
+                    inner.storage.put_synced_route(id, &synced, now)?;
+                    (ImportOutcome::Added, id)
+                }
+                Some(sync) if sync.deleted => {
+                    inner.storage.put_synced_route(id, &synced, now)?;
+                    (ImportOutcome::Restored, id)
+                }
+                Some(sync) if sync.rev == sync.synced_rev => {
+                    inner.storage.put_synced_route(id, &synced, now)?;
+                    (ImportOutcome::Replaced, id)
+                }
+                Some(_) => {
+                    let copy = inner.storage.save_route(
+                        &format!("{} (Desktop)", info.name),
+                        &info.profile,
+                        info.distance_m,
+                        info.ascent_m,
+                        &plan_json,
+                        now,
+                    )?;
+                    (ImportOutcome::Copied, copy)
+                }
+            }
+        };
+        // The planned route must follow the new version, or "save" would
+        // write the old plan over it.
+        if outcome != ImportOutcome::Copied && self.loaded_route() == Some(id) {
+            self.saved_route(id)?;
+        }
+        Ok((outcome, stored))
     }
 }

@@ -69,6 +69,8 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         synced_rev  INTEGER NOT NULL DEFAULT 0
     ) STRICT;
     ",
+    // 3: where a route taken over from the desktop came from
+    "ALTER TABLE routes ADD COLUMN source_rev INTEGER;",
 ];
 
 pub(crate) fn schema_version(conn: &Connection) -> Result<u32, StorageError> {

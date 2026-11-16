@@ -9,4 +9,4 @@ mod migrations;
 mod storage;
 
 pub use error::StorageError;
-pub use storage::{RouteRecord, Storage, TrackRecord, TrackState};
+pub use storage::{RouteRecord, RouteSync, Storage, SyncedRoute, TrackRecord, TrackState};

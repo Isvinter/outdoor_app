@@ -298,7 +298,7 @@ fn routes_survive_reopening_and_old_databases_gain_the_table() {
     };
     let storage = Storage::open(&path).unwrap();
     assert_eq!(storage.list_routes().unwrap()[0].id, id);
-    assert_eq!(storage.schema_version().unwrap(), 2);
+    assert_eq!(storage.schema_version().unwrap(), 3);
 }
 
 #[test]

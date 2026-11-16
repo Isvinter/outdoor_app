@@ -17,6 +17,8 @@ pub enum AppError {
     Routing(#[from] core_routing::RoutingError),
     #[error("stored route cannot be read: {0}")]
     RoutePlan(String),
+    #[error("route cannot be taken over: {0}")]
+    RouteImport(String),
     #[error("no route is planned")]
     NoRoutePlanned,
     #[error("no map catalog is configured")]
@@ -48,6 +50,7 @@ impl AppError {
                 _ => "routing",
             },
             AppError::RoutePlan(_) => "route_plan",
+            AppError::RouteImport(_) => "route_import",
             AppError::NoRoutePlanned => "no_route_planned",
             AppError::NoCatalog => "no_catalog",
             AppError::NoRecording => "no_recording",

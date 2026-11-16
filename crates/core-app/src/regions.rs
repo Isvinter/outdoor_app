@@ -47,6 +47,10 @@ impl Maps {
         &self.store
     }
 
+    pub(crate) fn fetcher(&self) -> &DefaultFetcher {
+        &self.fetcher
+    }
+
     fn definition_path(&self, id: &str) -> PathBuf {
         self.definitions.join(format!("{id}.json"))
     }
