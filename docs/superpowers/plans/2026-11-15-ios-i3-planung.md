@@ -125,6 +125,10 @@ Rulings:
 - **Abnahme:** Bei Zoom 12 (alle Punkte auf einem Bildschirm) rastete Valhalla an anderen
   Wegen ein (13 001 m). Der Test tippt bei Zoom 14 und schiebt die Karte per Wischgeste von
   Punkt zu Punkt, die Bildschirmstellen liefert `project=` im Status. Ergebnis 12 352 m.
+- **Wackler in der Abnahme, behoben:** Die Wischgeste zum nächsten Punkt setzte in der
+  Bildschirmmitte an und zog dabei manchmal Wegpunkt 2 statt der Karte (14 551 m). Sie setzt
+  jetzt neben den Wegpunkten an, und der Test prüft nach jedem Tipp, dass der Punkt auf der
+  Referenzstelle liegt. Sechs Läufe hintereinander grün, mit dem vollen Paket.
 - **iPhone:** Die Abnahme lief auf dem iPhone 13 Pro Max mit der installierten Region
   (`DEVICE=<udid> apps/ios/scripts/test.sh …`): 12 352 m, Median 41 ms je neues Teilstück
   (`testLegTimes`). Der Test-Runner zählt zu den drei Apps des kostenlosen Profils.

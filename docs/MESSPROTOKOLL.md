@@ -128,6 +128,7 @@ Stand 2026-11-16, MacBook Air (Xcode 27.2), valhalla-mobile 0.6.4 (Valhalla 3.9.
 | Simulator (iPhone 17): Referenzwanderung, drei Punkte getippt | 12 352 m (Desktop 12 353 m), kein fehlgeschlagenes Teilstück |
 | Simulator: erstes Teilstück, vom Tippen bis zur gezeichneten Route | 113 ms, davon rund 100 ms Öffnen von Valhalla (einmal je App-Start) |
 | Simulator: Dauer je neues Teilstück, Median über 10 Wander-Teilstücke | 18 ms |
+| Simulator, volles Paket (mit Höhenprofil): Median über 10 Wander-Teilstücke | 24 ms |
 | iPhone 13 Pro Max (iOS 27.2), volles Paket: Referenzwanderung, drei Punkte getippt | 12 352 m, kein fehlgeschlagenes Teilstück |
 | iPhone: erstes Teilstück nach dem App-Start | 129 ms (mit Öffnen von Valhalla) |
 | iPhone: Dauer je neues Teilstück, Median über 10 Wander-Teilstücke | **41 ms** (zusammen 11,2 km, mit Höhenprofil) |

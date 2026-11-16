@@ -33,19 +33,25 @@ final class AcceptanceUITests: XCTestCase {
         for _ in 0..<20 {
             // Wait until the map has come to rest after the drag.
             var place = points(app.mapStatus.values["project"])[index]
-            for _ in 0..<20 {
-                Thread.sleep(forTimeInterval: 0.5)
+            var rests = 0
+            for _ in 0..<30 where rests < 3 {
+                Thread.sleep(forTimeInterval: 0.4)
                 let now = points(app.mapStatus.values["project"])[index]
-                let still = abs(now.dx - place.dx) < 0.2 && abs(now.dy - place.dy) < 0.2
+                rests = abs(now.dx - place.dx) < 0.2 && abs(now.dy - place.dy) < 0.2 ? rests + 1 : 0
                 place = now
-                if still { break }
             }
             if abs(place.dx - middle.dx) < screen.width / 2 - 60, abs(place.dy - middle.dy) < screen.height * 0.22 {
                 return place
             }
+            // A drag that starts on a waypoint would move the waypoint, not the map.
+            let waypoints = points(app.mapStatus.values["waypoint_xy"])
+            let starts = [0, -90, 90, -180, 180].map { CGVector(dx: middle.dx, dy: middle.dy + $0) }
+            let from = starts.first { start in
+                waypoints.allSatisfy { abs($0.dx - start.dx) > 45 || abs($0.dy - start.dy) > 45 }
+            } ?? middle
             let step = { (distance: Double) in max(-220, min(220, distance)) }
-            let to = CGVector(dx: middle.dx + step(middle.dx - place.dx), dy: middle.dy + step(middle.dy - place.dy))
-            origin.withOffset(middle).press(
+            let to = CGVector(dx: from.dx + step(middle.dx - place.dx), dy: from.dy + step(middle.dy - place.dy))
+            origin.withOffset(from).press(
                 forDuration: 0.05, thenDragTo: origin.withOffset(to), withVelocity: .slow, thenHoldForDuration: 0.3)
         }
         XCTFail("reference point \(index + 1) did not come onto the screen")
@@ -84,8 +90,26 @@ final class AcceptanceUITests: XCTestCase {
         XCTAssertEqual(app.buttons["plan-profile"].value as? String, "Wandern")
         app.buttons["plan-pick"].tap()
         for index in reference.indices {
-            origin.withOffset(bring(index, onto: app)).tap()
-            app.waitForStatus("waypoint \(index + 1) set") { $0.int("waypoints") == index + 1 }
+            // A waypoint that did not land on the reference point (the map may
+            // still have been gliding) is taken back and set again.
+            var landed = false
+            for _ in 0..<5 where !landed {
+                origin.withOffset(bring(index, onto: app)).tap()
+                app.waitForStatus("waypoint \(index + 1) set") {
+                    $0.int("waypoints") == index + 1 && $0.int("planning") == 0
+                }
+                Thread.sleep(forTimeInterval: 1)
+                let now = app.mapStatus
+                let wanted = points(now.values["project"])[index]
+                let set = points(now.values["waypoint_xy"])[index]
+                landed = abs(wanted.dx - set.dx) <= 0.5 && abs(wanted.dy - set.dy) <= 0.5
+                if !landed {
+                    print("acceptance: waypoint \(index + 1) missed by \(set.dx - wanted.dx),\(set.dy - wanted.dy)")
+                    app.buttons["plan-undo"].tap()
+                    app.waitForStatus("waypoint taken back") { $0.int("waypoints") == index }
+                }
+            }
+            XCTAssertTrue(landed, "waypoint \(index + 1) did not land on the reference point")
         }
 
         let planned = app.waitForPlan(waypoints: 3)
