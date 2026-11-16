@@ -7,12 +7,27 @@ enum ImportResult {
     case failed(folder: String, code: String, message: String)
 }
 
-/// Background failures of the core end up in the log.
-private final class LogListener: CoreListener {
+/// Background failures of the core end up in the log; the progress of a
+/// download goes to whoever watches it.
+private final class Listener: CoreListener, @unchecked Sendable {
+    typealias Progress = @Sendable (_ region: String, _ done: UInt64, _ total: UInt64) -> Void
+
     private let log = Logger(subsystem: "de.zeibig.outdoor", category: "core")
+    private let lock = NSLock()
+    private var watcher: Progress?
+
+    var progress: Progress? {
+        get { lock.withLock { watcher } }
+        set { lock.withLock { watcher = newValue } }
+    }
 
     func onError(message: String) {
         log.error("\(message, privacy: .public)")
+    }
+
+    /// Called on the thread that runs `installRegion`.
+    func onRegionProgress(region: String, done: UInt64, total: UInt64) {
+        progress?(region, done, total)
     }
 }
 
@@ -22,6 +37,9 @@ final class CoreHost {
     let core: CoreApp
     /// Region packages put here (Finder or the Files app) are installed at the next start.
     let importDirectory: URL
+    /// Where the core keeps the installed regions, one folder each.
+    let regionsDirectory: URL
+    private let listener = Listener()
 
     /// `Application Support/outdoor`; `init` creates it. The regions below it
     /// can be fetched again and stay out of the backup.
@@ -66,8 +84,21 @@ final class CoreHost {
         values.isExcludedFromBackup = true
         try regions.setResourceValues(values)
 
+        regionsDirectory = regions
         importDirectory = documentsDirectory.appendingPathComponent("Import", isDirectory: true)
-        core = try CoreApp.open(dataDir: dataDirectory.path, listener: LogListener())
+        core = try CoreApp.open(dataDir: dataDirectory.path, listener: listener)
+    }
+
+    /// Who is told about the bytes of a running download, in place of whoever
+    /// was before. Called on the downloading thread, at most every 150 ms.
+    func watchRegionProgress(_ watcher: (@Sendable (_ region: String, _ done: UInt64, _ total: UInt64) -> Void)?) {
+        listener.progress = watcher
+    }
+
+    /// The routing data of a region, as the core names it to the engine
+    /// (`<regions>/<id>/routing.tar`).
+    func routingTiles(region id: String) -> String {
+        regionsDirectory.appendingPathComponent(id, isDirectory: true).appendingPathComponent("routing.tar").path
     }
 
     /// Installs every folder in `Documents/Import` that holds a `manifest.json`.

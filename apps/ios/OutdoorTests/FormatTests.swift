@@ -29,4 +29,10 @@ final class FormatTests: XCTestCase {
         XCTAssertEqual(Format.option("use_hills", 0.8), "80 %")
         XCTAssertEqual(Format.option("use_roads", 0.1), "10 %")
     }
+
+    func testRegionVersionIsADate() {
+        XCTAssertEqual(Format.regionVersion("202611130000"), "13.11.2026")
+        XCTAssertEqual(Format.regionVersion("v2"), "v2")
+        XCTAssertEqual(Format.regionVersion(""), "")
+    }
 }

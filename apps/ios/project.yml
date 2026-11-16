@@ -54,6 +54,11 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         NSLocationWhenInUseUsageDescription: Zeigt deine Position auf der Karte.
+        NSLocalNetworkUsageDescription: Lädt Karten und Routen vom Desktop im Heimnetz.
+        NSCameraUsageDescription: Liest den QR-Code der Freigabe am Desktop.
+        # The desktop's share is plain HTTP in the home network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

@@ -17,6 +17,8 @@ enum AppStart {
         /// `-project <lat>,<lon>;<lat>,<lon>…`: places whose position on the
         /// screen the status reports, for tests that tap on them.
         var project: [[Double]] = []
+        /// `-catalogSource <url>`: the address of the desktop's share.
+        var catalogSource: String?
 
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             guard arguments.contains("-selftest") else { return }
@@ -26,6 +28,9 @@ enum AppStart {
             resetData = arguments.contains("-resetData")
             if let flag = arguments.firstIndex(of: "-importFixture"), flag + 1 < arguments.count {
                 importFixture = arguments[flag + 1]
+            }
+            if let flag = arguments.firstIndex(of: "-catalogSource"), flag + 1 < arguments.count {
+                catalogSource = arguments[flag + 1]
             }
             if let flag = arguments.firstIndex(of: "-startZoom"), flag + 1 < arguments.count {
                 startZoom = Double(arguments[flag + 1])
@@ -50,6 +55,7 @@ enum AppStart {
     struct Ready {
         let options: Options
         let host: CoreHost
+        let engine: ValhallaMobileEngine
         let regions: [RegionSummary]
         let bounds: [Double]?
         /// One line per package that could not be installed.
@@ -68,7 +74,11 @@ enum AppStart {
             try? files.removeItem(at: documents.appendingPathComponent("Import"))
         }
         let host = try CoreHost(dataDirectory: data, documentsDirectory: documents)
-        host.core.setValhallaEngine(engine: ValhallaMobileEngine())
+        let engine = ValhallaMobileEngine()
+        host.core.setValhallaEngine(engine: engine)
+        if let source = options.catalogSource {
+            _ = try host.core.setCatalogSource(source: source)
+        }
         if let fixture = options.importFixture {
             let source = URL(fileURLWithPath: fixture)
             try files.createDirectory(at: host.importDirectory, withIntermediateDirectories: true)
@@ -84,7 +94,7 @@ enum AppStart {
         let overview = try host.core.overview()
         TileURLProtocol.install(core: host.core)
         return Ready(
-            options: options, host: host, regions: overview.regions, bounds: overview.bounds, failedImports: failed,
-            importSeconds: importSeconds)
+            options: options, host: host, engine: engine, regions: overview.regions, bounds: overview.bounds,
+            failedImports: failed, importSeconds: importSeconds)
     }
 }

@@ -4,6 +4,7 @@ import SwiftUI
 struct MapScreen: View {
     @ObservedObject var controller: MapController
     @ObservedObject var plan: PlanController
+    @ObservedObject var regions: RegionsController
     let start: AppStart.Ready
     @State private var detent = PlanSheet.collapsed
 
@@ -13,10 +14,8 @@ struct MapScreen: View {
                 .ignoresSafeArea()
             VStack(spacing: 8) {
                 MapToolbar(controller: controller)
-                if start.regions.isEmpty {
-                    Notice(text: "Noch keine Region installiert. Lege einen Regionsordner per Finder unter "
-                        + "Dateien → Outdoor → Import ab und starte die App neu.")
-                        .accessibilityIdentifier("no-region-hint")
+                if regions.installed.isEmpty {
+                    NoRegionHint { regions.showing = true }
                 }
                 ForEach(start.failedImports, id: \.self) { failure in
                     Notice(text: failure, warning: true)
@@ -29,6 +28,10 @@ struct MapScreen: View {
                 if let message = controller.message {
                     Notice(text: message, warning: true)
                         .onTapGesture { controller.message = nil }
+                }
+                if let message = regions.error, !regions.showing {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { regions.error = nil }
                 }
                 if let message = plan.message {
                     Notice(text: message, warning: true)
@@ -43,17 +46,36 @@ struct MapScreen: View {
                 .padding(.bottom, 108)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             if start.options.selftest {
-                SelfTestStatus(controller: controller, plan: plan, start: start)
+                SelfTestStatus(controller: controller, plan: plan, regions: regions, start: start)
             }
         }
         // Always there, like the sheet of Apple Maps; the map stays usable beside it.
         .sheet(isPresented: .constant(true)) {
-            PlanSheet(plan: plan, detent: $detent)
+            PlanSheet(plan: plan, regions: regions, detent: $detent)
                 .presentationDetents(PlanSheet.detents, selection: $detent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
         }
+    }
+}
+
+/// Shown while no region is on the iPhone: where to get one.
+private struct NoRegionHint: View {
+    let open: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("Noch keine Region installiert. Lade eine vom Desktop im Heimnetz.")
+                .font(.callout)
+                .accessibilityIdentifier("no-region-hint")
+            Button("Regionen laden", action: open)
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("regions-hint-open")
+        }
+        .padding(12)
+        .frame(maxWidth: 480)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -79,6 +101,7 @@ struct Notice: View {
 private struct SelfTestStatus: View {
     @ObservedObject var controller: MapController
     @ObservedObject var plan: PlanController
+    @ObservedObject var regions: RegionsController
     let start: AppStart.Ready
 
     var body: some View {
@@ -110,8 +133,9 @@ private struct SelfTestStatus: View {
             "empty=\(stats.empty)",
             "failed=\(stats.failed + controller.loadFailures)",
             "base=\(controller.base.rawValue)",
-            "regions=\(start.regions.count)",
+            "bounds=\(controller.bounds == nil ? 0 : 1)",
         ]
+        parts += regions.status
         let centre = controller.mapView.centerCoordinate
         parts.append(String(format: "zoom=%.2f", controller.mapView.zoomLevel))
         parts.append(String(format: "center=%.5f,%.5f", centre.latitude, centre.longitude))

@@ -102,6 +102,52 @@ final class ValhallaEngineTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(answers.first).contains("\"trip\""))
     }
 
+    /// Review focus 4: after an update or a deletion the engine must not go
+    /// on reading the old `routing.tar`.
+    func testDeleteReleasesEngine() throws {
+        guard let path = ProcessInfo.processInfo.environment["ISARWINKEL_PACKAGE"], !path.isEmpty else {
+            throw XCTSkip("ISARWINKEL_PACKAGE is not set")
+        }
+        let host = sandbox.host
+        try FileManager.default.createDirectory(at: host.importDirectory, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: path), to: host.importDirectory.appendingPathComponent("isarwinkel-achensee"))
+        guard case .installed(let region) = try XCTUnwrap(host.importPendingRegions().first) else {
+            return XCTFail("not installed")
+        }
+        let engine = ValhallaMobileEngine()
+        host.core.setValhallaEngine(engine: engine)
+        // The path the app forgets by is the one the core routes with.
+        let tiles = host.routingTiles(region: region.id)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tiles))
+
+        // The core keeps the legs it has computed: every question has to be a new one.
+        let leg = LegInput(profile: "hike", options: [])
+        let places = [
+            LatLon(lat: 47.6803, lon: 11.5741), LatLon(lat: 47.6625, lon: 11.5233), LatLon(lat: 47.645, lon: 11.556),
+            LatLon(lat: 47.67, lon: 11.56),
+        ]
+        func route(from: Int, to: Int) throws -> UInt32 {
+            let request = [places[from], places[to]].reduce(planEmpty()) {
+                planAddWaypoint(request: $0, at: $1, leg: leg)
+            }
+            return try host.core.planRoute(request: request).total.failedLegs
+        }
+
+        XCTAssertEqual(try route(from: 0, to: 1), 0)
+        XCTAssertEqual(try route(from: 1, to: 2), 0)
+        XCTAssertEqual(engine.opened, 1)
+
+        engine.forget(tilesPath: tiles)
+        XCTAssertEqual(try route(from: 2, to: 3), 0)
+        XCTAssertEqual(engine.opened, 2)
+
+        // Another path lets go of nothing.
+        engine.forget(tilesPath: host.routingTiles(region: "other"))
+        XCTAssertEqual(try route(from: 3, to: 0), 0)
+        XCTAssertEqual(engine.opened, 2)
+    }
+
     func testEngineFailureIsReported() {
         let engine = ValhallaMobileEngine()
         let missing = sandbox.root.appendingPathComponent("nothing/routing.tar").path

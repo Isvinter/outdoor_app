@@ -31,6 +31,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     /// Styles that could not be loaded; for the self-test.
     private(set) var loadFailures = 0
     private var styleLoaded = false
+    /// West, south, east, north of the active regions; nil if there is none.
+    private(set) var bounds: [Double]?
     /// Only asks for the permission and tells when it changes; the map locates by itself.
     private let locationManager = CLLocationManager()
     /// The user asked for their position and it is not known yet.
@@ -52,10 +54,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.maximumZoomLevel = 19
         mapView.delegate = self
-        var centre = Self.fallbackCentre
-        if let bounds, bounds.count == 4 {
-            centre = CLLocationCoordinate2D(latitude: (bounds[1] + bounds[3]) / 2, longitude: (bounds[0] + bounds[2]) / 2)
-        }
+        self.bounds = bounds
+        var centre = Self.centre(of: bounds) ?? Self.fallbackCentre
         if let start, start.count == 2 {
             centre = CLLocationCoordinate2D(latitude: start[0], longitude: start[1])
         }
@@ -138,6 +138,26 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
             centreWhenLocated = false
             locationHint = mayLocate ? Self.noFixHint : Self.noPermissionHint
         }
+    }
+
+    private static func centre(of bounds: [Double]?) -> CLLocationCoordinate2D? {
+        guard let bounds, bounds.count == 4 else { return nil }
+        return CLLocationCoordinate2D(latitude: (bounds[1] + bounds[3]) / 2, longitude: (bounds[0] + bounds[2]) / 2)
+    }
+
+    /// The regions changed (installed, replaced, deleted, switched on or
+    /// off): the core fills the style anew, and the map draws all tiles again.
+    /// The first active region brings the map to it, unless it shows it already.
+    func reloadRegions(bounds: [Double]?) {
+        let hadNone = self.bounds == nil
+        self.bounds = bounds
+        if hadNone, let bounds, let centre = Self.centre(of: bounds) {
+            let shown = mapView.centerCoordinate
+            let inside = (bounds[0]...bounds[2]).contains(shown.longitude)
+                && (bounds[1]...bounds[3]).contains(shown.latitude)
+            if !inside { mapView.setCenter(centre, animated: false) }
+        }
+        show(base)
     }
 
     func show(_ base: MapBase) {

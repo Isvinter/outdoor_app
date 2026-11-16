@@ -24,9 +24,24 @@ final class ValhallaMobileEngine: ValhallaEngine, @unchecked Sendable {
         }
     }
 
-    /// Guards `regions`.
+    /// Guards `regions`, `configs` and `opens`.
     private let lock = NSLock()
     private var regions: [String: Region] = [:]
+    /// Counts the configuration files, so that no two instances share one.
+    private var configs = 0
+    private var opens = 0
+
+    /// How many Valhalla instances were opened so far; for the tests.
+    var opened: Int {
+        lock.withLock { opens }
+    }
+
+    /// Lets go of the instance for `tilesPath`: the file was replaced or
+    /// deleted, and the next request has to open what lies there now. A
+    /// request that is running ends on the old instance.
+    func forget(tilesPath: String) {
+        lock.withLock { _ = regions.removeValue(forKey: tilesPath) }
+    }
 
     func version() -> String {
         Self.valhallaVersion
@@ -37,8 +52,14 @@ final class ValhallaMobileEngine: ValhallaEngine, @unchecked Sendable {
         region.lock.lock()
         defer { region.lock.unlock() }
         do {
-            let valhalla = try region.valhalla ?? open(tilesPath, configName: region.configName)
-            region.valhalla = valhalla
+            let valhalla: Valhalla
+            if let open = region.valhalla {
+                valhalla = open
+            } else {
+                valhalla = try open(tilesPath, configName: region.configName)
+                region.valhalla = valhalla
+                lock.withLock { opens += 1 }
+            }
             return try valhalla.route(rawRequest: requestJson)
         } catch ValhallaError.valhallaError(_, let message) {
             // Valhalla's own words: the core tells "no route" from other failures by them.
@@ -54,7 +75,8 @@ final class ValhallaMobileEngine: ValhallaEngine, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if let region = regions[tilesPath] { return region }
-        let region = Region(configName: "valhalla-\(regions.count).json")
+        let region = Region(configName: "valhalla-\(configs).json")
+        configs += 1
         regions[tilesPath] = region
         return region
     }

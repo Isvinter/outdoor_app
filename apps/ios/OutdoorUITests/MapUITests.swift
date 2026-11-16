@@ -70,7 +70,7 @@ final class MapUITests: XCTestCase {
 
         let status = app.waitForStatus("map rendered") { $0.rendered }
 
-        XCTAssertEqual(status.int("regions"), 1)
+        XCTAssertEqual(status.list("regions"), ["mini:1"])
         XCTAssertGreaterThan(status.int("served"), 0, "MapLibre did not ask the URL protocol")
         XCTAssertEqual(status.int("failed"), 0)
         XCTAssertFalse(app.staticTexts["no-region-hint"].exists)
@@ -81,7 +81,7 @@ final class MapUITests: XCTestCase {
 
         let status = app.waitForStatus("map rendered") { $0.rendered }
 
-        XCTAssertEqual(status.int("regions"), 0)
+        XCTAssertEqual(status.list("regions"), [])
         XCTAssertEqual(status.int("failed"), 0)
         // Nothing is installed, so nothing is asked for.
         XCTAssertEqual(status.int("served"), 0)
@@ -89,6 +89,7 @@ final class MapUITests: XCTestCase {
         let hint = app.staticTexts["no-region-hint"]
         XCTAssertTrue(hint.exists)
         XCTAssertTrue(hint.label.contains("Noch keine Region installiert"))
+        XCTAssertTrue(app.buttons["regions-hint-open"].exists)
     }
 
     /// The package brings contour lines: the map draws them, in both styles.
@@ -96,7 +97,7 @@ final class MapUITests: XCTestCase {
         let app = XCUIApplication.selftest(withMini: true, fixture: "mini-contours", zoom: 13)
 
         let summer = app.waitForStatus("contour lines drawn") { $0.rendered && $0.int("contours") > 0 }
-        XCTAssertEqual(summer.int("regions"), 1)
+        XCTAssertEqual(summer.list("regions").count, 1)
         XCTAssertEqual(summer.int("failed"), 0)
         XCTAssertEqual(try XCTUnwrap(summer.double("zoom")), 13, accuracy: 0.01)
 

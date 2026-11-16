@@ -82,7 +82,7 @@ final class AcceptanceUITests: XCTestCase {
     func testReferenceHikeByTapping() throws {
         let app = try launch()
         let start = app.waitForStatus("map rendered", timeout: 60) { $0.rendered && $0.values["project"] != nil }
-        guard start.int("regions") >= 1 else { throw XCTSkip("no region is installed") }
+        guard !start.list("regions").isEmpty else { throw XCTSkip("no region is installed") }
         let routesBefore = start.int("routes")
         let origin = app.coordinate(withNormalizedOffset: .zero)
 
@@ -167,7 +167,7 @@ final class AcceptanceUITests: XCTestCase {
     func testLegTimes() throws {
         let app = try launch()
         let start = app.waitForStatus("map rendered", timeout: 60) { $0.rendered }
-        guard start.int("regions") >= 1 else { throw XCTSkip("no region is installed") }
+        guard !start.list("regions").isEmpty else { throw XCTSkip("no region is installed") }
 
         app.buttons["plan-pick"].tap()
         let spots: [(Double, Double)] = [

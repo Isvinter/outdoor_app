@@ -52,6 +52,7 @@ struct SaveButtons: View {
 /// The saved routes. A tap loads one; swiping offers to rename or delete it.
 struct RoutesList: View {
     @ObservedObject var plan: PlanController
+    @ObservedObject var regions: RegionsController
     @State private var renaming: SavedRoute?
     @State private var name = ""
 
@@ -80,7 +81,14 @@ struct RoutesList: View {
                 }
             }
         } header: {
-            Text("Routen")
+            HStack {
+                Text("Routen")
+                Spacer()
+                Button("Regionen") { regions.showing = true }
+                    .font(.callout)
+                    .textCase(nil)
+                    .accessibilityIdentifier("regions-open")
+            }
         }
         .alert(
             "Route umbenennen",

@@ -84,7 +84,7 @@ final class PlanController: ObservableObject {
     private let overlay: RouteOverlay
 
     /// The profiles of the core, in the order they are offered.
-    let profiles: [ProfileChoice]
+    @Published private(set) var profiles: [ProfileChoice]
     @Published private(set) var request = planEmpty()
     /// The answer to `request`, or to an older one while `planning`.
     @Published private(set) var plan: PlanResult?
@@ -119,8 +119,8 @@ final class PlanController: ObservableObject {
     init(core: CoreApp, map: MapController) {
         self.core = core
         overlay = map.route
-        let known = core.routeProfiles()
-        profiles = PlanTexts.profileOrder.compactMap { name in known.first { $0.profile == name } }
+        let profiles = Self.profiles(of: core)
+        self.profiles = profiles
         profile = profiles.first { $0.profile == "hike" }?.available == true ? "hike" : "manual"
         overlay.onTap = { [weak self] at in
             guard let self, self.picking else { return }
@@ -129,6 +129,18 @@ final class PlanController: ObservableObject {
         overlay.onWaypointTap = { [weak self] index in self?.menuWaypoint = index }
         overlay.onWaypointMove = { [weak self] index, to in self?.moveWaypoint(index, to: to) }
         routes = (try? core.savedRoutes()) ?? []
+    }
+
+    private static func profiles(of core: CoreApp) -> [ProfileChoice] {
+        let known = core.routeProfiles()
+        return PlanTexts.profileOrder.compactMap { name in known.first { $0.profile == name } }
+    }
+
+    /// The regions changed: other profiles may be computable now, and the
+    /// planned route is computed again with the data that is there.
+    func regionsChanged() {
+        profiles = Self.profiles(of: core)
+        if request.waypoints.count >= 2 { compute() }
     }
 
     // MARK: The form
