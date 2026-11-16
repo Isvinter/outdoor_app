@@ -57,7 +57,7 @@ ausführen, die UniFFI-API ist neu. Bitte so übernehmen:
   - `CoreListener` hat eine neue Methode `onRegionProgress(region:done:total:)` (`UInt64`,
     Bytes). **`CoreHost` in `apps/ios/Outdoor/Core/CoreHost.swift` muss sie umsetzen**, sonst
     baut die App nicht. Sie kommt von dem Thread, der `installRegion` ausführt, höchstens alle
-    paar hundert Millisekunden und beim Ende immer mit `done == total`.
+    150 ms und beim Ende immer mit `done == total`.
   - `CoreApp`:
     - `catalogSource() throws -> String` und `setCatalogSource(source:) throws -> String`
     - `regions() throws -> RegionList`: **blockiert** und liest den Katalog, also nur auf einem
