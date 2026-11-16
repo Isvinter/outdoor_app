@@ -141,6 +141,10 @@ Task 7–9 sind fertig und im Simulator (iPhone 17) grün. Entscheidungen dabei:
   eigenen Regionen und Routen laufen sie deshalb nur nach Rückfrage. Für `DEVICE=<udid>` nimmt
   `test.sh` die WLAN-Adresse des Macs (`en0`) als Freigabe.
 
+**Task 10, Abnahme (2026-11-16):** Die UI-Tests der Regionen und der Routen vom Desktop liefen
+auf dem iPhone 13 Pro Max grün. Der Nutzer hat den Ablauf aus Step 2 von Hand durchgespielt,
+mit QR-Scan: fehlerfrei. Die Download-Geschwindigkeit wurde nicht gemessen.
+
 ## Global Constraints
 
 - **Kein Schritt der Planung braucht ein Netz.** Der App-Start und die Karte lesen den

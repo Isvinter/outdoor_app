@@ -678,7 +678,7 @@ Referenzpunkte an und kommt auf 12 352 m (Desktop 12 353 m), ein neues Teilstüc
 dem iPhone 41 ms im Median, siehe `docs/superpowers/plans/2026-11-15-ios-i3-planung.md` und
 `docs/MESSPROTOKOLL.md`. Es folgt I4 (Freigabe im Heimnetz).
 
-**Stand 2026-11-16, iOS I4 (Abnahme am iPhone steht aus):** Regionen und Routen kommen im
+**Stand 2026-11-16, iOS I4:** Regionen und Routen kommen im
 Heimnetz vom Desktop aufs iPhone. Der Desktop liefert sie mit einem eigenen Server nur aus
 (`core-share`), das iPhone lädt über den vorhandenen `DefaultFetcher` mit Prüfsummen und
 Fortsetzen per `Range`. Katalogabgleich, Zustände der Regionen, Merge-Regel der Routen und die
@@ -687,7 +687,8 @@ sortiert dabei nur fremde Codes aus. Der Bildschirm „Regionen“ lädt, aktual
 aktiviert und deaktiviert. Eine deaktivierte Region bleibt auf dem Gerät und fehlt in Karte,
 Höhen und Routing. Der Start und die Karte lesen den Katalog nie, nur dieser Bildschirm. Nach
 Update und Löschen verwirft die App ihre Valhalla-Instanz für die Region. Im Simulator grün
-(66 Tests, Download über echtes HTTP von `share-serve`), siehe
+(66 Tests, Download über echtes HTTP von `share-serve`), auf dem iPhone 13 Pro Max vom Nutzer
+von Hand abgenommen, mit QR-Scan von der Desktop-App. Siehe
 `docs/superpowers/plans/2026-11-16-ios-i4-freigabe.md` und `docs/MESSPROTOKOLL.md`.
 
 | | A: Tauri Mobile | B: Native UI + UniFFI |
