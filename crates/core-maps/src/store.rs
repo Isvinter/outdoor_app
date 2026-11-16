@@ -29,6 +29,8 @@ use crate::pmtiles::Archive;
 
 const MANIFEST: &str = "manifest.json";
 const STAGING: &str = ".staging";
+/// Ids of the disabled regions, a sorted JSON list.
+const DISABLED: &str = ".disabled.json";
 /// Catalogs and manifests larger than this are refused.
 const MAX_DOCUMENT_LEN: u64 = 4 << 20;
 const CHUNK_LEN: usize = 64 << 10;
@@ -49,6 +51,8 @@ pub struct InstalledRegion {
     pub manifest: RegionManifest,
     /// Space the region takes on disk.
     pub bytes: u64,
+    /// Disabled regions stay installed but serve no tiles, routing or elevation.
+    pub enabled: bool,
 }
 
 /// A map tile ready to be handed to the renderer.
@@ -87,6 +91,7 @@ impl RegionStore {
     /// that do not hold a valid region are ignored.
     pub fn open(dir: &Path) -> Result<Self, MapsError> {
         fs::create_dir_all(dir).map_err(MapsError::io(dir))?;
+        let disabled = read_disabled(dir);
         let mut regions = BTreeMap::new();
         for entry in fs::read_dir(dir).map_err(MapsError::io(dir))? {
             let path = entry.map_err(MapsError::io(dir))?.path();
@@ -96,7 +101,8 @@ impl RegionStore {
             if hidden || !path.join(MANIFEST).is_file() {
                 continue;
             }
-            if let Ok(region) = load_region(&path) {
+            if let Ok(mut region) = load_region(&path) {
+                region.info.enabled = !disabled.contains(&region.info.manifest.id);
                 regions.insert(region.info.manifest.id.clone(), region);
             }
         }
@@ -289,7 +295,8 @@ impl RegionStore {
         let target = self.dir.join(id);
         let old = self.dir.join(STAGING).join(format!("{id}.old"));
         let mut regions = self.regions.write().unwrap_or_else(PoisonError::into_inner);
-        regions.remove(id);
+        // An update keeps the state of the region.
+        let enabled = regions.remove(id).is_none_or(|old| old.info.enabled);
         self.dem_cache
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -302,7 +309,8 @@ impl RegionStore {
         }
         fs::rename(staging, &target).map_err(MapsError::io(&target))?;
         let _ = fs::remove_dir_all(&old);
-        let region = load_region(&target)?;
+        let mut region = load_region(&target)?;
+        region.info.enabled = enabled;
         let info = region.info.clone();
         regions.insert(id.to_string(), region);
         Ok(info)
@@ -319,7 +327,70 @@ impl RegionStore {
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
         let target = self.dir.join(id);
-        fs::remove_dir_all(&target).map_err(MapsError::io(&target))
+        fs::remove_dir_all(&target).map_err(MapsError::io(&target))?;
+        self.write_disabled(&regions)
+    }
+
+    /// Enables or disables an installed region. The choice survives restarts
+    /// and updates of the region.
+    pub fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), MapsError> {
+        let mut regions = self.regions.write().unwrap_or_else(PoisonError::into_inner);
+        let region = regions
+            .get_mut(id)
+            .ok_or_else(|| MapsError::NotInstalled(id.to_string()))?;
+        if region.info.enabled == enabled {
+            return Ok(());
+        }
+        region.info.enabled = enabled;
+        self.dem_cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.write_disabled(&regions)
+    }
+
+    /// Writes the list of disabled regions atomically (temp file, then rename).
+    fn write_disabled(&self, regions: &BTreeMap<String, Region>) -> Result<(), MapsError> {
+        let ids: Vec<&str> = regions
+            .iter()
+            .filter(|(_, region)| !region.info.enabled)
+            .map(|(id, _)| id.as_str())
+            .collect();
+        let path = self.dir.join(DISABLED);
+        let temp = self.dir.join(format!("{DISABLED}.tmp"));
+        let json = serde_json::to_string(&ids).map_err(|e| MapsError::Download {
+            location: path.to_string_lossy().into_owned(),
+            reason: e.to_string(),
+        })?;
+        fs::write(&temp, json).map_err(MapsError::io(&temp))?;
+        fs::rename(&temp, &path).map_err(MapsError::io(&path))
+    }
+
+    /// Path and length of a file of an installed region that may be shared:
+    /// `manifest.json` or a file the manifest lists, present at the listed
+    /// size. Whether the region is enabled does not matter.
+    pub fn package_file(&self, id: &str, name: &str) -> Option<(PathBuf, u64)> {
+        let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
+        let manifest = &regions.get(id)?.info.manifest;
+        let path = self.dir.join(id).join(name);
+        let len = fs::metadata(&path).ok().filter(|m| m.is_file())?.len();
+        if name == MANIFEST {
+            return Some((path, len));
+        }
+        let file = manifest.files.iter().find(|file| file.name == name)?;
+        (file.size == len).then_some((path, len))
+    }
+
+    /// Whether all files of the manifest are present at their listed size.
+    pub fn is_complete(&self, id: &str) -> bool {
+        let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
+        let Some(region) = regions.get(id) else {
+            return false;
+        };
+        region.info.manifest.files.iter().all(|file| {
+            fs::metadata(self.dir.join(id).join(&file.name))
+                .is_ok_and(|meta| meta.is_file() && meta.len() == file.size)
+        })
     }
 
     /// Whether any installed region has the archive of `layer`.
@@ -327,6 +398,7 @@ impl RegionStore {
         let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
         regions
             .values()
+            .filter(|region| region.info.enabled)
             .any(|region| region.archives.iter().any(|(l, _)| *l == layer))
     }
 
@@ -336,7 +408,7 @@ impl RegionStore {
             return Ok(None);
         };
         let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
-        for region in regions.values() {
+        for region in regions.values().filter(|region| region.info.enabled) {
             if !intersects(&region.info.manifest.bbox, &bounds) {
                 continue;
             }
@@ -362,6 +434,9 @@ impl RegionStore {
         }
         let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
         regions.iter().find_map(|(id, region)| {
+            if !region.info.enabled {
+                return None;
+            }
             let manifest = &region.info.manifest;
             let [west, south, east, north] = manifest.bbox;
             let inside = |(lat, lon): &(f64, f64)| {
@@ -387,7 +462,7 @@ impl RegionStore {
             return Ok(None);
         }
         let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
-        for (id, region) in regions.iter() {
+        for (id, region) in regions.iter().filter(|(_, region)| region.info.enabled) {
             let [west, south, east, north] = region.info.manifest.bbox;
             if lon < west || lon > east || lat < south || lat > north {
                 continue;
@@ -507,7 +582,11 @@ fn load_region(dir: &Path) -> Result<Region, MapsError> {
         }
     }
     Ok(Region {
-        info: InstalledRegion { manifest, bytes },
+        info: InstalledRegion {
+            manifest,
+            bytes,
+            enabled: true,
+        },
         archives,
     })
 }
@@ -574,7 +653,18 @@ fn sha256_of(path: &Path) -> Result<String, MapsError> {
         .collect())
 }
 
-fn fetch_document(fetcher: &dyn Fetcher, location: &str) -> Result<String, MapsError> {
+/// Ids in `.disabled.json`; a missing or broken file counts as empty.
+fn read_disabled(dir: &Path) -> HashSet<String> {
+    fs::read_to_string(dir.join(DISABLED))
+        .ok()
+        .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .collect()
+}
+
+/// Reads a catalog or manifest document, refusing implausibly large ones.
+pub fn fetch_document(fetcher: &dyn Fetcher, location: &str) -> Result<String, MapsError> {
     let fail = |reason: String| MapsError::Download {
         location: location.to_string(),
         reason,
@@ -593,6 +683,11 @@ fn fetch_document(fetcher: &dyn Fetcher, location: &str) -> Result<String, MapsE
 }
 
 /// The directory (or URL) a catalog source refers to.
+/// Location of `relative` next to the catalog at `source`.
+pub fn catalog_location(source: &str, relative: &str) -> String {
+    join(&catalog_base(source), relative)
+}
+
 fn catalog_base(source: &str) -> String {
     let source = source.trim();
     let base = source.strip_suffix("catalog.json").unwrap_or(source);

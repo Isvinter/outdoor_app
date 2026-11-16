@@ -186,7 +186,10 @@ impl App {
                 });
 
         let mut regions: BTreeMap<String, RegionInfo> = BTreeMap::new();
-        for InstalledRegion { manifest, bytes } in installed {
+        for InstalledRegion {
+            manifest, bytes, ..
+        } in installed
+        {
             let info = RegionInfo {
                 id: manifest.id.clone(),
                 name: manifest.name,
