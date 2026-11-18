@@ -76,6 +76,23 @@
     <tag k="ele" v="1600"/>
     <tag k="name" v="Testgipfel"/>
   </node>
+  <node id="1001" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0085" lon="11.002">
+    <tag k="sport" v="free_flying"/>
+    <tag k="name" v="Landeplatz Sommer"/>
+  </node>
+  <node id="1002" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0085" lon="11.003">
+    <tag k="sport" v="free_flying"/>
+    <tag k="description" v="Gleitschirm Landeplatz"/>
+  </node>
+  <node id="1003" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0085" lon="11.004">
+    <tag k="sport" v="free_flying"/>
+  </node>
+  <node id="1004" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0085" lon="11.005">
+    <tag k="sport" v="free_flying"/>
+    <tag k="free_flying:takeoff" v="yes"/>
+    <tag k="name" v="Startplatz Nord"/>
+    <tag k="free_flying:site_orientation" v="SW;S;SE"/>
+  </node>
   <way id="1" version="1" timestamp="2026-11-18T00:00:00Z">
     <nd ref="1"/>
     <nd ref="2"/>

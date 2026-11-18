@@ -52,9 +52,12 @@ check "zip line" "$Z14" "$(count zip_line 1)"
 check "chair lift with name" "$Z14" 'map(select(.props.kind == "chair_lift" and .props.name == "Testlift")) | length == 1'
 check "no pylon or station" "$Z14" 'map(select(.props.kind == "pylon" or .props.kind == "station")) | length == 0'
 check "four takeoffs" "$Z14" "$(count takeoff 4)"
+check "orientation from free_flying:site_orientation" "$Z14" \
+  'map(select(.props.name == "Startplatz Nord")) | length == 1 and .[0].props.kind == "takeoff" and .[0].props.direction == "SW;S;SE"'
 check "takeoff Startplatz Ost with attributes" "$Z14" \
   'map(select(.props.name == "Startplatz Ost")) | length == 1 and .[0].props == {"kind":"takeoff","name":"Startplatz Ost","ele":1500,"paragliding":true,"hanggliding":false,"direction":"E-SE"} and .[0].geometry == "point"'
-check "two landings" "$Z14" "$(count landing 2)"
+check "four landings (two from name or description)" "$Z14" "$(count landing 4)"
+check "two sites of unknown kind" "$Z14" "$(count site 2)"
 check "Landewiese is one point" "$Z14" \
   'map(select(.props.name == "Landewiese")) | length == 1 and .[0].geometry == "point" and .[0].props.kind == "landing"'
 check "training site with winch" "$Z14" 'map(select(.props.kind == "training" and .props.winch == true)) | length == 1'
@@ -65,11 +68,11 @@ check "two wind turbines, one 140 m" "$Z14" \
   'map(select(.props.kind == "wind_turbine")) | length == 2 and (map(.props.height) | sort == [null, 140])'
 
 check "z9: only sites" "$WORK/z9.jsonl" \
-  'length == 7 and all(.props.kind == "takeoff" or .props.kind == "landing" or .props.kind == "training")'
+  'length == 11 and all(.props.kind == "takeoff" or .props.kind == "landing" or .props.kind == "training" or .props.kind == "site")'
 check "z11: power_line and chair_lift, no minor lines, goods, zip lines or obstacles" "$WORK/z11.jsonl" \
-  '(map(.props.kind) | unique) == ["chair_lift", "landing", "power_line", "takeoff", "training"]'
+  '(map(.props.kind) | unique) == ["chair_lift", "landing", "power_line", "site", "takeoff", "training"]'
 check "z12: all line kinds" "$WORK/z12.jsonl" \
-  '(map(.props.kind) | unique) == ["chair_lift", "chimney", "goods", "landing", "mast", "power_line", "power_minor_line", "takeoff", "tower", "training", "wind_turbine", "zip_line"]'
+  '(map(.props.kind) | unique) == ["chair_lift", "chimney", "goods", "landing", "mast", "power_line", "power_minor_line", "site", "takeoff", "tower", "training", "wind_turbine", "zip_line"]'
 
 check "poi still has Testgipfel" "$WORK/poi.jsonl" \
   'map(select(.props.kind == "peak" and .props.name == "Testgipfel")) | length == 1'

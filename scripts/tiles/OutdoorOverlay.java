@@ -164,7 +164,7 @@ public class OutdoorOverlay implements Profile {
           .setAttr("ele", leadingInt(feature.getString("ele")))
           .setAttr("paragliding", yesNo(feature.getString("free_flying:paragliding")))
           .setAttr("hanggliding", yesNo(feature.getString("free_flying:hanggliding")))
-          .setAttr("direction", feature.getString("direction"))
+          .setAttr("direction", feature.getString("free_flying:site_orientation", feature.getString("direction")))
           .setAttr("winch", yesNo(feature.getString("free_flying:winch")))
           .setMinZoom(9);
       }
@@ -183,8 +183,10 @@ public class OutdoorOverlay implements Profile {
   }
 
   /**
-   * Site kinds of a free flying site: `free_flying:site` (several separated by ";"),
-   * the older `free_flying=<site>`, and sites tagged only with `sport` count as takeoff.
+   * Site kinds of a free flying site: `free_flying:site` (several separated by ";") or
+   * the older `free_flying=<site>`. Without either, `free_flying:takeoff=yes` /
+   * `free_flying:landing=yes` decide, then a name or description containing "lande" or
+   * "start"; failing that the kind is `site` (a flying site of unknown type).
    */
   private static List<String> flyingSites(SourceFeature feature) {
     String site = feature.getString("free_flying:site", feature.getString("free_flying"));
@@ -195,10 +197,22 @@ public class OutdoorOverlay implements Profile {
         .distinct()
         .toList();
     }
-    if (feature.hasTag("sport", "free_flying", "paragliding", "hang_gliding")) {
-      return List.of("takeoff");
+    if (!feature.hasTag("sport", "free_flying", "paragliding", "hang_gliding")) {
+      return List.of();
     }
-    return List.of();
+    var kinds = new java.util.ArrayList<String>();
+    if (feature.hasTag("free_flying:takeoff", "yes")) {
+      kinds.add("takeoff");
+    }
+    if (feature.hasTag("free_flying:landing", "yes")) {
+      kinds.add("landing");
+    }
+    if (kinds.isEmpty()) {
+      String text = (feature.getString("name", "") + " " + feature.getString("description", ""))
+        .toLowerCase(java.util.Locale.ROOT);
+      kinds.add(text.contains("lande") ? "landing" : text.contains("start") ? "takeoff" : "site");
+    }
+    return kinds;
   }
 
   private static String obstacleKind(SourceFeature feature) {
