@@ -49,7 +49,7 @@
 - [ ] **Step 2: Run** `cargo test -p tile-inspect` — expect compile failure (crate missing).
 - [ ] **Step 3: Implement** crate (workspace member via `tools/*`; deps `core-maps`, `clap`, `serde_json`, `thiserror`; `[lints] workspace = true`). Decoder covers MVT value fields 1 string, 2 float, 3 double, 4 int, 5 uint, 6 sint, 7 bool. `main.rs`: bbox → tile range at zoom (Web Mercator, y from north), iterate tiles, skip missing.
 - [ ] **Step 4: Run** `cargo test -p tile-inspect && cargo clippy -p tile-inspect --all-targets -- -D warnings` — PASS. Smoke: `cargo run -q -p tile-inspect -- data/regions/isarwinkel-achensee/outdoor.pmtiles --zoom 14 --bbox 11.50,47.65,11.56,47.68 --summary` prints lines for `trail`/`poi`.
-- [ ] **Step 5: Save baseline** of the current test region (needed in Task 3, before anything is rebuilt): summary at z12 and z14 for bbox `11.30,47.40,11.90,47.75` into `data/build/isarwinkel-achensee/outdoor-before-z12.jsonl` / `-z14.jsonl`. (If the region bbox differs, use the bbox from `regions/isarwinkel-achensee.json`.)
+- [ ] **Step 5: Save baseline** of the current test region (needed in Task 3, before anything is rebuilt): summary at z12 and z14 for the region bbox `11.35,47.35,11.95,47.80` into `data/build/isarwinkel-achensee/outdoor-before-z12.jsonl` / `-z14.jsonl`.
 - [ ] **Step 6: Commit** `tools/tile-inspect` + `Cargo.lock`: "tile-inspect: print features of PMTiles vector tiles".
 
 ### Task 2: Layer `flying` in the overlay profile
