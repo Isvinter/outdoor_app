@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Handwritten objects for scripts/tiles/test-outdoor-overlay.sh (layer flying). -->
+<osm version="0.6" generator="handwritten">
+  <node id="1" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0010" lon="11.0010"/>
+  <node id="2" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0010" lon="11.0080"/>
+  <node id="3" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0015" lon="11.0010"/>
+  <node id="4" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0015" lon="11.0080"/>
+  <node id="5" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0020" lon="11.0010"/>
+  <node id="6" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0020" lon="11.0080"/>
+  <node id="7" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0025" lon="11.0010"/>
+  <node id="8" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0025" lon="11.0080"/>
+  <node id="9" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0030" lon="11.0010"/>
+  <node id="10" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0030" lon="11.0080"/>
+  <node id="11" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0035" lon="11.0010"/>
+  <node id="12" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0035" lon="11.0080"/>
+  <node id="13" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0040" lon="11.0010"/>
+  <node id="14" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0040" lon="11.0080"/>
+  <node id="15" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0045" lon="11.0010"/>
+  <node id="16" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0045" lon="11.0080"/>
+  <node id="17" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0050" lon="11.0020">
+    <tag k="aerialway" v="pylon"/>
+  </node>
+  <node id="18" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0050" lon="11.0030">
+    <tag k="aerialway" v="station"/>
+    <tag k="name" v="Talstation"/>
+  </node>
+  <node id="19" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0060" lon="11.0020">
+    <tag k="sport" v="free_flying"/>
+    <tag k="free_flying:site" v="takeoff"/>
+    <tag k="name" v="Startplatz Ost"/>
+    <tag k="ele" v="1500"/>
+    <tag k="free_flying:paragliding" v="yes"/>
+    <tag k="free_flying:hanggliding" v="no"/>
+    <tag k="direction" v="E-SE"/>
+  </node>
+  <node id="20" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0060" lon="11.0040">
+    <tag k="sport" v="free_flying"/>
+    <tag k="free_flying:site" v="takeoff;landing"/>
+  </node>
+  <node id="21" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0065" lon="11.0060"/>
+  <node id="22" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0065" lon="11.0068"/>
+  <node id="23" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0070" lon="11.0068"/>
+  <node id="24" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0070" lon="11.0060"/>
+  <node id="25" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0070" lon="11.0020">
+    <tag k="free_flying" v="takeoff"/>
+  </node>
+  <node id="26" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0070" lon="11.0040">
+    <tag k="sport" v="paragliding"/>
+  </node>
+  <node id="27" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0075" lon="11.0020">
+    <tag k="sport" v="free_flying"/>
+    <tag k="free_flying:site" v="training"/>
+    <tag k="free_flying:winch" v="yes"/>
+  </node>
+  <node id="28" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0080" lon="11.0020">
+    <tag k="man_made" v="mast"/>
+    <tag k="height" v="45 m"/>
+  </node>
+  <node id="29" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0080" lon="11.0030">
+    <tag k="man_made" v="tower"/>
+    <tag k="height" v="30"/>
+  </node>
+  <node id="30" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0080" lon="11.0040">
+    <tag k="man_made" v="chimney"/>
+  </node>
+  <node id="31" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0080" lon="11.0050">
+    <tag k="power" v="generator"/>
+    <tag k="generator:source" v="wind"/>
+    <tag k="height" v="140"/>
+  </node>
+  <node id="32" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0080" lon="11.0060">
+    <tag k="man_made" v="wind_turbine"/>
+  </node>
+  <node id="33" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0090" lon="11.0020">
+    <tag k="natural" v="peak"/>
+    <tag k="ele" v="1600"/>
+    <tag k="name" v="Testgipfel"/>
+  </node>
+  <way id="1" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="1"/>
+    <nd ref="2"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="110000;20000"/>
+    <tag k="name" v="Test 110"/>
+  </way>
+  <way id="2" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="3"/>
+    <nd ref="4"/>
+    <tag k="power" v="minor_line"/>
+    <tag k="voltage" v="20000"/>
+  </way>
+  <way id="3" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="5"/>
+    <nd ref="6"/>
+    <tag k="power" v="minor_line"/>
+    <tag k="voltage" v="medium"/>
+  </way>
+  <way id="4" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="7"/>
+    <nd ref="8"/>
+    <tag k="power" v="line"/>
+    <tag k="location" v="underground"/>
+    <tag k="voltage" v="110000"/>
+  </way>
+  <way id="5" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="9"/>
+    <nd ref="10"/>
+    <tag k="power" v="cable"/>
+    <tag k="voltage" v="20000"/>
+  </way>
+  <way id="6" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="11"/>
+    <nd ref="12"/>
+    <tag k="aerialway" v="goods"/>
+  </way>
+  <way id="7" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="13"/>
+    <nd ref="14"/>
+    <tag k="aerialway" v="chair_lift"/>
+    <tag k="name" v="Testlift"/>
+  </way>
+  <way id="8" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="15"/>
+    <nd ref="16"/>
+    <tag k="aerialway" v="zip_line"/>
+  </way>
+  <way id="9" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="21"/>
+    <nd ref="22"/>
+    <nd ref="23"/>
+    <nd ref="24"/>
+    <nd ref="21"/>
+    <tag k="sport" v="free_flying"/>
+    <tag k="free_flying:site" v="landing"/>
+    <tag k="name" v="Landewiese"/>
+  </way>
+</osm>

@@ -21,12 +21,18 @@ import java.util.Set;
  *   route  lines   signposted hiking, cycling and MTB routes (from relations)
  *   piste  lines   ski pistes and marked ski routes
  *   poi    points  peaks, saddles, huts, shelters, springs, viewpoints
+ *   flying lines   power lines and aerialways (all cables a pilot can hit), and
+ *          points  free flying sites (takeoff, landing, toplanding, training) and tall
+ *                  obstacles (masts, towers, chimneys, wind turbines); used by the
+ *                  paragliding app Vario
  *
  * Run through scripts/build-region.sh, or directly:
  *   java -cp planetiler.jar scripts/tiles/OutdoorOverlay.java \
  *     --osm-path=region.osm.pbf --output=outdoor.pmtiles --bounds=W,S,E,N
  */
 public class OutdoorOverlay implements Profile {
+
+  private static final Set<String> FLYING_SITES = Set.of("takeoff", "landing", "toplanding", "training");
 
   private static final Set<String> TRAIL_HIGHWAYS =
     Set.of("path", "footway", "track", "cycleway", "bridleway", "steps", "via_ferrata");
@@ -62,6 +68,8 @@ public class OutdoorOverlay implements Profile {
 
   @Override
   public void processFeature(SourceFeature feature, FeatureCollector features) {
+    flying(feature, features);
+
     if (feature.canBeLine()) {
       // Ferry crossings belong to many long-distance routes but are not trails.
       boolean ferry = feature.hasTag("route", "ferry");
@@ -124,6 +132,112 @@ public class OutdoorOverlay implements Profile {
     }
   }
 
+  /** Layer `flying`: cables, free flying sites and tall obstacles. */
+  private static void flying(SourceFeature feature, FeatureCollector features) {
+    if (feature.canBeLine()) {
+      String power = feature.getString("power", "");
+      boolean underground = feature.hasTag("location", "underground", "underwater");
+      if ((power.equals("line") || power.equals("minor_line")) && !underground) {
+        features.line("flying")
+          .setAttr("kind", "power_" + power)
+          .setAttr("voltage", kilovolts(feature.getString("voltage")))
+          .setAttr("name", feature.getString("name"))
+          .setMinZoom(power.equals("line") ? 10 : 12)
+          .setMinPixelSize(0);
+      }
+      String aerialway = feature.getString("aerialway", "");
+      if (!aerialway.isEmpty() && !aerialway.equals("pylon") && !aerialway.equals("station")) {
+        features.line("flying")
+          .setAttr("kind", aerialway)
+          .setAttr("name", feature.getString("name"))
+          .setMinZoom(aerialway.equals("goods") || aerialway.equals("zip_line") ? 12 : 11)
+          .setMinPixelSize(0);
+      }
+    }
+
+    if (feature.isPoint() || feature.canBePolygon()) {
+      for (String site : flyingSites(feature)) {
+        var point = feature.isPoint() ? features.point("flying") : features.centroid("flying");
+        point
+          .setAttr("kind", site)
+          .setAttr("name", feature.getString("name"))
+          .setAttr("ele", leadingInt(feature.getString("ele")))
+          .setAttr("paragliding", yesNo(feature.getString("free_flying:paragliding")))
+          .setAttr("hanggliding", yesNo(feature.getString("free_flying:hanggliding")))
+          .setAttr("direction", feature.getString("direction"))
+          .setAttr("winch", yesNo(feature.getString("free_flying:winch")))
+          .setMinZoom(9);
+      }
+    }
+
+    if (feature.isPoint()) {
+      String obstacle = obstacleKind(feature);
+      if (obstacle != null) {
+        features.point("flying")
+          .setAttr("kind", obstacle)
+          .setAttr("height", leadingInt(feature.getString("height")))
+          .setAttr("name", feature.getString("name"))
+          .setMinZoom(12);
+      }
+    }
+  }
+
+  /**
+   * Site kinds of a free flying site: `free_flying:site` (several separated by ";"),
+   * the older `free_flying=<site>`, and sites tagged only with `sport` count as takeoff.
+   */
+  private static List<String> flyingSites(SourceFeature feature) {
+    String site = feature.getString("free_flying:site", feature.getString("free_flying"));
+    if (site != null) {
+      return java.util.Arrays.stream(site.split(";"))
+        .map(String::trim)
+        .filter(FLYING_SITES::contains)
+        .distinct()
+        .toList();
+    }
+    if (feature.hasTag("sport", "free_flying", "paragliding", "hang_gliding")) {
+      return List.of("takeoff");
+    }
+    return List.of();
+  }
+
+  private static String obstacleKind(SourceFeature feature) {
+    if (feature.hasTag("man_made", "wind_turbine")
+      || (feature.hasTag("power", "generator") && feature.hasTag("generator:source", "wind"))) {
+      return "wind_turbine";
+    }
+    if (feature.hasTag("man_made", "mast", "tower", "chimney")) {
+      return feature.getString("man_made");
+    }
+    return null;
+  }
+
+  /** Highest of the ";"-separated voltages in kV: "110000;20000" becomes 110. */
+  private static Integer kilovolts(String value) {
+    if (value == null) {
+      return null;
+    }
+    Integer highest = null;
+    for (String part : value.split(";")) {
+      Integer volts = leadingInt(part);
+      if (volts != null && (highest == null || volts > highest)) {
+        highest = volts;
+      }
+    }
+    if (highest == null || highest <= 0) {
+      return null;
+    }
+    // Values below 1000 are taken to be in kV already.
+    return highest >= 1000 ? highest / 1000 : highest;
+  }
+
+  private static Boolean yesNo(String value) {
+    if ("yes".equals(value)) {
+      return true;
+    }
+    return "no".equals(value) ? false : null;
+  }
+
   private static String poiKind(SourceFeature feature) {
     if (feature.hasTag("natural", "peak", "saddle", "spring")) {
       return feature.getString("natural");
@@ -162,7 +276,7 @@ public class OutdoorOverlay implements Profile {
 
   @Override
   public String description() {
-    return "Trails, signposted routes, pistes and mountain points of interest";
+    return "Trails, signposted routes, pistes, mountain points of interest, and data for free flying";
   }
 
   @Override
