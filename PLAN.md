@@ -377,6 +377,14 @@ Geofabrik-Extrakten bauen. Grundlage ist das OpenMapTiles-Profil
 Wander-/Rad-/MTB-Routenrelationen (Netz, Ref, Farbe/`osmc:symbol`), Skipisten/-routen
 (`piste:type`), Hütten, Gipfel. Planetiler läuft per Docker (Java muss nicht installiert sein).
 
+Für die Gleitschirm-App Vario (github.com/Isvinter/Vario, liest die Regionspakete über
+`core-maps`) schreibt dasselbe Profil im selben Durchlauf ein Layer `flying`: Stromleitungen
+(auch Mittelspannung, Spannung in kV), alle Seilbahnen inkl. Materialseilbahnen,
+Start-/Lande-/Übungsplätze (`sport=free_flying`) und hohe Hindernisse (Masten, Türme,
+Kamine, Windräder). Die Stile der outdoor_app zeigen es nicht. Entwurf:
+`docs/superpowers/specs/2026-11-18-flug-layer-design.md`; Test:
+`scripts/tiles/test-outdoor-overlay.sh`; Kacheln ansehen mit `tools/tile-inspect`.
+
 | Quelle | Inhalt | Lizenz | Attribution |
 |---|---|---|---|
 | OpenStreetMap über Geofabrik-Extrakte | Rohdaten (PBF) | ODbL 1.0 | „© OpenStreetMap-Mitwirkende“ |
