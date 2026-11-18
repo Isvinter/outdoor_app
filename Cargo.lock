@@ -4623,6 +4623,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tile-inspect"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "core-maps",
+ "serde_json",
+]
+
+[[package]]
 name = "time"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"

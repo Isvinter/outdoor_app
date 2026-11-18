@@ -18,17 +18,35 @@ Ein neues Vektor-Layer `flying` in `outdoor.pmtiles` mit:
 |---|---|---|---|---|
 | `power_line` | Linie | `power=line` | `voltage` (höchster Wert in kV, Ganzzahl), `name` | 10 |
 | `power_minor_line` | Linie | `power=minor_line` | `voltage` | 12 |
+| `power_cable` | Linie | `power=cable` mit `location=overhead\|overground\|outdoor` (Freileitungskabel) | `voltage` | 12 |
 | Seilbahn-`kind` = OSM-Wert (`cable_car`, `gondola`, `chair_lift`, `drag_lift`, `goods`, `zip_line`, …) | Linie | `aerialway=*` außer `pylon`, `station` | `name` | 11 (`goods`, `zip_line`: 12) |
-| `takeoff`, `landing`, `toplanding`, `training` | Punkt (Flächen als Mittelpunkt) | `sport=free_flying` mit `free_flying:site=*`; ältere Schreibweisen `free_flying=*` und `sport=paragliding`/`hang_gliding` | `name`, `ele`, `paragliding`, `hanggliding` (bool, wenn erfasst), `direction` (Text wie erfasst, z. B. `NW` oder `270-320`), `winch` (bool) | 9 |
-| `mast`, `tower`, `chimney`, `wind_turbine` | Punkt | `man_made=mast\|tower\|chimney`; `power=generator` + `generator:source=wind` oder `man_made=wind_turbine` | `height` (m, Ganzzahl), `name` | 12 |
+| `takeoff`, `landing`, `toplanding`, `training`, `site` | Punkt (Flächen als Mittelpunkt) | `sport=free_flying` mit `free_flying:site=*`; ältere Schreibweisen `free_flying=*` und `sport=paragliding`/`hang_gliding` | `name`, `ele`, `paragliding`, `hanggliding` (bool, wenn erfasst), `direction` (Text wie erfasst, z. B. `NW` oder `270-320`), `winch` (bool) | 9 |
+| `mast`, `tower`, `chimney`, `wind_turbine` | Punkt (Flächen als Mittelpunkt) | `man_made=mast\|tower\|chimney`; `power=generator` + `generator:source=wind` oder `man_made=wind_turbine` | `height` (m, Ganzzahl), `name` | 12 |
 
 Alle Seilbahnen kommen in `flying`, obwohl die Basiskarte einen Teil davon schon enthält. So
 hat Vario alle Seile und Leitungen in einem Layer und muss nicht wissen, welche Arten
 OpenMapTiles mitbringt (Materialseilbahnen fehlen dort vermutlich). *Meine Entscheidung.*
 
-Startplätze ohne `free_flying:site` zählen als `takeoff`, wenn sie sonst eindeutig als
-Fluggelände getaggt sind. *Meine Entscheidung; das genaue Tag-Mapping legt der Builder anhand
-echter Daten der Testregion fest.*
+Fluggelände ohne `free_flying:site` (nur `sport=free_flying`/`paragliding`/`hang_gliding`):
+`free_flying:takeoff=yes`/`free_flying:landing=yes` entscheiden, sonst Name oder
+Beschreibung („Lande…“ → `landing`, „Start…“ → `takeoff`), sonst `kind=site` (Fluggelände
+unbekannter Art). *Nachträglich entschieden anhand der Testregion: Der erste Ansatz
+„ohne Angabe = Startplatz“ machte dort zwei Landeplätze zu Startplätzen.*
+
+`voltage`: OSM gibt Volt an; Werte mit Endung „kV“ gelten als kV. Niederspannung
+(`400`) ergibt 0 – „hier hängt ein Draht, kleine Spannung“. *Nach dem Review korrigiert:
+die ursprüngliche Regel „Werte unter 1000 sind schon kV“ machte 400-V-Leitungen zu 400 kV.*
+
+Erkennung über Name/Beschreibung (nach dem Review, geprüft gegen Österreich und Schweiz):
+Wörter auf Deutsch, Englisch, Französisch, Italienisch; „Lande…“ nur als ganzes Wort
+(Landeplatz, Landewiese, …), damit Ortsnamen wie Landeck keinen Startplatz zum Landeplatz
+machen; passen beide Arten, entstehen beide Punkte. Unbekannte `free_flying:site`-Werte
+(`take-off`, `yes`) fallen auf diese Erkennung zurück. Flugschulen, Shops und Büros
+(`shop`, `office`, `building`, `amenity=school…` ohne `leisure`/`landuse`) sind keine
+Fluggelände.
+
+Die Startrichtung steht in OSM meist in `free_flying:site_orientation` (z. B. `SW;S;SE`),
+seltener in `direction`; `direction` im Layer nimmt den ersten vorhandenen Wert.
 
 ## Nicht-Ziele
 

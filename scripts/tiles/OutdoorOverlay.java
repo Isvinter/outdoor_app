@@ -21,12 +21,18 @@ import java.util.Set;
  *   route  lines   signposted hiking, cycling and MTB routes (from relations)
  *   piste  lines   ski pistes and marked ski routes
  *   poi    points  peaks, saddles, huts, shelters, springs, viewpoints
+ *   flying lines   power lines and aerialways (all cables a pilot can hit), and
+ *          points  free flying sites (takeoff, landing, toplanding, training) and tall
+ *                  obstacles (masts, towers, chimneys, wind turbines); used by the
+ *                  paragliding app Vario
  *
  * Run through scripts/build-region.sh, or directly:
  *   java -cp planetiler.jar scripts/tiles/OutdoorOverlay.java \
  *     --osm-path=region.osm.pbf --output=outdoor.pmtiles --bounds=W,S,E,N
  */
 public class OutdoorOverlay implements Profile {
+
+  private static final Set<String> FLYING_SITES = Set.of("takeoff", "landing", "toplanding", "training");
 
   private static final Set<String> TRAIL_HIGHWAYS =
     Set.of("path", "footway", "track", "cycleway", "bridleway", "steps", "via_ferrata");
@@ -62,6 +68,8 @@ public class OutdoorOverlay implements Profile {
 
   @Override
   public void processFeature(SourceFeature feature, FeatureCollector features) {
+    flying(feature, features);
+
     if (feature.canBeLine()) {
       // Ferry crossings belong to many long-distance routes but are not trails.
       boolean ferry = feature.hasTag("route", "ferry");
@@ -124,6 +132,155 @@ public class OutdoorOverlay implements Profile {
     }
   }
 
+  /** Layer `flying`: cables, free flying sites and tall obstacles. */
+  private static void flying(SourceFeature feature, FeatureCollector features) {
+    if (feature.canBeLine()) {
+      String power = feature.getString("power", "");
+      boolean underground = feature.hasTag("location", "underground", "underwater");
+      // Cables are underground unless tagged otherwise; overhead ones are wires in the air.
+      boolean overheadCable = power.equals("cable") && feature.hasTag("location", "overhead", "overground", "outdoor");
+      if (((power.equals("line") || power.equals("minor_line")) && !underground) || overheadCable) {
+        features.line("flying")
+          .setAttr("kind", "power_" + power)
+          .setAttr("voltage", kilovolts(feature.getString("voltage")))
+          .setAttr("name", feature.getString("name"))
+          .setMinZoom(power.equals("line") ? 10 : 12)
+          .setMinPixelSize(0);
+      }
+      String aerialway = feature.getString("aerialway", "");
+      if (!aerialway.isEmpty() && !aerialway.equals("pylon") && !aerialway.equals("station")) {
+        features.line("flying")
+          .setAttr("kind", aerialway)
+          .setAttr("name", feature.getString("name"))
+          .setMinZoom(aerialway.equals("goods") || aerialway.equals("zip_line") ? 12 : 11)
+          .setMinPixelSize(0);
+      }
+    }
+
+    if (feature.isPoint() || feature.canBePolygon()) {
+      for (String site : flyingSites(feature)) {
+        var point = feature.isPoint() ? features.point("flying") : features.centroid("flying");
+        point
+          .setAttr("kind", site)
+          .setAttr("name", feature.getString("name"))
+          .setAttr("ele", leadingInt(feature.getString("ele")))
+          .setAttr("paragliding", yesNo(feature.getString("free_flying:paragliding")))
+          .setAttr("hanggliding", yesNo(feature.getString("free_flying:hanggliding")))
+          .setAttr("direction", feature.getString("free_flying:site_orientation", feature.getString("direction")))
+          .setAttr("winch", yesNo(feature.getString("free_flying:winch")))
+          .setMinZoom(9);
+      }
+    }
+
+    if (feature.isPoint() || feature.canBePolygon()) {
+      String obstacle = obstacleKind(feature);
+      if (obstacle != null) {
+        (feature.isPoint() ? features.point("flying") : features.centroid("flying"))
+          .setAttr("kind", obstacle)
+          .setAttr("height", leadingInt(feature.getString("height")))
+          .setAttr("name", feature.getString("name"))
+          .setMinZoom(12);
+      }
+    }
+  }
+
+  private static final java.util.regex.Pattern TAKEOFF_WORDS = java.util.regex.Pattern.compile(
+    "\\b(start|take-?off|launch|d[ée]collage|decollo)",
+    java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CHARACTER_CLASS);
+  /** Whole words only: place names such as Landeck must not make a takeoff a landing. */
+  private static final java.util.regex.Pattern LANDING_WORDS = java.util.regex.Pattern.compile(
+    "\\b(lande(platz|plätze|wiese|feld|stelle)|landung|landing|atterrissage|atterraggio)",
+    java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CHARACTER_CLASS);
+
+  /**
+   * Site kinds of a free flying site: `free_flying:site` (several separated by ";") or
+   * the older `free_flying=<site>`. Without a known value there, `free_flying:takeoff=yes` /
+   * `free_flying:landing=yes` decide, then words in name or description (German, English,
+   * French, Italian; both kinds if both match); failing that the kind is `site` (a flying
+   * site of unknown type). Flying schools, shops and offices are not sites.
+   */
+  private static List<String> flyingSites(SourceFeature feature) {
+    String site = feature.getString("free_flying:site", feature.getString("free_flying"));
+    if (site != null) {
+      List<String> kinds = java.util.Arrays.stream(site.split(";"))
+        .map(value -> value.trim().replace("take-off", "takeoff").replace("take_off", "takeoff"))
+        .filter(FLYING_SITES::contains)
+        .distinct()
+        .toList();
+      if (!kinds.isEmpty()) {
+        return kinds;
+      }
+    } else if (!feature.hasTag("sport", "free_flying", "paragliding", "hang_gliding")) {
+      return List.of();
+    } else if (isBusiness(feature)) {
+      return List.of();
+    }
+    var kinds = new java.util.ArrayList<String>();
+    if (feature.hasTag("free_flying:takeoff", "yes")) {
+      kinds.add("takeoff");
+    }
+    if (feature.hasTag("free_flying:landing", "yes")) {
+      kinds.add("landing");
+    }
+    if (kinds.isEmpty()) {
+      String text = feature.getString("name", "") + " " + feature.getString("description", "");
+      if (TAKEOFF_WORDS.matcher(text).find()) {
+        kinds.add("takeoff");
+      }
+      if (LANDING_WORDS.matcher(text).find()) {
+        kinds.add("landing");
+      }
+    }
+    return kinds.isEmpty() ? List.of("site") : kinds;
+  }
+
+  /** A school, shop or office of the sport rather than a place to fly from or land on. */
+  private static boolean isBusiness(SourceFeature feature) {
+    boolean business = feature.hasTag("shop") || feature.hasTag("office") || feature.hasTag("building")
+      || feature.hasTag("amenity", "school", "flight_school", "paragliding_school");
+    return business && !feature.hasTag("leisure") && !feature.hasTag("landuse");
+  }
+
+  private static String obstacleKind(SourceFeature feature) {
+    if (feature.hasTag("man_made", "wind_turbine")
+      || (feature.hasTag("power", "generator") && feature.hasTag("generator:source", "wind"))) {
+      return "wind_turbine";
+    }
+    if (feature.hasTag("man_made", "mast", "tower", "chimney")) {
+      return feature.getString("man_made");
+    }
+    return null;
+  }
+
+  /**
+   * Highest of the ";"-separated voltages in kV: "110000;20000" becomes 110, "20 kV" 20.
+   * OSM gives volts, so low voltage ("400") becomes 0.
+   */
+  private static Integer kilovolts(String value) {
+    if (value == null) {
+      return null;
+    }
+    Integer highest = null;
+    for (String part : value.split(";")) {
+      Integer number = leadingInt(part);
+      if (number == null || number < 0) {
+        continue;
+      }
+      int kv = part.trim().toLowerCase(java.util.Locale.ROOT).endsWith("kv") ? number : number / 1000;
+      if (highest == null || kv > highest) {
+        highest = kv;
+      }
+    }
+    return highest;
+  }
+
+  private static Boolean yesNo(String value) {
+    if ("yes".equals(value)) {
+      return true;
+    }
+    return "no".equals(value) ? false : null;
+  }
+
   private static String poiKind(SourceFeature feature) {
     if (feature.hasTag("natural", "peak", "saddle", "spring")) {
       return feature.getString("natural");
@@ -162,7 +319,7 @@ public class OutdoorOverlay implements Profile {
 
   @Override
   public String description() {
-    return "Trails, signposted routes, pistes and mountain points of interest";
+    return "Trails, signposted routes, pistes, mountain points of interest, and data for free flying";
   }
 
   @Override

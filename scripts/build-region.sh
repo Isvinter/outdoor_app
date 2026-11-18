@@ -8,7 +8,8 @@
 # Reads regions/<region-id>.json (or FILE) and writes data/regions/<region-id>/
 # (or DIR/<region-id>/) with
 #   basemap.pmtiles   vector base map (OpenMapTiles schema, built with Planetiler)
-#   outdoor.pmtiles   vector overlay: trails, routes, pistes, peaks, huts
+#   outdoor.pmtiles   vector overlay: trails, routes, pistes, peaks, huts; layer `flying`
+#                     (power lines, aerialways, free flying sites, obstacles) for Vario
 #   dem.pmtiles       elevation tiles (Terrarium encoding, from Mapterhorn)
 #   slope.pmtiles     slope angle classes for winter maps (tools/slope-tiles)
 #   contours.pmtiles  contour lines as vector tiles up to zoom 14, for renderers
