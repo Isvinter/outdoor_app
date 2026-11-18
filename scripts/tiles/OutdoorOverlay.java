@@ -137,7 +137,9 @@ public class OutdoorOverlay implements Profile {
     if (feature.canBeLine()) {
       String power = feature.getString("power", "");
       boolean underground = feature.hasTag("location", "underground", "underwater");
-      if ((power.equals("line") || power.equals("minor_line")) && !underground) {
+      // Cables are underground unless tagged otherwise; overhead ones are wires in the air.
+      boolean overheadCable = power.equals("cable") && feature.hasTag("location", "overhead", "overground", "outdoor");
+      if (((power.equals("line") || power.equals("minor_line")) && !underground) || overheadCable) {
         features.line("flying")
           .setAttr("kind", "power_" + power)
           .setAttr("voltage", kilovolts(feature.getString("voltage")))
@@ -170,10 +172,10 @@ public class OutdoorOverlay implements Profile {
       }
     }
 
-    if (feature.isPoint()) {
+    if (feature.isPoint() || feature.canBePolygon()) {
       String obstacle = obstacleKind(feature);
       if (obstacle != null) {
-        features.point("flying")
+        (feature.isPoint() ? features.point("flying") : features.centroid("flying"))
           .setAttr("kind", obstacle)
           .setAttr("height", leadingInt(feature.getString("height")))
           .setAttr("name", feature.getString("name"))
@@ -182,22 +184,35 @@ public class OutdoorOverlay implements Profile {
     }
   }
 
+  private static final java.util.regex.Pattern TAKEOFF_WORDS = java.util.regex.Pattern.compile(
+    "\\b(start|take-?off|launch|d[ée]collage|decollo)",
+    java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CHARACTER_CLASS);
+  /** Whole words only: place names such as Landeck must not make a takeoff a landing. */
+  private static final java.util.regex.Pattern LANDING_WORDS = java.util.regex.Pattern.compile(
+    "\\b(lande(platz|plätze|wiese|feld|stelle)|landung|landing|atterrissage|atterraggio)",
+    java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.UNICODE_CHARACTER_CLASS);
+
   /**
    * Site kinds of a free flying site: `free_flying:site` (several separated by ";") or
-   * the older `free_flying=<site>`. Without either, `free_flying:takeoff=yes` /
-   * `free_flying:landing=yes` decide, then a name or description containing "lande" or
-   * "start"; failing that the kind is `site` (a flying site of unknown type).
+   * the older `free_flying=<site>`. Without a known value there, `free_flying:takeoff=yes` /
+   * `free_flying:landing=yes` decide, then words in name or description (German, English,
+   * French, Italian; both kinds if both match); failing that the kind is `site` (a flying
+   * site of unknown type). Flying schools, shops and offices are not sites.
    */
   private static List<String> flyingSites(SourceFeature feature) {
     String site = feature.getString("free_flying:site", feature.getString("free_flying"));
     if (site != null) {
-      return java.util.Arrays.stream(site.split(";"))
-        .map(String::trim)
+      List<String> kinds = java.util.Arrays.stream(site.split(";"))
+        .map(value -> value.trim().replace("take-off", "takeoff").replace("take_off", "takeoff"))
         .filter(FLYING_SITES::contains)
         .distinct()
         .toList();
-    }
-    if (!feature.hasTag("sport", "free_flying", "paragliding", "hang_gliding")) {
+      if (!kinds.isEmpty()) {
+        return kinds;
+      }
+    } else if (!feature.hasTag("sport", "free_flying", "paragliding", "hang_gliding")) {
+      return List.of();
+    } else if (isBusiness(feature)) {
       return List.of();
     }
     var kinds = new java.util.ArrayList<String>();
@@ -208,11 +223,22 @@ public class OutdoorOverlay implements Profile {
       kinds.add("landing");
     }
     if (kinds.isEmpty()) {
-      String text = (feature.getString("name", "") + " " + feature.getString("description", ""))
-        .toLowerCase(java.util.Locale.ROOT);
-      kinds.add(text.contains("lande") ? "landing" : text.contains("start") ? "takeoff" : "site");
+      String text = feature.getString("name", "") + " " + feature.getString("description", "");
+      if (TAKEOFF_WORDS.matcher(text).find()) {
+        kinds.add("takeoff");
+      }
+      if (LANDING_WORDS.matcher(text).find()) {
+        kinds.add("landing");
+      }
     }
-    return kinds;
+    return kinds.isEmpty() ? List.of("site") : kinds;
+  }
+
+  /** A school, shop or office of the sport rather than a place to fly from or land on. */
+  private static boolean isBusiness(SourceFeature feature) {
+    boolean business = feature.hasTag("shop") || feature.hasTag("office") || feature.hasTag("building")
+      || feature.hasTag("amenity", "school", "flight_school", "paragliding_school");
+    return business && !feature.hasTag("leisure") && !feature.hasTag("landuse");
   }
 
   private static String obstacleKind(SourceFeature feature) {
@@ -226,23 +252,26 @@ public class OutdoorOverlay implements Profile {
     return null;
   }
 
-  /** Highest of the ";"-separated voltages in kV: "110000;20000" becomes 110. */
+  /**
+   * Highest of the ";"-separated voltages in kV: "110000;20000" becomes 110, "20 kV" 20.
+   * OSM gives volts, so low voltage ("400") becomes 0.
+   */
   private static Integer kilovolts(String value) {
     if (value == null) {
       return null;
     }
     Integer highest = null;
     for (String part : value.split(";")) {
-      Integer volts = leadingInt(part);
-      if (volts != null && (highest == null || volts > highest)) {
-        highest = volts;
+      Integer number = leadingInt(part);
+      if (number == null || number < 0) {
+        continue;
+      }
+      int kv = part.trim().toLowerCase(java.util.Locale.ROOT).endsWith("kv") ? number : number / 1000;
+      if (highest == null || kv > highest) {
+        highest = kv;
       }
     }
-    if (highest == null || highest <= 0) {
-      return null;
-    }
-    // Values below 1000 are taken to be in kV already.
-    return highest >= 1000 ? highest / 1000 : highest;
+    return highest;
   }
 
   private static Boolean yesNo(String value) {

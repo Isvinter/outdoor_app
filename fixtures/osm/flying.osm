@@ -93,6 +93,47 @@
     <tag k="name" v="Startplatz Nord"/>
     <tag k="free_flying:site_orientation" v="SW;S;SE"/>
   </node>
+  <node id="1101" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0087" lon="11.002">
+    <tag k="sport" v="free_flying"/>
+    <tag k="free_flying:site" v="take-off"/>
+    <tag k="name" v="Montmelon Test"/>
+  </node>
+  <node id="1102" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0087" lon="11.003">
+    <tag k="sport" v="free_flying"/>
+    <tag k="free_flying:site" v="yes"/>
+    <tag k="name" v="Landing Field Test"/>
+  </node>
+  <node id="1103" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0087" lon="11.004">
+    <tag k="sport" v="free_flying"/>
+    <tag k="name" v="Takeoff West"/>
+  </node>
+  <node id="1104" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0087" lon="11.005">
+    <tag k="sport" v="free_flying"/>
+    <tag k="name" v="Atterrissage Test"/>
+  </node>
+  <node id="1105" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0087" lon="11.006">
+    <tag k="sport" v="free_flying"/>
+    <tag k="name" v="Start- und Landeplatz"/>
+  </node>
+  <node id="1106" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0087" lon="11.007">
+    <tag k="sport" v="free_flying"/>
+    <tag k="name" v="Venet Landeck Start"/>
+  </node>
+  <node id="1107" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0089" lon="11.006">
+    <tag k="sport" v="free_flying"/>
+    <tag k="shop" v="free_flying"/>
+    <tag k="name" v="Flugschule Test"/>
+  </node>
+  <node id="1200" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0093" lon="11.001"/>
+  <node id="1201" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0093" lon="11.008"/>
+  <node id="1202" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0096" lon="11.001"/>
+  <node id="1203" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0096" lon="11.008"/>
+  <node id="1204" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0099" lon="11.001"/>
+  <node id="1205" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0099" lon="11.008"/>
+  <node id="1210" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0089" lon="11.007"/>
+  <node id="1211" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0089" lon="11.0074"/>
+  <node id="1212" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0091" lon="11.0074"/>
+  <node id="1213" version="1" timestamp="2026-11-18T00:00:00Z" lat="47.0091" lon="11.007"/>
   <way id="1" version="1" timestamp="2026-11-18T00:00:00Z">
     <nd ref="1"/>
     <nd ref="2"/>
@@ -150,5 +191,34 @@
     <tag k="sport" v="free_flying"/>
     <tag k="free_flying:site" v="landing"/>
     <tag k="name" v="Landewiese"/>
+  </way>
+  <way id="1301" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="1200"/>
+    <nd ref="1201"/>
+    <tag k="power" v="minor_line"/>
+    <tag k="voltage" v="400"/>
+  </way>
+  <way id="1302" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="1202"/>
+    <nd ref="1203"/>
+    <tag k="power" v="minor_line"/>
+    <tag k="voltage" v="20 kV"/>
+    <tag k="name" v="Leitung kV"/>
+  </way>
+  <way id="1303" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="1204"/>
+    <nd ref="1205"/>
+    <tag k="power" v="cable"/>
+    <tag k="location" v="overhead"/>
+    <tag k="voltage" v="20000"/>
+  </way>
+  <way id="1304" version="1" timestamp="2026-11-18T00:00:00Z">
+    <nd ref="1210"/>
+    <nd ref="1211"/>
+    <nd ref="1212"/>
+    <nd ref="1213"/>
+    <nd ref="1210"/>
+    <tag k="man_made" v="tower"/>
+    <tag k="height" v="25"/>
   </way>
 </osm>
