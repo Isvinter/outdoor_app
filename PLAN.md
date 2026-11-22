@@ -874,7 +874,7 @@ Von mir getroffen (bitte beim Lesen prüfen):
 6. **Fixtures:** echte GPX-Tracks liefert der Auftraggeber, unverändert übernehmen. Bis dahin
    synthetische Tracks mit bekannter Wahrheit.
 7. **MTB:** ab S3 fürs Rad sperren; Schwelle als Parameter des Kachelbaus (siehe 3.3).
-8. **Repo:** lokales Git-Repo, Remote `https://github.com/Isvinter/outdoor_app.git`. Nach
+8. **Repo:** lokales Git-Repo, Remote `https://github.com/Isvinter/zerogrid.git`. Nach
    jedem erreichten Meilenstein pushen – vorher einmal nachfragen. CI über GitHub Actions.
 9. **Sprache:** UI zunächst Deutsch, später auf Englisch umstellbar → alle UI-Texte von
    Anfang an in einer Sprachdatei, keine festen Texte im Code. Code und Kommentare Englisch.
