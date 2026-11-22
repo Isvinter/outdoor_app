@@ -16,6 +16,7 @@ const $ = (id) => document.getElementById(id);
 
 let running = false;
 let testTone = null;
+let testAlert = null; // warning sound under test: "near", "alarm" or null
 let settings = null;
 let activePage = "instruments";
 
@@ -275,9 +276,13 @@ function setRunning(value) {
   $("toggle").classList.toggle("primary", !running);
   $("tone-climb").disabled = !running;
   $("tone-sink").disabled = !running;
+  $("alert-near").disabled = !running;
+  $("alert-alarm").disabled = !running;
   if (!running) {
     testTone = null;
     showTestTone();
+    testAlert = null;
+    showTestAlert();
   }
 }
 
@@ -576,6 +581,23 @@ async function toggleTone(climb) {
   showTestTone();
 }
 
+function showTestAlert() {
+  $("alert-near").classList.toggle("on", testAlert === "near");
+  $("alert-alarm").classList.toggle("on", testAlert === "alarm");
+}
+
+async function toggleAlert(level) {
+  testAlert = testAlert === level ? null : level;
+  try {
+    await invoke("test_alert", { level: testAlert });
+  } catch (error) {
+    console.warn("test_alert", error);
+  }
+  showTestAlert();
+}
+
+$("alert-near").addEventListener("click", () => toggleAlert("near"));
+$("alert-alarm").addEventListener("click", () => toggleAlert("alarm"));
 $("tone-climb").addEventListener("click", () => toggleTone(2.5));
 $("tone-sink").addEventListener("click", () => toggleTone(-4));
 

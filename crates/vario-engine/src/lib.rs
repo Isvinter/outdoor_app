@@ -24,6 +24,7 @@ use flight_core::sensor::SensorEvent;
 use flight_core::settings::VarioSettings;
 use flight_core::terrain::Terrain;
 use flight_core::time::UtcDateTime;
+use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
 
 pub use crate::processor::{
@@ -42,6 +43,8 @@ struct Shared {
     stop: AtomicBool,
     /// Climb rate that overrides the filter output, for testing the tone.
     test_climb_mps: Mutex<Option<f64>>,
+    /// Warning sound that overrides the airspace warnings, for testing it.
+    test_alert: Mutex<Option<Alert>>,
     /// Settings changed by the user that the engine thread has not applied yet.
     pending_settings: Mutex<Option<VarioSettings>>,
     /// The flown track since the engine started, one point per second.
@@ -101,6 +104,11 @@ impl Engine {
     /// `None` returns to normal operation.
     pub fn set_test_climb(&self, climb_rate_mps: Option<f64>) {
         *lock(&self.shared.test_climb_mps) = climb_rate_mps;
+    }
+
+    /// Plays a warning sound regardless of the airspaces. `None` returns to normal.
+    pub fn set_test_alert(&self, alert: Option<Alert>) {
+        *lock(&self.shared.test_alert) = alert;
     }
 
     /// The track points from index `from` on. The UI remembers how many points it
@@ -172,6 +180,9 @@ fn run(mut processor: Processor, events: Receiver<SensorEvent>, shared: &Shared)
             processor.set_settings(&settings);
         }
         apply_airspace_changes(&mut processor, shared);
+        processor.set_test_alert(*lock(&shared.test_alert));
+        // Covers the case that no sensor delivers at all any more.
+        processor.expire_warnings(processor.gps_age_s());
         // Sleep until a sample arrives, but wake up regularly to notice `stop`.
         match events.recv_timeout(IDLE_WAKEUP) {
             Ok(event) => {

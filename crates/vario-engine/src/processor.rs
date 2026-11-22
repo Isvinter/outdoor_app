@@ -23,6 +23,9 @@ use vario_audio::voice::ToneControl;
 
 /// Number of summary lines kept for display.
 const MAX_SUMMARIES: usize = 400;
+/// Without a new GPS fix for this long, airspace warnings end: they would describe a
+/// position that is no longer known.
+pub const WARNING_GPS_TIMEOUT_S: f64 = 30.0;
 /// Shortest time between two track points. Slightly below one second so that a GPS
 /// delivering at 1 Hz with a little jitter does not lose every other point.
 const TRACK_INTERVAL_S: f64 = 0.9;
@@ -295,6 +298,8 @@ pub struct Processor {
     /// type that implements the trait; which one is decided at run time.
     terrain: Box<dyn Terrain>,
     warnings: Vec<Warning>,
+    /// Warning sound that overrides the real warnings, for testing the sound.
+    test_alert: Option<Alert>,
 }
 
 impl Processor {
@@ -318,7 +323,35 @@ impl Processor {
             warner: Warner::new(Arc::new(Vec::new()), WarningSettings::default()),
             terrain: Box::new(NoTerrain),
             warnings: Vec::new(),
+            test_alert: None,
         }
+    }
+
+    /// Plays this warning sound regardless of the airspaces; `None` returns to normal.
+    pub fn set_test_alert(&mut self, alert: Option<Alert>) {
+        if alert != self.test_alert {
+            self.test_alert = alert;
+            self.update_alert();
+        }
+    }
+
+    /// Ends all warnings if the last GPS fix is older than [`WARNING_GPS_TIMEOUT_S`].
+    /// `gps_age_s` is the age of the last fix, `None` if there was none.
+    pub fn expire_warnings(&mut self, gps_age_s: Option<f64>) {
+        let stale = gps_age_s.is_none_or(|age| age > WARNING_GPS_TIMEOUT_S);
+        if stale && !self.warnings.is_empty() {
+            self.warnings.clear();
+            self.update_alert();
+            self.push_summary(format!(
+                "airspace warnings ended: no GPS for {WARNING_GPS_TIMEOUT_S:.0} s"
+            ));
+        }
+    }
+
+    /// Age of the last GPS fix in seconds of the engine's own clock, if the engine runs
+    /// at all; used by the engine thread when no samples arrive.
+    pub fn gps_age_s(&self) -> Option<f64> {
+        self.gps.stats().age_s
     }
 
     /// Replaces the airspaces to warn about. Current warnings end; the next GPS fix
@@ -379,8 +412,12 @@ impl Processor {
         self.update_alert();
     }
 
-    /// Plays the most urgent warning that is not silenced.
+    /// Plays the most urgent warning that is not silenced, or the test sound.
     fn update_alert(&self) {
+        if let Some(alert) = self.test_alert {
+            self.control.set_alert(alert);
+            return;
+        }
         let level = self
             .warnings
             .iter()
@@ -471,8 +508,16 @@ impl Processor {
             }
         }
         self.filter.handle(event);
-        if let SensorEvent::Gps(fix) = event {
-            self.check_airspaces(fix);
+        match event {
+            SensorEvent::Gps(fix) => self.check_airspaces(fix),
+            // The other sensors keep running when the GPS fails: their time tells how
+            // old the last fix is.
+            _ => {
+                let age = self
+                    .last_fix
+                    .map(|fix| event.time().seconds_since(fix.time));
+                self.expire_warnings(age);
+            }
         }
         if let Some(recording) = &mut self.recording {
             recording.recorder.handle(event);
@@ -975,5 +1020,40 @@ mod tests {
             climb_simulation(10.0).run_fast(|event| processor.handle(&event));
             assert_eq!(control.alert(), expected, "ground {ground_m}");
         }
+    }
+
+    #[test]
+    fn warnings_end_without_gps() {
+        use flight_core::sensor::AccelSample;
+        let (mut processor, control) = processor();
+        processor.set_airspaces(ctr_ahead());
+        climb_simulation(20.0).run_fast(|event| processor.handle(&event));
+        assert_eq!(control.alert(), Alert::Near);
+        // The accelerometer goes on, the GPS stays silent (last fix at 20 s).
+        let accel = |t: f64| {
+            SensorEvent::Accel(AccelSample {
+                time: Timestamp::from_secs(t),
+                vertical_mps2: 0.0,
+            })
+        };
+        processor.handle(&accel(45.0));
+        assert_eq!(control.alert(), Alert::Near, "25 s without GPS");
+        processor.handle(&accel(51.0));
+        assert_eq!(control.alert(), Alert::None, "31 s without GPS");
+        let status = processor.status(51.0, true);
+        assert!(status.airspace_warnings.is_empty());
+        assert!(status.summaries.last().unwrap().contains("no GPS"));
+    }
+
+    #[test]
+    fn test_alert_overrides_the_warnings() {
+        let (mut processor, control) = processor();
+        processor.set_test_alert(Some(Alert::Alarm));
+        assert_eq!(control.alert(), Alert::Alarm);
+        processor.set_airspaces(ctr_ahead());
+        climb_simulation(5.0).run_fast(|event| processor.handle(&event));
+        assert_eq!(control.alert(), Alert::Alarm, "test sound stays");
+        processor.set_test_alert(None);
+        assert_eq!(control.alert(), Alert::Near, "back to the real warning");
     }
 }

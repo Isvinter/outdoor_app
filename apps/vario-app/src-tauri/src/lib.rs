@@ -24,6 +24,7 @@ use serde::Serialize;
 use crate::settings::{SettingsDto, WarningDto};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_vario_sensors::{Permissions, SensorStart, VarioSensorsExt};
+use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
 use vario_engine::flights::{self, FlightEntry};
 use vario_engine::{Engine, Status, TrackPoint};
@@ -397,6 +398,20 @@ fn test_tone(state: State<'_, AppState>, climb_rate_mps: Option<f64>) {
     }
 }
 
+/// Plays a warning sound (`near` or `alarm`) regardless of the airspaces; `null` ends
+/// it.
+#[tauri::command]
+fn test_alert(state: State<'_, AppState>, level: Option<String>) -> Result<(), String> {
+    let alert = match level.as_deref() {
+        None => None,
+        Some("near") => Some(Alert::Near),
+        Some("alarm") => Some(Alert::Alarm),
+        Some(other) => return Err(format!("unknown warning level '{other}'")),
+    };
+    state.with_engine(|engine| engine.set_test_alert(alert));
+    Ok(())
+}
+
 /// Where the files the user may want to get at are kept. On iOS this is the app's
 /// Documents folder, which the Files app shows (see `Info.ios.plist`).
 fn data_dir(app: &AppHandle) -> Option<PathBuf> {
@@ -447,6 +462,7 @@ pub fn run() {
             flight_track,
             delete_flight,
             test_tone,
+            test_alert,
             get_settings,
             set_settings,
             default_settings,
