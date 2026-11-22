@@ -3,7 +3,7 @@ import MapLibre
 
 /// Answers `outdoor-tiles://localhost/…` from the core and the bundled glyphs,
 /// so that the map never needs a network. Same answers as the desktop's
-/// `tiles` scheme (apps/desktop/src-tauri/src/tiles.rs):
+/// `tiles` scheme (apps/base/src-tauri/src/tiles.rs):
 ///
 ///     outdoor-tiles://localhost/<layer>/<z>/<x>/<y>       tile, or 204 if no region has it
 ///     outdoor-tiles://localhost/fonts/<font>/<range>.pbf  glyph range bundled with the app

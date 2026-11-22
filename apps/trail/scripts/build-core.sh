@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds the Rust core for iOS: apps/ios/build/OutdoorCore.xcframework (device
-# and simulator, arm64) and the Swift bindings in apps/ios/Generated/.
+# Builds the Rust core for iOS: apps/trail/build/OutdoorCore.xcframework (device
+# and simulator, arm64) and the Swift bindings in apps/trail/Generated/.
 # Needs: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 set -euo pipefail
 

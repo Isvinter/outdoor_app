@@ -1,7 +1,7 @@
 import UIKit
 
 /// Small pictograms for the points of interest: the shapes and colours of
-/// `drawIcon` in apps/desktop/ui/src/map.ts, which the styles ask for by name.
+/// `drawIcon` in apps/base/ui/src/map.ts, which the styles ask for by name.
 enum Icons {
     static let names = ["peak", "saddle", "hut", "shelter", "viewpoint", "spring"]
 

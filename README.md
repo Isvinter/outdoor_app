@@ -37,7 +37,7 @@ Routen (gerade Linien mit Höhenprofil).
 ## Bauen und starten
 
 ```sh
-(cd apps/desktop/ui && pnpm install && pnpm build)   # Frontend, wird in die App eingebettet
+(cd apps/base/ui && pnpm install && pnpm build)   # Frontend, wird in die App eingebettet
 cargo run --release -p outdoor-desktop
 cargo run --release -p outdoor-desktop --no-default-features   # ohne Valhalla
 ```
@@ -249,7 +249,7 @@ cargo run --release -p track-cli -- record tour.gpx --db test.sqlite         # G
 
 ## iOS
 
-Die iOS-App (`apps/ios/`, SwiftUI und MapLibre Native) zeigt die Sommer- und Winterkarte
+Die iOS-App (`apps/trail/`, SwiftUI und MapLibre Native) zeigt die Sommer- und Winterkarte
 samt Hangneigung und Höhenlinien offline aus installierten Regionen, dazu die eigene
 Position. Routen plant sie ohne Netz, mit Valhalla in der App (valhalla-mobile) und der
 Planungslogik des Rust-Kerns. Regionen und Routen holt sie im Heimnetz vom Desktop, ohne
@@ -259,9 +259,9 @@ Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
 `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
 
 ```sh
-apps/ios/scripts/build-core.sh               # Rust-Kern als XCFramework und Swift-Bindings (nach jeder Änderung am Kern)
-(cd apps/ios && xcodegen generate)           # erzeugt Outdoor.xcodeproj, dann in Xcode das Schema „Outdoor“ starten
-apps/ios/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
+apps/trail/scripts/build-core.sh               # Rust-Kern als XCFramework und Swift-Bindings (nach jeder Änderung am Kern)
+(cd apps/trail && xcodegen generate)           # erzeugt Outdoor.xcodeproj, dann in Xcode das Schema „Outdoor“ starten
+apps/trail/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
 ```
 
 Die Tests mit echten Routingdaten (Referenzwanderung, Abnahme) brauchen ein Paket von
@@ -269,7 +269,7 @@ Die Tests mit echten Routingdaten (Referenzwanderung, Abnahme) brauchen ein Pake
 `ISARWINKEL_PACKAGE`. Liegt dort nur die `routing.tar`, baut das Skript daraus ein Paket nur
 mit Routing (die Karte bleibt dann leer). Ohne Paket werden diese Tests übersprungen. Auf dem
 iPhone läuft die Abnahme mit der dort installierten Region:
-`DEVICE=<udid> apps/ios/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`.
+`DEVICE=<udid> apps/trail/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`.
 
 Die Tests der Regionsverwaltung und der Routen vom Desktop laden über echtes HTTP: `test.sh`
 startet dafür zweimal `share-serve` (die Freigabe ohne Desktop-App, aus `crates/core-share`)
@@ -337,7 +337,7 @@ cargo test --workspace --exclude outdoor-desktop --exclude region-builder   # au
 cargo test -p core-routing -p core-app       # dieselben Crates ohne Valhalla
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-(cd apps/desktop/ui && pnpm typecheck)
+(cd apps/base/ui && pnpm typecheck)
 scripts/measure-performance.sh               # Messprotokoll neu aufnehmen (Release-Build, ~3 min)
 ```
 
@@ -365,10 +365,10 @@ Abweichung geprüft.
 | `crates/core-maps` | Offline-Regionen: Katalog, Download, PMTiles lesen und schreiben, Kachelzugriff, Höhen aus dem Geländemodell |
 | `crates/core-routing` | Routenprofile, Router-Schnittstelle, Valhalla (Feature `valhalla`), manuelle Route, DIN-Gehzeit |
 | `crates/core-app` | Anwendungsdienste; einzige Schnittstelle für Oberflächen |
-| `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
-| `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
+| `apps/base/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
+| `apps/base/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
 | `crates/core-ffi` | UniFFI-Hülle um `core-app` für die mobilen Apps |
-| `apps/ios` | iOS-App (SwiftUI, MapLibre Native, valhalla-mobile): Karte, Regionsverwaltung und Übernahme vom Desktop, Position, Routenplanung; keine Fachlogik |
+| `apps/trail` | iOS-App (SwiftUI, MapLibre Native, valhalla-mobile): Karte, Regionsverwaltung und Übernahme vom Desktop, Position, Routenplanung; keine Fachlogik |
 | `crates/region-builder` | nur Desktop: Regionen in der App bauen – Beschreibung, Wahl der Geofabrik-Auszüge, Lauf des Bauskripts mit Fortschritt und Abbruch |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |

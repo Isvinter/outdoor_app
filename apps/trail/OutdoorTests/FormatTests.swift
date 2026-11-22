@@ -1,7 +1,7 @@
 import XCTest
 @testable import Outdoor
 
-/// The same texts as `apps/desktop/ui/src/format.ts` gives in German.
+/// The same texts as `apps/base/ui/src/format.ts` gives in German.
 final class FormatTests: XCTestCase {
     func testDistance() {
         XCTAssertEqual(Format.distance(850), "850 m")

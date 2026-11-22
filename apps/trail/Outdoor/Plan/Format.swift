@@ -1,6 +1,6 @@
 import Foundation
 
-/// Numbers as the desktop shows them (`apps/desktop/ui/src/format.ts`), in German.
+/// Numbers as the desktop shows them (`apps/base/ui/src/format.ts`), in German.
 enum Format {
     private static func number(_ value: Double, digits: Int) -> String {
         let formatter = NumberFormatter()

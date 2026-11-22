@@ -1,5 +1,5 @@
 //! Editing a route plan: the rules of the desktop's route panel
-//! (`apps/desktop/ui/src/route.ts`), in the core for the mobile apps.
+//! (`apps/base/ui/src/route.ts`), in the core for the mobile apps.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use core_app::{LegSpec, PlanRequest};

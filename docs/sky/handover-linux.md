@@ -11,7 +11,7 @@ outdoor_app auf dem Linux-Desktop (künftig **ZeroGrid Base**) per WLAN auf **Ze
 - `crates/core-share`: kleiner, nur lesender HTTP-Server. Liefert `/catalog.json` (Regionen mit
   Version, Größe, Dateien und SHA-256), die Dateien jeder Region (mit `Range`, also
   fortsetzbar) sowie `/routes.json` und die Routen (die Sky nicht nutzt).
-- `apps/desktop/src-tauri/src/share.rs` und `apps/desktop/ui/src/share.ts`: Freigabe in der
+- `apps/base/src-tauri/src/share.rs` und `apps/base/ui/src/share.ts`: Freigabe in der
   Desktop-App ein- und ausschalten, Anzeige der Adresse `http://<IPv4>:<port>/` als Text und
   QR-Code, Hinweis zur Firewall. Selbsttest über `OUTDOOR_SELFTEST_SHARE` (siehe README dort).
 - `share-serve` (Binary in `core-share`): derselbe Server ohne Oberfläche, zum Testen.
