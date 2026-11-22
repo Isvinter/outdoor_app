@@ -48,13 +48,13 @@ mit dem Fahrrad in der Stadt und zu Fuß, nicht im Flug. Ausgewertet aus den Roh
   erst mit der Option `mixWithOthers`; ohne sie lehnte iOS ab („can't stop others
   because it is in the background and not the NowPlaying app“, im Gerätelog). Auf dem
   iPhone mit Wecker bei gesperrtem Bildschirm geprüft: Der Wecker schaltet den Vario-Ton
-  ganz stumm, nach dem Stoppen ist er sofort wieder da. Ob ein Anruf sich genauso
-  verhält, ist nach der Korrektur nicht eigens geprüft.
+  ganz stumm, nach dem Stoppen ist er sofort wieder da. Danach vom Nutzer auch mit
+  Anrufen und Timern geprüft: Der Ton kommt jedes Mal zurück.
 - **Akku:** Die Anzeige stand vor und nach einem 13-Minuten-Lauf auf 100 %; für eine
   Aussage braucht es einen längeren Lauf.
 
-**Noch offen:** Akkuverbrauch über eine Stunde und mehr, Ton nach einem echten Anruf
-(nach der Korrektur), Vario-Gefühl bei echtem Höhenunterschied im Flug.
+**Noch offen:** Akkuverbrauch über eine Stunde und mehr, Vario-Gefühl bei echtem
+Höhenunterschied im Flug.
 
 **Bewertung:** Tauri trägt für den Hintergrundbetrieb, die Oberfläche kann wie geplant
 mit Tauri gebaut werden.
