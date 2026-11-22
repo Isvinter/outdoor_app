@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Outdoor</string>
+	<string>ZeroGrid Trail</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -30,9 +30,9 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Liest den QR-Code der Freigabe am Desktop.</string>
+	<string>Liest den QR-Code der Freigabe in ZeroGrid Base.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Lädt Karten und Routen vom Desktop im Heimnetz.</string>
+	<string>Lädt Karten und Routen von ZeroGrid Base im Heimnetz.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Zeigt deine Position auf der Karte.</string>
 	<key>UIFileSharingEnabled</key>

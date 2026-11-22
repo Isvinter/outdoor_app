@@ -141,7 +141,7 @@ Stand 2026-11-16, MacBook Air (Xcode 27.2), valhalla-mobile 0.6.4 (Valhalla 3.9.
   Vorabtest, von `apps/trail/scripts/test.sh` zu einem Paket gemacht), also ohne Höhenprofil.
   Auf dem iPhone lief das volle Paket `isarwinkel-achensee`.
 - Auf dem iPhone gemessen mit
-  `DEVICE=<udid> apps/trail/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`
+  `DEVICE=<udid> apps/trail/scripts/test.sh -only-testing:ZeroGridTrailUITests/AcceptanceUITests`
   (`testReferenceHikeByTapping` und `testLegTimes`). Der Lauf nutzt die installierte Region,
   behält die App-Daten und löscht die Route, die er speichert. Der Test-Runner zählt als App:
   Das kostenlose Entwicklerprofil erlaubt drei auf dem Gerät.

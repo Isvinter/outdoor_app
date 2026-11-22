@@ -1,5 +1,9 @@
 # Übergabe: Kartenübertragung Linux-Desktop → ZeroGrid Sky (Stand 22.11.2026)
 
+> Seit der Zusammenführung liegen Base, Trail und Sky in einem Repository (`apps/base`,
+> `apps/trail`, `apps/sky`). `outdoor_app` meint unten ZeroGrid Base, und `core-maps` ist
+> kein Git-Pin mehr, sondern ein lokaler Pfad. Die Befehle laufen im Wurzelordner.
+
 Für die Weiterarbeit auf dem Linux-Rechner. Ziel des nächsten Schritts: Regionen von der
 outdoor_app auf dem Linux-Desktop (künftig **ZeroGrid Base**) per WLAN auf **ZeroGrid Sky**
 (dieses Repository, iPhone) übertragen, Ende zu Ende mit der echten Desktop-App statt mit

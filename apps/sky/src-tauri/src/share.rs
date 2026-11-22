@@ -1,4 +1,4 @@
-//! Regions over the home network: the outdoor_app on the desktop shares its regions
+//! Regions over the home network: ZeroGrid Base on the desktop shares its regions
 //! (its `core-share` server), and this app downloads them into its `maps` folder.
 //!
 //! The server offers `catalog.json` (the regions with version and size) and the files

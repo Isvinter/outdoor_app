@@ -5,9 +5,9 @@ Lufträume). Bis November 2026 hieß sie „Vario“; Crate- und Ordnernamen (`v
 `apps/sky`) bleiben so. Zielgerät ist ein iPhone 13 Pro Max. Kein zertifiziertes
 Instrument. Die ursprüngliche Aufgabenstellung steht in `STARTPROMPT.md`.
 
-Familie „ZeroGrid“ (Projekte des Nutzers): **ZeroGrid Sky** (dieses Repository, iOS),
-**ZeroGrid Trail** (iOS-App der outdoor_app), **ZeroGrid Base** (Linux-Desktop der
-outdoor_app: Regionen bauen und per WLAN verteilen).
+Familie „ZeroGrid“ (ein gemeinsames Repository): **ZeroGrid Sky** (`apps/sky`, iOS),
+**ZeroGrid Trail** (`apps/trail`, iOS), **ZeroGrid Base** (`apps/base`, Linux-Desktop:
+Regionen bauen und per WLAN verteilen). Die Sky-Crates liegen in `crates/` des Repositorys.
 
 Eine eigene Linux-App von ZeroGrid Sky gibt es nicht mehr (Entscheidung vom 22.11.2026):
 Was am Desktop gebraucht wird (z. B. Flüge, Lufträume), kommt später in ZeroGrid Base.
@@ -35,7 +35,7 @@ Phasen strikt nacheinander, nach jeder Phase auf Freigabe warten.
 | 3 | App auf Linux (Instrumente, Einstellungen, Karte) | freigegeben (geprüft auf macOS und im iOS-Simulator; auf Linux seit Phase 2b nicht mehr geprüft) |
 | 4 | Aufzeichnung, Flugliste | freigegeben (geprüft auf macOS und im iOS-Simulator; auf Linux nicht geprüft) |
 | 5 | iOS (Sensorbrücke, Hintergrund, Audio-Session) – auf dem Mac | in Arbeit (Sensorbrücke, Hintergrund, Audio-Session aus 2b; Audio-Unterbrechungen behoben, auf dem iPhone mit Anruf, Wecker und Timer geprüft; offen: Akku über eine Stunde und mehr, Vario-Gefühl im echten Flug) |
-| 6 | Offline-Karten: Regionspakete der outdoor_app (`core-maps` per Git), Kachel-Schema `tiles://`, Topo-Stil | freigegeben (Anzeige offline und Flugkarte auf dem iPhone geprüft; Stromleitungen, Seilbahnen und Start-/Landeplätze mit Phase 6b) |
+| 6 | Offline-Karten: Regionspakete von ZeroGrid Base (`core-maps`), Kachel-Schema `tiles://`, Topo-Stil | freigegeben (Anzeige offline und Flugkarte auf dem iPhone geprüft; Stromleitungen, Seilbahnen und Start-/Landeplätze mit Phase 6b) |
 | 6b | Fertiger Flugstil mit dem neuen Flug-Layer des Region-Builders (Stromleitungen dünn gestrichelt, Seilbahnen dicker und durchgehend, Start-/Landeplätze); Regionen per WLAN von der outdoor_app (Linux-Desktop, `core-share`) auf ZeroGrid Sky (iOS) übertragen | freigegeben (Flugstil und WLAN-Übertragung auf dem iPhone geprüft: Aktualisieren, Abbrechen und Fortsetzen gegen `share-serve` am Mac; gegen die echte Freigabe der outdoor_app auf Linux noch nicht; Regionen ohne `flying` zeigen keine Seilbahnen mehr, also neu bauen; QR-Code zum Verbinden später) |
 | 7 | Lufträume: OpenAir einlesen (`flight-core`), Anzeige auf der Karte, später Warnungen; Daten zuerst von openAIP (Deutschland, Österreich; später Schweiz, Norditalien), nicht im Repository | freigegeben (OpenAir-Parser fertig, liest die openAIP-Dateien (OpenAir 2) für Deutschland und Österreich ohne Meldung; Anzeige auf der Karte, Dateiliste und Filter in den Einstellungen auf macOS und dem iPhone geprüft (flüssig auch mit ganz Deutschland und Österreich im Bild); Antippen der Karte listet die Lufträume an der Stelle, auf macOS und dem iPhone geprüft (Scrollen einer langen Liste nicht); Warnungen (Vorwarnung/Alarm, Ton, Banner, Hervorhebung, Quittieren, Einstellungen, Gelände aus `dem.pmtiles` für AGL) gebaut, mit Tests und im Desktop-Simulator geprüft, auf dem iPhone draußen mit erfundenen Testlufträumen vom Nutzer geprüft; danach: Warnungen enden nach 30 s ohne GPS, Testknöpfe für den Warnton, beides nur mit Tests und auf macOS geprüft) |
 
@@ -67,8 +67,8 @@ apps/
     plugins/vario-sensors/  Tauri plugin; `ios/Sources` holds the Swift sensor bridge
     ui/                  web UI (plain HTML/JS, no bundler); `vendor/` holds MapLibre GL JS 5
                          as unmodified files (version 6 needs ES modules and a worker file);
-                         `map/fonts/` the map glyphs (Noto Sans, from the outdoor_app)
-    src-tauri/map-styles/  offline map style (copy of the outdoor_app's topo-summer.json)
+                         `map/fonts/` the map glyphs (Noto Sans, from ZeroGrid Base)
+    src-tauri/map-styles/  offline map style (copy of the repository's styles/topo-summer.json)
 docs/sky/ios-test.md         build and test instructions for the iOS test
 docs/handover-linux.md   handover: region transfer from the Linux desktop (next step)
 testdata/                real IGC files provided by the user
@@ -99,9 +99,8 @@ Technik (mit Phase 0 freigegeben):
 - iOS-Sensoren: kleine Swift-Brücke (CoreLocation, CoreMotion), die Messwerte per C-FFI
   direkt an Rust gibt – nicht über JavaScript.
 - Offline-Karten: Regionspakete (Ordner mit `manifest.json` und PMTiles) aus dem
-  Region-Builder der outdoor_app (github.com/Isvinter/outdoor_app, eigenes Projekt des
-  Nutzers), gelesen mit deren Crate `core-maps` (Git-Abhängigkeit, auf einen Commit
-  festgelegt). Regionen liegen im Ordner `maps` neben `flights`; auf dem iPhone per Finder
+  Region-Builder von ZeroGrid Base, gelesen mit der gemeinsamen Crate `core-maps`
+  (lokaler Pfad im Workspace). Regionen liegen im Ordner `maps` neben `flights`; auf dem iPhone per Finder
   kopiert. Sind Regionen da, gewinnt die Offline-Karte.
 - Online-Kartenkacheln: Anbieter mit passender Nutzungsbedingung (Standard: OpenFreeMap),
   Kachel-URL konfigurierbar. Kein Massendownload, keine Nutzung von
@@ -113,12 +112,11 @@ Technik (mit Phase 0 freigegeben):
 - Vor jedem Commit müssen sauber durchlaufen:
   ```
   cargo fmt --all -- --check
-  cargo clippy --all-targets -- -D warnings
-  cargo test
+  cargo clippy --workspace --exclude vario-app --exclude tauri-plugin-vario-sensors --all-targets -- -D warnings
+  cargo test --workspace --exclude vario-app --exclude tauri-plugin-vario-sensors
+  cargo test -p vario-app
   ```
-  Ohne `--workspace` prüfen diese Befehle nur `crates/*` (die `default-members`). Die App
-  unter `apps/` braucht die Tauri-Systempakete (`libwebkit2gtk-4.1-dev` usw.); sind sie
-  installiert, zusätzlich mit `--workspace` prüfen.
+  Die Sky-App gehört nicht zu den `default-members` und noch nicht zur CI.
 - Exit-Status der Prüfungen nicht durch Pipes (`| tail`) verdecken.
 - Kernlogik hat Tests. Filter-Tests prüfen gegen synthetische Profile mit bekanntem
   Steigwert; IGC-Tests prüfen den Roundtrip (lesen → schreiben → inhaltsgleich).
@@ -128,7 +126,7 @@ Technik (mit Phase 0 freigegeben):
 - Das Repository auf GitHub (`origin`) ist öffentlich: keine Wohnort-Koordinaten (GPS-Zeilen
   aus Sensorlogs von zu Hause entfernen), keine Zugangsdaten committen. Nur nach
   Rückfrage pushen.
-- Fehlen Testdaten: mit synthetischen Profilen arbeiten, bis IGC-Dateien in `testdata/`
+- Fehlen Testdaten: mit synthetischen Profilen arbeiten, bis IGC-Dateien in `testdata/sky/`
   liegen.
 
 ## Nützliche Befehle
@@ -136,13 +134,13 @@ Technik (mit Phase 0 freigegeben):
 ```
 # Flug durch die simulierten Sensoren abspielen (Profile: demo, climb, thermal, sink)
 cargo run -p sensor-sim --example replay -- --synthetic demo --speed 10
-cargo run -p sensor-sim --example replay -- testdata/flug.igc --fast --out /tmp/kopie.igc
+cargo run -p sensor-sim --example replay -- testdata/sky/flug.igc --fast --out /tmp/kopie.igc
 ```
 
 ```
 # Vario hören: Flug durch Filter und Ton abspielen
 cargo run -p vario-cli -- --synthetic demo
-cargo run -p vario-cli -- testdata/flug.igc --speed 4 --climb-threshold 0.5 --volume 0.4
+cargo run -p vario-cli -- testdata/sky/flug.igc --speed 4 --climb-threshold 0.5 --volume 0.4
 # Ton ohne Soundkarte in eine WAV-Datei schreiben
 cargo run -p vario-cli -- --synthetic demo --noise --wav /tmp/demo.wav
 # Luftraumwarnung über dem Vario-Ton anhören (near oder alarm)
@@ -160,8 +158,8 @@ cargo run -p vario-app
 # Selbsttest: drückt selbst auf Start, öffnet die Karte, gibt Seiteninhalt, Anzahl der
 # Track-Punkte und Skriptfehler aus und beendet sich
 VARIO_SMOKE_TEST=1 cargo run -p vario-app
-# Region per WLAN laden: Freigabe der outdoor_app nachstellen (deren share-serve, aus
-# einem Checkout der outdoor_app; --seed-region verschiebt den Ordner, also eine Kopie
+# Region per WLAN laden: Freigabe von ZeroGrid Base nachstellen (share-serve;
+# --seed-region verschiebt den Ordner, also eine Kopie
 # angeben) und den Selbsttest mit leerem HOME dagegen laufen lassen, damit der echte
 # maps-Ordner unberührt bleibt
 cargo run --release -p core-share --bin share-serve -- --data /tmp/share --port 8765 --seed-region /tmp/kopie-der-region
@@ -171,7 +169,7 @@ cargo build -p vario-app && HOME=$(mktemp -d) VARIO_SMOKE_TEST=1 VARIO_SMOKE_OPE
 ```
 
 Offline-Kartenregionen liegen im Ordner `maps` (Desktop: Datenordner der App; zum Testen
-reicht dort ein Symlink auf eine Region der outdoor_app). Der Desktop-Simulator fliegt über
+reicht dort ein Symlink auf eine Region von ZeroGrid Base). Der Desktop-Simulator fliegt über
 dem Brauneck, also in deren Testregion.
 
 Lufträume liegen im Ordner `airspace` neben `maps`: OpenAir-Dateien (`.txt`) oder

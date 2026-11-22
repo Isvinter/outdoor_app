@@ -1,5 +1,5 @@
 import XCTest
-@testable import Outdoor
+@testable import ZeroGridTrail
 
 /// The same texts as `apps/base/ui/src/format.ts` gives in German.
 final class FormatTests: XCTestCase {

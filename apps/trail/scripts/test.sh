@@ -1,8 +1,8 @@
 #!/bin/bash
 # Runs the tests in the simulator; arguments go to xcodebuild, e.g.
-#   scripts/test.sh -only-testing:OutdoorTests/RegionImportTests
+#   scripts/test.sh -only-testing:ZeroGridTrailTests/RegionImportTests
 #
-# On a device: DEVICE=<udid> scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests
+# On a device: DEVICE=<udid> scripts/test.sh -only-testing:ZeroGridTrailUITests/AcceptanceUITests
 # (the device unlocked, `isarwinkel-achensee` installed on it; the app keeps its data).
 #
 # The tests with real routing data need a package of `isarwinkel-achensee`.
@@ -92,4 +92,4 @@ if [ -n "$share_host" ]; then
 fi
 
 xcodegen generate --quiet
-xcodebuild test -project Outdoor.xcodeproj -scheme Outdoor -destination "$destination" "$@"
+xcodebuild test -project ZeroGridTrail.xcodeproj -scheme ZeroGridTrail -destination "$destination" "$@"

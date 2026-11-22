@@ -79,7 +79,7 @@ struct ScanSheet: View {
         }
         guard status == .authorized else {
             return .unavailable(
-                "Kein Zugriff auf die Kamera – in den Einstellungen unter Outdoor erlauben. \(typeInstead)")
+                "Kein Zugriff auf die Kamera – in den Einstellungen unter ZeroGrid Trail erlauben. \(typeInstead)")
         }
         guard DataScannerViewController.isAvailable else {
             return .unavailable("Die Kamera ist gerade nicht verfügbar. \(typeInstead)")

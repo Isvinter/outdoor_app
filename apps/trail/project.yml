@@ -1,8 +1,8 @@
 # The iOS app. Before generating the project, build the Rust core once:
 #   scripts/build-core.sh && xcodegen generate
-name: Outdoor
+name: ZeroGridTrail
 options:
-  bundleIdPrefix: de.zeibig.outdoor
+  bundleIdPrefix: de.zeibig.zerogrid.trail
   deploymentTarget:
     iOS: "16.4"
 packages:
@@ -23,11 +23,11 @@ settings:
     # The core is only built for Apple-Silicon simulators (scripts/build-core.sh).
     "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
 targets:
-  Outdoor:
+  ZeroGridTrail:
     type: application
     platform: iOS
     sources:
-      - Outdoor
+      - ZeroGridTrail
       # The Swift side of the core's bindings, written by scripts/build-core.sh.
       - Generated/outdoor_core.swift
       # Map styles and glyphs are shared with the desktop app.
@@ -45,17 +45,17 @@ targets:
       - package: ValhallaMobile
         product: Valhalla
     info:
-      path: Outdoor/Info.plist
+      path: ZeroGridTrail/Info.plist
       properties:
-        CFBundleDisplayName: Outdoor
+        CFBundleDisplayName: ZeroGrid Trail
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         NSLocationWhenInUseUsageDescription: Zeigt deine Position auf der Karte.
-        NSLocalNetworkUsageDescription: Lädt Karten und Routen vom Desktop im Heimnetz.
-        NSCameraUsageDescription: Liest den QR-Code der Freigabe am Desktop.
+        NSLocalNetworkUsageDescription: Lädt Karten und Routen von ZeroGrid Base im Heimnetz.
+        NSCameraUsageDescription: Liest den QR-Code der Freigabe in ZeroGrid Base.
         # The desktop's share is plain HTTP in the home network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -66,25 +66,25 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: de.zeibig.outdoor
-  OutdoorTests:
+        PRODUCT_BUNDLE_IDENTIFIER: de.zeibig.zerogrid.trail
+  ZeroGridTrailTests:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - OutdoorTests
+      - ZeroGridTrailTests
       - path: ../../fixtures/regions/mini
         type: folder
         buildPhase: resources
     dependencies:
-      - target: Outdoor
+      - target: ZeroGridTrail
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-  OutdoorUITests:
+  ZeroGridTrailUITests:
     type: bundle.ui-testing
     platform: iOS
     sources:
-      - OutdoorUITests
+      - ZeroGridTrailUITests
       - path: ../../fixtures/regions/mini
         type: folder
         buildPhase: resources
@@ -92,19 +92,19 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
-      - target: Outdoor
+      - target: ZeroGridTrail
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
 schemes:
-  Outdoor:
+  ZeroGridTrail:
     build:
       targets:
-        Outdoor: all
+        ZeroGridTrail: all
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - OutdoorTests
-        - OutdoorUITests
+        - ZeroGridTrailTests
+        - ZeroGridTrailUITests

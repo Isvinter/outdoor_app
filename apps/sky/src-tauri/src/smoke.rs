@@ -15,7 +15,7 @@ use tauri::{AppHandle, Listener, Manager};
 const ENV_VAR: &str = "VARIO_SMOKE_TEST";
 /// Long enough for one 10-second summary line to appear.
 const RUN_TIME: Duration = Duration::from_secs(14);
-/// Address of a desktop share (e.g. the outdoor_app's `share-serve`): if set, the
+/// Address of a desktop share (e.g. ZeroGrid Base's `share-serve`): if set, the
 /// smoke test also connects to it and downloads the first region it offers. That
 /// writes into the app's real `maps` folder, so run it with `HOME` set to an empty
 /// temporary folder.

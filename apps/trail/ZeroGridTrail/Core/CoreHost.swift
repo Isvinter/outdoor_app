@@ -12,7 +12,7 @@ enum ImportResult {
 private final class Listener: CoreListener, @unchecked Sendable {
     typealias Progress = @Sendable (_ region: String, _ done: UInt64, _ total: UInt64) -> Void
 
-    private let log = Logger(subsystem: "de.zeibig.outdoor", category: "core")
+    private let log = Logger(subsystem: "de.zeibig.zerogrid.trail", category: "core")
     private let lock = NSLock()
     private var watcher: Progress?
 

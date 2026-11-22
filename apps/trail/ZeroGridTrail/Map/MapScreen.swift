@@ -115,7 +115,7 @@ private struct SelfTestStatus: View {
         }
         .allowsHitTesting(false)
         // Also on the console, to read the measurements from a device:
-        // xcrun devicectl device process launch --console --device <id> de.zeibig.outdoor -- -selftest
+        // xcrun devicectl device process launch --console --device <id> de.zeibig.zerogrid.trail -- -selftest
         .onChange(of: controller.rendered) { rendered in
             if rendered { print("selftest: \(status)") }
         }

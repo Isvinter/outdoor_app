@@ -1,5 +1,5 @@
 import XCTest
-@testable import Outdoor
+@testable import ZeroGridTrail
 
 final class IconsTests: XCTestCase {
     func testKnownNamesHaveImages() throws {

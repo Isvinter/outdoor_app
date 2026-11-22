@@ -1,6 +1,10 @@
-# outdoor_app
+# ZeroGrid
 
-Offline-Outdoor-App für Rad, MTB, Wandern und Skitouren.
+Offline-Ökosystem für draußen, mit drei Apps in einem Repository:
+
+- **ZeroGrid Base** (`apps/base`, Desktop): Planung, Karten bauen und für die mobilen Apps bereitstellen.
+- **ZeroGrid Trail** (`apps/trail`, iOS): Karte und Routenplanung für Rad, MTB, Wandern und Skitouren.
+- **ZeroGrid Sky** (`apps/sky`, iOS): Flugcomputer für Gleitschirme, siehe [apps/sky/CLAUDE.md](apps/sky/CLAUDE.md).
 
 | Dokument | Inhalt |
 |---|---|
@@ -260,7 +264,7 @@ Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
 
 ```sh
 apps/trail/scripts/build-core.sh               # Rust-Kern als XCFramework und Swift-Bindings (nach jeder Änderung am Kern)
-(cd apps/trail && xcodegen generate)           # erzeugt Outdoor.xcodeproj, dann in Xcode das Schema „Outdoor“ starten
+(cd apps/trail && xcodegen generate)           # erzeugt ZeroGridTrail.xcodeproj, dann in Xcode das Schema „Outdoor“ starten
 apps/trail/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
 ```
 
@@ -269,7 +273,7 @@ Die Tests mit echten Routingdaten (Referenzwanderung, Abnahme) brauchen ein Pake
 `ISARWINKEL_PACKAGE`. Liegt dort nur die `routing.tar`, baut das Skript daraus ein Paket nur
 mit Routing (die Karte bleibt dann leer). Ohne Paket werden diese Tests übersprungen. Auf dem
 iPhone läuft die Abnahme mit der dort installierten Region:
-`DEVICE=<udid> apps/trail/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`.
+`DEVICE=<udid> apps/trail/scripts/test.sh -only-testing:ZeroGridTrailUITests/AcceptanceUITests`.
 
 Die Tests der Regionsverwaltung und der Routen vom Desktop laden über echtes HTTP: `test.sh`
 startet dafür zweimal `share-serve` (die Freigabe ohne Desktop-App, aus `crates/core-share`)

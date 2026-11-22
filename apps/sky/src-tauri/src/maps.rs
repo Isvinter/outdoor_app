@@ -1,10 +1,10 @@
-//! Offline maps: region packages from the outdoor_app project, read with its
+//! Offline maps: region packages from ZeroGrid Base, read with its
 //! `core-maps` crate.
 //!
 //! A region is a folder with `manifest.json` and PMTiles files (base map, elevation,
-//! contour lines, ...), built by the outdoor_app's region builder. Regions are copied
+//! contour lines, ...), built by ZeroGrid Base's region builder. Regions are copied
 //! into the `maps` folder next to `flights` (on iOS visible in the "Files" app, filled
-//! from the Mac with the Finder), or downloaded from the outdoor_app on the desktop over
+//! from the Mac with the Finder), or downloaded from ZeroGrid Base on the desktop over
 //! the home network (see `share`).
 //!
 //! The map asks for tiles through the URI scheme `tiles`, answered here in Rust:
@@ -38,7 +38,7 @@ const TILES_BASE: &str = "tiles://localhost/";
 const FONT_ASSETS: &str = "map/fonts/";
 
 /// The map styles for installed regions, with placeholders for tile and font URLs.
-/// Topo is the outdoor_app's hiking map (`styles/topo-summer.json`); the flying map is
+/// Topo is ZeroGrid Base's hiking map (`styles/topo-summer.json`); the flying map is
 /// derived from it: strong terrain, peaks, few details, obstacles stand out.
 const FLYING_STYLE: &str = include_str!("../map-styles/flying.json");
 const TOPO_STYLE: &str = include_str!("../map-styles/topo-summer.json");

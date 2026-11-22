@@ -59,7 +59,7 @@ final class RegionsController: ObservableObject {
 
     /// Deleting and switching, and every reading of the installed regions,
     /// one after the other: what the screen shows last is what was read last.
-    private let changes = DispatchQueue(label: "de.zeibig.outdoor.regions", qos: .userInitiated)
+    private let changes = DispatchQueue(label: "de.zeibig.zerogrid.trail.regions", qos: .userInitiated)
     /// Counts the readings of the catalog, so that a slow one cannot replace a newer one.
     private var reads = 0
     /// The download started last and where its first report stood; for the self-test.

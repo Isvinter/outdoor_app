@@ -1,5 +1,5 @@
 import XCTest
-@testable import Outdoor
+@testable import ZeroGridTrail
 
 /// A scratch directory with a core in it and `fixtures/regions/mini` ready to import.
 struct Sandbox {

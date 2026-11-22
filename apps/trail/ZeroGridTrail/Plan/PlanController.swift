@@ -125,7 +125,7 @@ final class PlanController: ObservableObject {
 
     /// Computations run here one after the other, off the main thread; so do
     /// the other calls that change what the core holds as the planned route.
-    private let queue = DispatchQueue(label: "de.zeibig.outdoor.plan", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "de.zeibig.zerogrid.trail.plan", qos: .userInitiated)
     /// A saved route is being loaded or one of the desktop taken over. Until
     /// that is done the planning is not changed: the core is about to replace
     /// the planned route and the route "save" overwrites, and a change made

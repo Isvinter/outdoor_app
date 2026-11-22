@@ -1,5 +1,5 @@
 import XCTest
-@testable import Outdoor
+@testable import ZeroGridTrail
 
 /// Routing through the core with valhalla-mobile. The tests with real routing
 /// data need `ISARWINKEL_PACKAGE`, the path of a package of the region

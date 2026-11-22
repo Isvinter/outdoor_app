@@ -66,7 +66,7 @@ fn run(stop: &AtomicBool) {
 
 /// About 45 minutes of glides, thermals and sink, repeating every four and a half
 /// minutes, with no net altitude change per round. Starts above the Brauneck near
-/// Lenggries (a public launch site), inside the outdoor_app's test map region, so the
+/// Lenggries (a public launch site), inside ZeroGrid Base's test map region, so the
 /// offline map can be tried on the desktop.
 fn long_flight() -> SyntheticFlight {
     let mut builder = SyntheticFlight::builder().start(47.665, 11.526, 1700.0);

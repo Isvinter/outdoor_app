@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct OutdoorApp: App {
+struct ZeroGridTrailApp: App {
     init() {
         _ = AppStart.launched
     }

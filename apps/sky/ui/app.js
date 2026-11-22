@@ -907,7 +907,7 @@ function showAirspaceCategories() {
   );
 }
 
-// ---- Regions: installed and on offer from the desktop (outdoor_app) ----
+// ---- Regions: installed and on offer from ZeroGrid Base ----
 //
 // The list comes from Rust in two steps: at once with only the installed regions, then
 // with the desktop's catalog, which can take up to 20 s if the desktop is not reachable.
@@ -955,7 +955,7 @@ function showRegionList() {
   $("regions-none").hidden = regions.length > 0;
   let message = "";
   if (catalogError) {
-    message = "Desktop nicht erreichbar. Läuft die Freigabe in der outdoor_app? (" + catalogError + ")";
+    message = "Desktop nicht erreichbar. Läuft die Freigabe in ZeroGrid Base? (" + catalogError + ")";
   } else if (source && !regions.some((region) => region.state !== "installed")) {
     message = "Verbunden. Der Desktop bietet keine neueren Regionen an.";
   }
