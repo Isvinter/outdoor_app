@@ -1,8 +1,19 @@
-# Vario – Gleitschirm-Flugcomputer in Rust
+# ZeroGrid Sky – Gleitschirm-Flugcomputer in Rust
 
-Private Flugcomputer-App (Vario-Ton, IGC-Tracking, Karte, Instrumente). Entwicklung zuerst
-als Linux-Prototyp, Zielgerät ist ein iPhone 13 Pro Max. Kein zertifiziertes Instrument.
-Die vollständige Aufgabenstellung steht in `STARTPROMPT.md`.
+Private Flugcomputer-App für das iPhone (Vario-Ton, IGC-Tracking, Karte, Instrumente,
+Lufträume). Bis November 2026 hieß sie „Vario“; Crate- und Ordnernamen (`vario-*`,
+`apps/vario-app`) bleiben so. Zielgerät ist ein iPhone 13 Pro Max. Kein zertifiziertes
+Instrument. Die ursprüngliche Aufgabenstellung steht in `STARTPROMPT.md`.
+
+Familie „ZeroGrid“ (Projekte des Nutzers): **ZeroGrid Sky** (dieses Repository, iOS),
+**ZeroGrid Trail** (iOS-App der outdoor_app), **ZeroGrid Base** (Linux-Desktop der
+outdoor_app: Regionen bauen und per WLAN verteilen).
+
+Eine eigene Linux-App von ZeroGrid Sky gibt es nicht mehr (Entscheidung vom 22.11.2026):
+Was am Desktop gebraucht wird (z. B. Flüge, Lufträume), kommt später in ZeroGrid Base.
+Die Kern-Crates (`flight-core`, `vario-audio`, `sensor-sim` …) müssen dafür ohne die App
+nutzbar bleiben. Der Desktop-Build der App bleibt nur als Entwicklungswerkzeug auf dem Mac
+(simulierter Flug, Selbsttest).
 
 ## Kommunikation
 
@@ -25,7 +36,7 @@ Phasen strikt nacheinander, nach jeder Phase auf Freigabe warten.
 | 4 | Aufzeichnung, Flugliste | freigegeben (geprüft auf macOS und im iOS-Simulator; auf Linux nicht geprüft) |
 | 5 | iOS (Sensorbrücke, Hintergrund, Audio-Session) – auf dem Mac | in Arbeit (Sensorbrücke, Hintergrund, Audio-Session aus 2b; Audio-Unterbrechungen behoben, auf dem iPhone mit Anruf, Wecker und Timer geprüft; offen: Akku über eine Stunde und mehr, Vario-Gefühl im echten Flug) |
 | 6 | Offline-Karten: Regionspakete der outdoor_app (`core-maps` per Git), Kachel-Schema `tiles://`, Topo-Stil | freigegeben (Anzeige offline und Flugkarte auf dem iPhone geprüft; Stromleitungen, Seilbahnen und Start-/Landeplätze mit Phase 6b) |
-| 6b | Fertiger Flugstil mit dem neuen Flug-Layer des Region-Builders (Stromleitungen dünn gestrichelt, Seilbahnen dicker und durchgehend, Start-/Landeplätze); Regionen per WLAN von der outdoor_app (Linux-Desktop, `core-share`) auf die Vario-App (iOS) übertragen | freigegeben (Flugstil und WLAN-Übertragung auf dem iPhone geprüft: Aktualisieren, Abbrechen und Fortsetzen gegen `share-serve` am Mac; gegen die echte Freigabe der outdoor_app auf Linux noch nicht; Regionen ohne `flying` zeigen keine Seilbahnen mehr, also neu bauen; QR-Code zum Verbinden später) |
+| 6b | Fertiger Flugstil mit dem neuen Flug-Layer des Region-Builders (Stromleitungen dünn gestrichelt, Seilbahnen dicker und durchgehend, Start-/Landeplätze); Regionen per WLAN von der outdoor_app (Linux-Desktop, `core-share`) auf ZeroGrid Sky (iOS) übertragen | freigegeben (Flugstil und WLAN-Übertragung auf dem iPhone geprüft: Aktualisieren, Abbrechen und Fortsetzen gegen `share-serve` am Mac; gegen die echte Freigabe der outdoor_app auf Linux noch nicht; Regionen ohne `flying` zeigen keine Seilbahnen mehr, also neu bauen; QR-Code zum Verbinden später) |
 | 7 | Lufträume: OpenAir einlesen (`flight-core`), Anzeige auf der Karte, später Warnungen; Daten zuerst von openAIP (Deutschland, Österreich; später Schweiz, Norditalien), nicht im Repository | in Arbeit (OpenAir-Parser fertig, liest die openAIP-Dateien (OpenAir 2) für Deutschland und Österreich ohne Meldung; Anzeige auf der Karte, Dateiliste und Filter in den Einstellungen auf macOS und dem iPhone geprüft (flüssig auch mit ganz Deutschland und Österreich im Bild); Antippen der Karte listet die Lufträume an der Stelle, auf macOS und dem iPhone geprüft (Scrollen einer langen Liste nicht); nächster Schritt: Plan für Warnungen) |
 
 Den Status hier nach jeder Freigabe aktualisieren.

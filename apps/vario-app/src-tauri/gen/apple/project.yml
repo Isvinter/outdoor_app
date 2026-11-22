@@ -1,6 +1,6 @@
 name: vario-app
 options:
-  bundleIdPrefix: de.vario.prototyp.flugcomputer
+  bundleIdPrefix: de.zeibig.zerogrid.sky
   deploymentTarget:
     iOS: 15.0
 fileGroups: [../../src]
@@ -10,8 +10,8 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Vario
-      PRODUCT_BUNDLE_IDENTIFIER: de.vario.prototyp.flugcomputer
+      PRODUCT_NAME: ZeroGrid Sky
+      PRODUCT_BUNDLE_IDENTIFIER: de.zeibig.zerogrid.sky
 targetTemplates:
   app:
     type: application

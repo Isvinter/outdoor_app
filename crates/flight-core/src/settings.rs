@@ -78,7 +78,7 @@ impl VarioSettings {
     /// [`VarioSettings::from_text`].
     pub fn to_text(&self) -> String {
         format!(
-            "# Vario settings\n\
+            "# ZeroGrid Sky settings\n\
              {KEY_CLIMB} = {}\n{KEY_SINK} = {}\n{KEY_VOLUME} = {}\n{KEY_DAMPING} = {}\n",
             self.climb_threshold_mps, self.sink_threshold_mps, self.volume, self.damping_s
         )

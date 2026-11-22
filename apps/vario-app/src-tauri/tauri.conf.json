@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Vario",
+  "productName": "ZeroGrid Sky",
   "version": "0.1.0",
-  "identifier": "de.vario.prototyp.flugcomputer",
+  "identifier": "de.zeibig.zerogrid.sky",
   "build": {
     "frontendDist": "../ui"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Vario",
+        "title": "ZeroGrid Sky",
         "width": 430,
         "height": 860,
         "resizable": true

@@ -85,7 +85,7 @@ impl IgcFile {
     pub fn with_header(date: Date, meta: &FlightMeta) -> Self {
         let lines = [
             // "XXX" is the manufacturer code reserved for non-approved recorders.
-            "AXXXVAR".to_owned(),
+            "AXXXZGS".to_owned(),
             format!(
                 "HFDTEDATE:{:02}{:02}{:02},01",
                 date.day(),
@@ -96,7 +96,7 @@ impl IgcFile {
             format!("HFGTYGLIDERTYPE:{}", single_line(&meta.glider_type)),
             format!("HFGIDGLIDERID:{}", single_line(&meta.glider_id)),
             "HFDTMGPSDATUM:WGS84".to_owned(),
-            "HFFTYFRTYPE:Vario,prototype".to_owned(),
+            "HFFTYFRTYPE:ZeroGrid,Sky".to_owned(),
         ];
         IgcFile {
             records: lines.into_iter().map(Record::Other).collect(),
@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(file.date(), Some(date));
         assert!(
             file.to_string()
-                .starts_with("AXXXVAR\r\nHFDTEDATE:101126,01\r\n")
+                .starts_with("AXXXZGS\r\nHFDTEDATE:101126,01\r\n")
         );
     }
 

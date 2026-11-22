@@ -2,7 +2,7 @@
  "version": 8,
  "name": "Flug",
  "metadata": {
-  "about": "Flying map for the Vario app, derived from the outdoor_app's topo-summer.json (strong terrain, peaks, few details, obstacles stand out). Edited by hand.",
+  "about": "Flying map for ZeroGrid Sky, derived from the outdoor_app's topo-summer.json (strong terrain, peaks, few details, obstacles stand out). Edited by hand.",
   "placeholders": {
    "__TILES__": "base URL of the tile protocol",
    "__FONTS__": "base URL of the glyph files",

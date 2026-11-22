@@ -87,7 +87,7 @@ Workspace sauber durch (93 Tests); die Desktop-App besteht den Selbsttest
 cd apps/vario-app/src-tauri
 cargo tauri ios build --debug --target aarch64-sim --ci
 xcrun simctl boot "iPhone 18 Pro Max"
-xcrun simctl install booted gen/apple/build/arm64-sim/Vario.app
+xcrun simctl install booted "gen/apple/build/arm64-sim/ZeroGrid Sky.app"
 xcrun simctl privacy booted grant location-always de.vario.prototyp.flugcomputer
 xcrun simctl location booted start --speed=15 47.60,11.00 47.62,11.03
 # Selbsttest: drückt selbst auf Start und beendet die App nach 14 s
@@ -159,11 +159,10 @@ Das Projekt liegt auf GitHub (`origin`) und wird von dort auf den Mac geklont.
   einschalten. Nach der ersten Installation dem Entwicklerzertifikat vertrauen
   (*Allgemein → VPN & Geräteverwaltung*).
 
-Eine kostenlose Apple-ID („Personal Team“) reicht, auch für die Hintergrund-Modi
-(geprüft). Die installierte App läuft damit nach 7 Tagen ab und muss dann neu
-installiert werden (vom Nutzer geprüft); außerdem sind höchstens 3 selbst signierte
-Apps gleichzeitig installierbar. Mit dem bezahlten Apple Developer Program
-(99 $/Jahr) gilt die Signatur ein Jahr, und die Grenze von 3 Apps entfällt.
+Signiert wird mit dem bezahlten Apple Developer Program (Team `29WG4SD523`, seit
+November 2026). Die Profile gelten ein Jahr. Bis dahin lief die App mit einer kostenlosen
+Apple-ID („Personal Team“), auch mit den Hintergrund-Modi; sie lief dann aber nach 7 Tagen
+ab.
 
 Was beim ersten Mal zusätzlich nötig war:
 
@@ -180,6 +179,19 @@ Was beim ersten Mal zusätzlich nötig war:
     -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
   ```
 
+**Umbenennung (22.11.2026):** Aus „Vario“ (`de.vario.prototyp.flugcomputer`) wurde
+„ZeroGrid Sky“ (`de.zeibig.zerogrid.sky`). Für iOS ist das eine neue App; die Daten der
+alten wurden so umgezogen (`<alt>`/`<neu>` sind die Bundle-IDs):
+
+```sh
+xcrun devicectl device copy from --device <UDID> --domain-type appDataContainer \
+  --domain-identifier <alt> --source Documents --destination Documents
+xcrun devicectl device copy to --device <UDID> --domain-type appDataContainer \
+  --domain-identifier <neu> --source Documents/maps --destination Documents/maps
+# genauso flights, logs, airspace und "Library/Application Support/<alt>" nach
+# "Library/Application Support/<neu>" (Einstellungen)
+```
+
 ## 3. Bauen und installieren
 
 iPhone per Kabel anschließen und entsperren.
@@ -194,7 +206,7 @@ Geprüft ist dieser Weg (statt `ios run`):
 
 ```sh
 cargo tauri ios build --debug --target aarch64 --ci
-xcrun devicectl device install app --device <UDID> gen/apple/build/arm64/Vario.ipa
+xcrun devicectl device install app --device <UDID> "gen/apple/build/arm64/ZeroGrid Sky.ipa"
 ```
 
 `ios run` bettet die Oberfläche in die App ein. Die App läuft danach auch ohne
@@ -224,7 +236,7 @@ auffällige Werte sind rot.
 ### A. Am Schreibtisch
 
 1. App öffnen, **Start** tippen. Standort erlauben, bei der zweiten Nachfrage
-   **„Immer erlauben“** wählen (sonst später in *Einstellungen → Vario → Standort*).
+   **„Immer erlauben“** wählen (sonst später in *Einstellungen → ZeroGrid Sky → Standort*).
    Bewegungs-/Fitnessdaten erlauben.
 2. Die Infozeile unter den Knöpfen notieren: Barometer ja/nein, Bewegung ja/nein,
    Standort-Status, Audio-Session, Ton.
@@ -258,7 +270,7 @@ auffällige Werte sind rot.
 ## 5. Logs auf den Rechner holen
 
 Die App schreibt in ihren Dokumente-Ordner, sichtbar in der App **Dateien** unter
-*Auf meinem iPhone → Vario → logs*:
+*Auf meinem iPhone → ZeroGrid Sky → logs*:
 
 - `summary-<Zeit>.txt`: eine Zeile alle 10 Sekunden mit Raten und längster Pause.
 - `sensors-<Zeit>.csv`: jeder einzelne Sensorwert (etwa 5 MB pro Stunde).
@@ -286,12 +298,12 @@ Die UDID liefert `xcrun devicectl list devices`.
   idevicesyslog -u <UDID> | grep --line-buffered "vario:"
   ```
   Für Gründe, die iOS selbst meldet (z. B. warum die Audio-Session nicht aktiviert
-  wird), ungefiltert mitschneiden und danach nach `Vario(` suchen; das ungefilterte Log
+  wird), ungefiltert mitschneiden und danach nach `ZeroGrid Sky(` suchen; das ungefilterte Log
   wird schnell sehr groß.
 - **Absturz nachstellen** (die App bekommt keine Gelegenheit mehr zu speichern, wie bei
   Speichermangel oder leerem Akku):
   ```sh
-  xcrun devicectl device info processes --device <UDID> | grep Vario.app
+  xcrun devicectl device info processes --device <UDID> | grep "ZeroGrid Sky.app"
   xcrun devicectl device process terminate --device <UDID> --pid <PID> --kill
   ```
   Wegwischen im App-Umschalter ist dagegen ein geordnetes Ende (die App speichert).
@@ -320,7 +332,7 @@ Im Simulator geprüft (Download, Anzeige auf der Karte); auf dem iPhone zu prüf
 
 1. Adresse eintragen, „Verbinden“: iOS fragt einmal nach dem **lokalen Netzwerk**
    („Lädt Kartenregionen …“) – erlauben. Abgelehnt: in den iOS-Einstellungen unter
-   Vario → Lokales Netzwerk einschalten.
+   ZeroGrid Sky → Lokales Netzwerk einschalten.
 2. „Laden“: Fortschrittsbalken läuft, danach „… ist geladen.“ und die Karte zeigt die
    Region.
 3. Während des Ladens „Abbrechen“, dann wieder „Laden“: setzt an derselben Stelle fort.
