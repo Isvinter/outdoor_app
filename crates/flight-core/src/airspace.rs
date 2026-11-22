@@ -169,7 +169,7 @@ impl Limit {
 }
 
 /// Rough kind of an airspace, for colours and filters on the map.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
     /// Control zone around an airport.
     Ctr,
@@ -192,6 +192,47 @@ pub enum Category {
     Reserved,
     /// Everything else: information sectors, military low flying areas, FIR, ….
     Other,
+}
+
+impl Category {
+    /// All categories, roughly from most to least relevant for a paraglider.
+    pub const ALL: [Category; 11] = [
+        Category::Ctr,
+        Category::Controlled,
+        Category::ClassE,
+        Category::Restricted,
+        Category::Danger,
+        Category::Prohibited,
+        Category::Tmz,
+        Category::Rmz,
+        Category::GliderSector,
+        Category::Reserved,
+        Category::Other,
+    ];
+
+    /// Short name for settings files and the user interface, e.g. `ctr`, `classE`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Category::Ctr => "ctr",
+            Category::Controlled => "controlled",
+            Category::ClassE => "classE",
+            Category::Restricted => "restricted",
+            Category::Danger => "danger",
+            Category::Prohibited => "prohibited",
+            Category::Tmz => "tmz",
+            Category::Rmz => "rmz",
+            Category::GliderSector => "gliderSector",
+            Category::Reserved => "reserved",
+            Category::Other => "other",
+        }
+    }
+
+    /// The category with this [`Category::name`].
+    pub fn from_name(name: &str) -> Option<Category> {
+        Category::ALL
+            .into_iter()
+            .find(|category| category.name() == name)
+    }
 }
 
 /// One airspace with its outline.
