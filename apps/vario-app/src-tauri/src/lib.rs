@@ -5,6 +5,7 @@
 //! On the desktop the sensors are replaced by a simulated flight.
 
 mod airspace;
+mod airspace_update;
 mod audio;
 mod maps;
 mod session_marker;
@@ -229,6 +230,36 @@ async fn airspaces(app: AppHandle) -> Result<airspace::Airspaces, String> {
     app.state::<AppState>()
         .with_engine(|engine| engine.set_airspaces(list));
     Ok(airspaces)
+}
+
+/// The countries whose airspaces can be loaded from openAIP, and which are chosen.
+#[tauri::command]
+fn airspace_countries(app: AppHandle) -> Vec<airspace_update::Country> {
+    airspace_update::countries(&app)
+}
+
+/// What `update_airspaces` reports: per country, and the airspaces read afterwards.
+#[derive(Serialize)]
+struct AirspaceUpdate {
+    results: Vec<airspace_update::CountryResult>,
+    airspaces: airspace::Airspaces,
+}
+
+/// Downloads the airspaces of these countries from openAIP where they changed, then
+/// reads all files again (the warnings use them at once).
+#[tauri::command]
+async fn update_airspaces(
+    app: AppHandle,
+    countries: Vec<String>,
+) -> Result<AirspaceUpdate, String> {
+    // The download blocks; keep it off the threads that serve the page.
+    let worker = app.clone();
+    let results =
+        tauri::async_runtime::spawn_blocking(move || airspace_update::update(&worker, &countries))
+            .await
+            .map_err(|error| error.to_string())??;
+    let airspaces = airspaces(app).await?;
+    Ok(AirspaceUpdate { results, airspaces })
 }
 
 /// Deletes an OpenAir file and reads the remaining ones; the warnings use them at once.
@@ -484,6 +515,8 @@ pub fn run() {
             set_hidden_airspace,
             airspaces_at,
             delete_airspace_file,
+            airspace_countries,
+            update_airspaces,
             get_warning_settings,
             set_warning_settings,
             default_warning_settings,
@@ -495,7 +528,8 @@ pub fn run() {
             cancel_region_download,
             delete_region,
             dismiss_interrupted_session,
-            smoke::smoke_report
+            smoke::smoke_report,
+            smoke::smoke_note
         ])
         .setup(|app| {
             *app.state::<AppState>().settings() = settings::load(app.handle());

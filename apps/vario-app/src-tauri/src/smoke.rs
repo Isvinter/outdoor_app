@@ -85,6 +85,9 @@ pub fn maybe_run(app: &AppHandle) {
         if let Some(address) = share_address() {
             download_from_share(&window, &address);
         }
+        if std::env::var_os("VARIO_SMOKE_OPENAIP").is_some() {
+            update_from_openaip(&window);
+        }
         let _ = window.eval(
             "window.__TAURI__.core.invoke('smoke_report', { text: \
              [...document.querySelectorAll('.page')].map((page) => page.innerText).join('\\n') + \
@@ -104,6 +107,38 @@ pub fn maybe_run(app: &AppHandle) {
         eprintln!("smoke test: the page did not report back");
         app.exit(1);
     });
+}
+
+/// Presses "update airspaces" twice (with the default countries): the first time the
+/// files are downloaded, the second time openAIP should answer "unchanged".
+fn update_from_openaip(window: &tauri::WebviewWindow) {
+    for round in 1..=2 {
+        let _ = window.eval("document.getElementById('update-airspaces').click()");
+        // Wait until the button is enabled again (the update is done).
+        for _ in 0..60 {
+            std::thread::sleep(Duration::from_secs(1));
+            let _ = window.eval(
+                "if (!document.getElementById('update-airspaces').disabled) \
+                   window.__TAURI__.core.invoke('smoke_note', { text: 'openaip round done: ' + \
+                     document.getElementById('airspace-update-message').textContent })",
+            );
+            if NOTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+        }
+        println!("(round {round} finished)");
+    }
+}
+
+/// Set by `smoke_note`.
+static NOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Prints a line from the page during the smoke test.
+#[tauri::command]
+pub fn smoke_note(text: String) {
+    if enabled() && !NOTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        println!("{text}");
+    }
 }
 
 fn share_address() -> Option<String> {

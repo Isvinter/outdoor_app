@@ -197,7 +197,11 @@ const FlightMap = (() => {
 
   function addAirspaceLayers() {
     if (map.getSource(AIRSPACE_SOURCE)) return;
-    map.addSource(AIRSPACE_SOURCE, { type: "geojson", data: airspaceData });
+    map.addSource(AIRSPACE_SOURCE, {
+      type: "geojson",
+      data: airspaceData,
+      attribution: "Lufträume © openAIP (CC BY-NC 4.0)",
+    });
     map.addLayer({
       id: "airspace-fill",
       type: "fill",

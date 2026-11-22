@@ -165,15 +165,21 @@ VARIO_SMOKE_TEST=1 cargo run -p vario-app
 # maps-Ordner unberührt bleibt
 cargo run --release -p core-share --bin share-serve -- --data /tmp/share --port 8765 --seed-region /tmp/kopie-der-region
 cargo build -p vario-app && HOME=$(mktemp -d) VARIO_SMOKE_TEST=1 VARIO_SMOKE_SHARE=127.0.0.1:8765 target/debug/vario-app
+# Lufträume von openAIP laden (zweimal: erst neu, dann „aktuell“), mit leerem HOME
+cargo build -p vario-app && HOME=$(mktemp -d) VARIO_SMOKE_TEST=1 VARIO_SMOKE_OPENAIP=1 target/debug/vario-app
 ```
 
 Offline-Kartenregionen liegen im Ordner `maps` (Desktop: Datenordner der App; zum Testen
 reicht dort ein Symlink auf eine Region der outdoor_app). Der Desktop-Simulator fliegt über
 dem Brauneck, also in deren Testregion.
 
-Lufträume liegen als OpenAir-Dateien (`.txt`) im Ordner `airspace` neben `maps`; die App
-legt ihn an und liest ihn beim Start. Die Dateien (openAIP, mit Konto herunterzuladen)
-kommen nicht ins Repository.
+Lufträume liegen im Ordner `airspace` neben `maps`: OpenAir-Dateien (`.txt`) oder
+openAIP-Exporte (`<land>_asp.geojson`). „Lufträume aktualisieren“ in den Einstellungen lädt
+die gewählten Länder aus dem öffentlichen Export von openAIP
+(`https://storage.openaip.net/openaip-system-exports/`), nur auf Knopfdruck und nur wenn sich
+die Versionskennung (ETag, gemerkt in `airspace-etags.txt`) geändert hat. Lizenz CC BY-NC 4.0,
+private Nutzung erlaubt; openAIP als Quelle immer nennen (Einstellungen und Karte). Die
+Dateien kommen nicht ins Repository.
 Zum Testen der Warnungen mit dem Desktop-Simulator `testdata/airspace/brauneck-test.txt`
 (erfundene CTR und TMA am Flugweg) in diesen Ordner kopieren; der Selbsttest gibt dann
 den Text des Warnbanners aus. Warn-Einstellungen liegen in `airspace-warning.txt`.

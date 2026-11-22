@@ -690,6 +690,70 @@ async function loadAirspaces() {
   }
 }
 
+// ---- Airspaces from openAIP ----
+
+let airspaceCountries = [];
+
+async function loadAirspaceCountries() {
+  try {
+    airspaceCountries = await invoke("airspace_countries");
+  } catch (error) {
+    console.warn("airspace_countries", error);
+  }
+  showAirspaceCountries();
+}
+
+function showAirspaceCountries() {
+  $("airspace-countries").replaceChildren(
+    ...airspaceCountries.map((country) => {
+      const button = document.createElement("button");
+      button.className = "button";
+      button.textContent = country.name;
+      button.classList.toggle("on", country.selected);
+      button.addEventListener("click", () => {
+        country.selected = !country.selected;
+        showAirspaceCountries();
+      });
+      return button;
+    }),
+  );
+}
+
+const UPDATE_OUTCOMES = { updated: "neu geladen", unchanged: "aktuell", failed: "fehlgeschlagen" };
+
+$("update-airspaces").addEventListener("click", async () => {
+  const button = $("update-airspaces");
+  const countries = airspaceCountries.filter((c) => c.selected).map((c) => c.code);
+  if (countries.length === 0) {
+    $("airspace-update-message").textContent = "Kein Land gewählt.";
+    return;
+  }
+  button.disabled = true;
+  $("airspace-update-message").textContent = "Frage openAIP …";
+  try {
+    const update = await invoke("update_airspaces", { countries });
+    showAirspaces(update.airspaces);
+    const lines = update.results.map((r) => {
+      let line = `${r.name}: ${UPDATE_OUTCOMES[r.outcome] ?? r.outcome}`;
+      if (r.airspaces != null) line += ` (${r.airspaces} Lufträume)`;
+      if (r.error) line += ` – ${r.error}`;
+      return line;
+    });
+    // The same country as an old OpenAir file and as an openAIP export would warn twice.
+    const names = update.airspaces.files.map((f) => f.name);
+    const doubled = countries.filter(
+      (code) => names.includes(code + "_asp.geojson") && names.some((n) => n.startsWith(code + "_asp") && n.endsWith(".txt")),
+    );
+    if (doubled.length > 0) {
+      lines.push("Doppelt vorhanden (bitte die .txt-Datei löschen): " + doubled.join(", ").toUpperCase());
+    }
+    $("airspace-update-message").textContent = lines.join(" · ");
+  } catch (error) {
+    $("airspace-update-message").textContent = "Aktualisieren fehlgeschlagen: " + error;
+  }
+  button.disabled = false;
+});
+
 function showAirspaces(result) {
   hiddenAirspace = result.hidden;
   FlightMap.setAirspaceHidden(hiddenAirspace);
@@ -1093,6 +1157,7 @@ async function init() {
   await updateMapStyle();
   refreshRegions(false);
   loadAirspaces();
+  loadAirspaceCountries();
   checkPermissions();
   checkInterrupted();
   // Also catches the answers to the permission dialogs iOS shows on the first start.

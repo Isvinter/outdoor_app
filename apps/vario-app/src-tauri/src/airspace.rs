@@ -20,7 +20,8 @@ const HIDDEN_FILE_NAME: &str = "airspace-hidden.txt";
 const HIDDEN_BY_DEFAULT: [&str; 1] = ["other"];
 
 /// File name endings read as OpenAir.
-const EXTENSIONS: [&str; 2] = ["txt", "openair"];
+/// `geojson`: the openAIP export, see `airspace_update`.
+const EXTENSIONS: [&str; 3] = ["txt", "openair", "geojson"];
 /// At most this many issues per file are passed on; a broken file can have thousands.
 const MAX_ISSUES: usize = 20;
 
@@ -225,7 +226,11 @@ pub fn load_dir(dir: &Path) -> Result<Airspaces, String> {
             .unwrap_or_default();
         match std::fs::read(&path) {
             Ok(bytes) => {
-                let file = airspace::parse(&bytes);
+                let file = if name.to_lowercase().ends_with(".geojson") {
+                    flight_core::openaip::parse(&bytes)
+                } else {
+                    airspace::parse(&bytes)
+                };
                 // The index in `list` identifies an airspace in warnings.
                 let first = list.len();
                 features.extend(
