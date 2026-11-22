@@ -17,10 +17,11 @@ mod smoke;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use flight_core::airspace_warning::WarningSettings;
 use flight_core::settings::VarioSettings;
 use serde::Serialize;
 
-use crate::settings::SettingsDto;
+use crate::settings::{SettingsDto, WarningDto};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_vario_sensors::{Permissions, SensorStart, VarioSensorsExt};
 use vario_audio::voice::ToneControl;
@@ -45,6 +46,8 @@ struct AppState {
     session: Mutex<Option<Session>>,
     /// The current settings; loaded from the settings file when the app starts.
     settings: Mutex<VarioSettings>,
+    /// Airspace warning settings, from their own file.
+    warning: Mutex<WarningSettings>,
     /// Start (Unix time) of the last session if it ended without "Stop"; shown to the
     /// user once.
     interrupted: Mutex<Option<i64>>,
@@ -61,6 +64,19 @@ impl AppState {
         self.settings
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn warning(&self) -> std::sync::MutexGuard<'_, WarningSettings> {
+        self.warning
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Runs `f` with the engine if the vario is running.
+    fn with_engine(&self, f: impl FnOnce(&Engine)) {
+        if let Some(session) = self.session().as_ref() {
+            f(&session.engine);
+        }
     }
 
     fn interrupted(&self) -> std::sync::MutexGuard<'_, Option<i64>> {
@@ -117,6 +133,11 @@ async fn start(app: AppHandle, state: State<'_, AppState>) -> Result<StartInfo, 
     )
     .map_err(|error| format!("could not start: {error}"))
     .inspect_err(|_| sensor_bridge::disconnect())?;
+    engine.set_warning_settings(state.warning().clone());
+    engine.set_airspaces(airspace::loaded(&app));
+    if let Some(store) = maps::store(&app) {
+        engine.set_terrain(Box::new(maps::RegionTerrain(store)));
+    }
 
     session_marker::create(&app);
     *state.interrupted() = None;
@@ -188,14 +209,55 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
 /// again, so regions copied in meanwhile are found.
 #[tauri::command]
 async fn offline_maps(app: AppHandle) -> Result<maps::OfflineMaps, String> {
-    maps::reload(&app)
+    let maps = maps::reload(&app)?;
+    // Regions may have changed: the engine gets the new ground elevations.
+    if let Some(store) = maps::store(&app) {
+        app.state::<AppState>()
+            .with_engine(|engine| engine.set_terrain(Box::new(maps::RegionTerrain(store))));
+    }
+    Ok(maps)
 }
 
 /// All airspaces from the OpenAir files in the folder `airspace`, as GeoJSON for the
 /// map, plus what was read from each file. Reads the folder again every time.
 #[tauri::command]
 async fn airspaces(app: AppHandle) -> Result<airspace::Airspaces, String> {
-    airspace::load(&app)
+    let airspaces = airspace::load(&app)?;
+    // The warnings must refer to the same list as the map (indices).
+    let list = airspace::loaded(&app);
+    app.state::<AppState>()
+        .with_engine(|engine| engine.set_airspaces(list));
+    Ok(airspaces)
+}
+
+#[tauri::command]
+fn get_warning_settings(state: State<'_, AppState>) -> WarningDto {
+    state.warning().clone().into()
+}
+
+#[tauri::command]
+fn default_warning_settings() -> WarningDto {
+    WarningSettings::default().into()
+}
+
+/// Checks, applies and saves the airspace warning settings.
+#[tauri::command]
+fn set_warning_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: WarningDto,
+) -> Result<(), String> {
+    let settings = WarningSettings::from(settings);
+    settings.validate().map_err(|error| error.to_string())?;
+    *state.warning() = settings.clone();
+    state.with_engine(|engine| engine.set_warning_settings(settings.clone()));
+    settings::save_warning(&app, &settings)
+}
+
+/// Silences the near warning of an airspace until it ends.
+#[tauri::command]
+fn acknowledge_warning(state: State<'_, AppState>, index: usize) {
+    state.with_engine(|engine| engine.acknowledge_warning(index));
 }
 
 /// The airspaces at a position (from the files read last), lowest first.
@@ -398,6 +460,10 @@ pub fn run() {
             airspaces,
             set_hidden_airspace,
             airspaces_at,
+            get_warning_settings,
+            set_warning_settings,
+            default_warning_settings,
+            acknowledge_warning,
             get_map_source,
             set_map_source,
             map_regions,
@@ -409,6 +475,7 @@ pub fn run() {
         ])
         .setup(|app| {
             *app.state::<AppState>().settings() = settings::load(app.handle());
+            *app.state::<AppState>().warning() = settings::load_warning(app.handle());
             *app.state::<AppState>().interrupted() = session_marker::take_interrupted(app.handle());
             smoke::maybe_run(app.handle());
             Ok(())

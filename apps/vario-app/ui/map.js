@@ -59,6 +59,7 @@ const FlightMap = (() => {
   let savedCoordinates = []; // the same for a recorded flight being viewed
   let airspaceData = { type: "FeatureCollection", features: [] };
   let hiddenAirspace = ["other"]; // categories not shown
+  let warned = []; // { index, level } of the airspaces that warn
   let position = null; // { longitude, latitude, course }
   let onFollowChange = () => {};
   let onMessage = () => {};
@@ -185,6 +186,15 @@ const FlightMap = (() => {
     return ["all", visible, ["in", ["get", "category"], ["literal", categories]]];
   }
 
+  function warningFilter() {
+    return ["in", ["get", "index"], ["literal", warned.map((w) => w.index)]];
+  }
+
+  function warningColor() {
+    const alarms = warned.filter((w) => w.level === "alarm").map((w) => w.index);
+    return ["case", ["in", ["get", "index"], ["literal", alarms]], "#d7191c", "#f28e1c"];
+  }
+
   function addAirspaceLayers() {
     if (map.getSource(AIRSPACE_SOURCE)) return;
     map.addSource(AIRSPACE_SOURCE, { type: "geojson", data: airspaceData });
@@ -224,6 +234,15 @@ const FlightMap = (() => {
       source: AIRSPACE_SOURCE,
       filter: airspaceFilter("airspace-line-dashed"),
       paint: { "line-color": AIRSPACE_COLOR, "line-width": 1.4, "line-dasharray": [4, 2] },
+    });
+    // Airspaces that warn: a thick border, also for categories the map hides.
+    map.addLayer({
+      id: "airspace-warning",
+      type: "line",
+      source: AIRSPACE_SOURCE,
+      filter: warningFilter(),
+      layout: { "line-join": "round" },
+      paint: { "line-color": warningColor(), "line-width": 5, "line-opacity": 0.85 },
     });
     // Labels need glyphs, which the fallback style does not have.
     if (!map.getStyle().glyphs) return;
@@ -447,7 +466,18 @@ const FlightMap = (() => {
       }
     },
 
+    /** Highlights the airspaces that warn: a list of { index, level }. */
+    setWarnings(warnings) {
+      const next = warnings.map((w) => ({ index: w.index, level: w.level }));
+      if (JSON.stringify(next) === JSON.stringify(warned)) return;
+      warned = next;
+      if (!map || !map.getLayer("airspace-warning")) return;
+      map.setFilter("airspace-warning", warningFilter());
+      map.setPaintProperty("airspace-warning", "line-color", warningColor());
+    },
+
     trackLength: () => coordinates.length,
+    warnedCount: () => warned.length,
     airspaceCount: () => airspaceData.features.length,
     toggleFollow: () => setFollow(!follow),
   };

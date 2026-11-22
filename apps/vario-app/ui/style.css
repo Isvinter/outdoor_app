@@ -472,3 +472,48 @@ td.bad {
 #regions-message:empty {
   display: none;
 }
+
+/* ---- Airspace warning: above the tab bar, on every page ---- */
+#warning {
+  position: absolute;
+  z-index: 10;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--tabs-height) + env(safe-area-inset-bottom) + 8px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: #f28e1c;
+  color: var(--ink);
+}
+#warning.alarm {
+  background: #d7191c;
+  color: #fff;
+  border-color: #fff;
+  outline: 2px solid var(--ink);
+}
+#warning.acknowledged {
+  background: var(--paper);
+}
+#warning-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+#warning-title {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+#warning-detail {
+  font-weight: 600;
+}
+#warning .button {
+  flex: none;
+}
+body.warning .page:not(#page-map) {
+  padding-bottom: 120px;
+}

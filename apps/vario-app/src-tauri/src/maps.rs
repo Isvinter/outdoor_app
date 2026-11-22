@@ -123,6 +123,42 @@ pub struct OfflineMaps {
     pub style: Option<String>,
 }
 
+/// The regions read last, or read now if that has not happened yet.
+pub fn store(app: &AppHandle) -> Option<Arc<RegionStore>> {
+    let current = app
+        .state::<Maps>()
+        .store
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    if current.is_some() {
+        return current;
+    }
+    reload(app).ok()?;
+    app.state::<Maps>()
+        .store
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+/// Ground elevation from the `dem.pmtiles` of the installed regions, for airspace
+/// limits above ground.
+pub struct RegionTerrain(pub Arc<RegionStore>);
+
+impl flight_core::terrain::Terrain for RegionTerrain {
+    fn elevation_m(&self, lat_deg: f64, lon_deg: f64) -> Option<f64> {
+        // A broken tile is treated like missing data: the warning then assumes the
+        // worst case instead of failing.
+        self.0
+            .elevation(lat_deg, lon_deg)
+            .ok()
+            .flatten()
+            .filter(|metres| metres.is_finite())
+            .map(f64::from)
+    }
+}
+
 /// The folder holding the regions.
 pub fn dir(app: &AppHandle) -> Option<PathBuf> {
     crate::data_dir(app).map(|dir| dir.join("maps"))

@@ -100,8 +100,122 @@ function render(status) {
   if (fix) FlightMap.setPosition(fix.latitudeDeg, fix.longitudeDeg, fix.courseDeg ?? null);
 
   renderRecording(status?.recording ?? null);
+  renderWarnings(status?.airspaceWarnings ?? []);
   if (activePage === "settings") renderSensors(status);
 }
+
+// ---- Airspace warnings (decided in Rust; shown here) ----
+
+const distance = (metres) =>
+  metres >= 1000 ? (metres / 1000).toFixed(1).replace(".", ",") + " km" : Math.round(metres) + " m";
+
+function warningDetail(warning) {
+  const horizontal = warning.horizontalM;
+  const inside = horizontal <= 0 && warning.verticalSide === "between";
+  if (inside) return `Im Luftraum (${warning.lower} bis ${warning.upper})`;
+  const parts = [horizontal <= 0 ? "Darunter oder darüber" : distance(horizontal) + " entfernt"];
+  if (warning.verticalSide === "below") {
+    parts.push(`${Math.round(warning.verticalM)} m unter ${warning.lower}`);
+  } else if (warning.verticalSide === "above") {
+    parts.push(`${Math.round(warning.verticalM)} m über ${warning.upper}`);
+  } else {
+    parts.push(`${warning.lower} bis ${warning.upper}`);
+  }
+  if (warning.entryInS > 0) parts.push(`Einflug in ${Math.round(warning.entryInS)} s`);
+  return parts.join(" · ");
+}
+
+function renderWarnings(warnings) {
+  FlightMap.setWarnings(warnings);
+  const banner = $("warning");
+  const first = warnings[0];
+  banner.hidden = !first;
+  // Room to scroll the page content out from under the banner.
+  document.body.classList.toggle("warning", Boolean(first));
+  if (!first) return;
+  const kind = AIRSPACE_CATEGORIES.find(([category]) => category === first.category);
+  const name = first.name || "(ohne Namen)";
+  // "CTR München" needs no "CTR" in front.
+  const prefix = kind && !name.toUpperCase().includes(kind[1].toUpperCase()) ? kind[1] + " " : "";
+  $("warning-title").textContent = prefix + name;
+  $("warning-detail").textContent = warningDetail(first);
+  $("warning-more").textContent = warnings.length > 1 ? `+${warnings.length - 1} weitere` : "";
+  banner.classList.toggle("alarm", first.level === "alarm");
+  banner.classList.toggle("acknowledged", first.acknowledged);
+  const button = $("warning-acknowledge");
+  // Alarms cannot be silenced; Rust would ignore it anyway.
+  button.hidden = first.level === "alarm" || first.acknowledged;
+  button.dataset.index = first.index;
+}
+
+$("warning-acknowledge").addEventListener("click", () => {
+  const index = Number($("warning-acknowledge").dataset.index);
+  invoke("acknowledge_warning", { index }).catch((error) => console.warn(error));
+});
+
+let warningSettings = null;
+
+const warningInputs = [
+  ["set-warn-horizontal", "out-warn-horizontal", "horizontalM", (v) => distance(v)],
+  ["set-warn-vertical", "out-warn-vertical", "verticalM", (v) => Math.round(v) + " m"],
+  ["set-warn-lookahead", "out-warn-lookahead", "lookaheadS", (v) => Math.round(v) + " s"],
+  ["set-warn-volume", "out-warn-volume", "volume", (v) => Math.round(v * 100) + " %"],
+];
+
+function showWarningSettings() {
+  if (!warningSettings) return;
+  for (const [input, output, field, format] of warningInputs) {
+    $(input).value = warningSettings[field];
+    $(output).textContent = format(warningSettings[field]);
+  }
+  const enabled = $("warning-enabled");
+  enabled.classList.toggle("on", warningSettings.enabled);
+  enabled.textContent = warningSettings.enabled ? "Warnung an" : "Warnung aus";
+  $("warning-categories").replaceChildren(
+    ...AIRSPACE_CATEGORIES.map(([category, label]) => {
+      const button = document.createElement("button");
+      button.className = "button";
+      button.textContent = label;
+      const on = warningSettings.categories.includes(category);
+      button.classList.toggle("on", on);
+      button.addEventListener("click", () => {
+        const categories = on
+          ? warningSettings.categories.filter((name) => name !== category)
+          : warningSettings.categories.concat([category]);
+        applyWarningSettings({ ...warningSettings, categories });
+      });
+      return button;
+    }),
+  );
+}
+
+async function applyWarningSettings(changed) {
+  try {
+    await invoke("set_warning_settings", { settings: changed });
+    warningSettings = changed;
+    $("warning-message").textContent = "";
+  } catch (error) {
+    $("warning-message").textContent = "Nicht übernommen: " + error;
+  }
+  showWarningSettings();
+}
+
+for (const [input, output, field, format] of warningInputs) {
+  $(input).addEventListener("input", () => {
+    $(output).textContent = format(Number($(input).value));
+  });
+  $(input).addEventListener("change", () => {
+    applyWarningSettings({ ...warningSettings, [field]: Number($(input).value) });
+  });
+}
+
+$("warning-enabled").addEventListener("click", () => {
+  applyWarningSettings({ ...warningSettings, enabled: !warningSettings.enabled });
+});
+
+$("reset-warning").addEventListener("click", async () => {
+  applyWarningSettings(await invoke("default_warning_settings"));
+});
 
 let recordingFile = null;
 
@@ -913,6 +1027,8 @@ async function init() {
   render(null);
   settings = await invoke("get_settings");
   showSettings();
+  warningSettings = await invoke("get_warning_settings");
+  showWarningSettings();
   onlineStyleUrl = await invoke("get_map_style");
   $("set-map-style").value = onlineStyleUrl;
   $("set-map-source").value = await invoke("get_map_source");

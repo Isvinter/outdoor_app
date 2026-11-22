@@ -92,6 +92,9 @@ pub fn maybe_run(app: &AppHandle) {
              '\\nairspaces: ' + FlightMap.airspaceCount() + \
              '\\ntapped airspaces: ' + (document.getElementById('airspace-info').hidden ? '(list not shown) ' : '') + \
              document.getElementById('airspace-info-list').innerText.replace(/\\n/g, ' | ') + \
+             '\\nairspace warning: ' + (document.getElementById('warning').hidden ? 'none' : \
+             document.getElementById('warning-text').innerText.replace(/\\n/g, ' | ')) + \
+             '\\nwarned on map: ' + FlightMap.warnedCount() + \
              '\\npermission warnings: ' + \
              document.querySelectorAll('#permission-problems li').length + \
              '\\nscript errors: ' + JSON.stringify(window.scriptErrors) })",

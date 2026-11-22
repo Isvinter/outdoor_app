@@ -174,6 +174,9 @@ dem Brauneck, also in deren Testregion.
 Lufträume liegen als OpenAir-Dateien (`.txt`) im Ordner `airspace` neben `maps`; die App
 legt ihn an und liest ihn beim Start. Die Dateien (openAIP, mit Konto herunterzuladen)
 kommen nicht ins Repository.
+Zum Testen der Warnungen mit dem Desktop-Simulator `testdata/airspace/brauneck-test.txt`
+(erfundene CTR und TMA am Flugweg) in diesen Ordner kopieren; der Selbsttest gibt dann
+den Text des Warnbanners aus. Warn-Einstellungen liegen in `airspace-warning.txt`.
 
 Flüge liegen als IGC-Dateien im Ordner `flights` (iOS: Dokumente-Ordner der App, in der
 App „Dateien“ sichtbar; Desktop: Datenordner der App), Sensorlogs daneben in `logs`. Jeder

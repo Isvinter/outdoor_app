@@ -6,12 +6,15 @@
 
 use std::path::PathBuf;
 
+use flight_core::airspace::Category;
+use flight_core::airspace_warning::WarningSettings;
 use flight_core::settings::VarioSettings;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 const FILE_NAME: &str = "settings.txt";
 const MAP_STYLE_FILE_NAME: &str = "map-style.txt";
+const WARNING_FILE_NAME: &str = "airspace-warning.txt";
 
 /// Default map style. OpenFreeMap allows this kind of use without an API key; the
 /// attribution it requires is shown by the map itself.
@@ -50,6 +53,71 @@ impl From<SettingsDto> for VarioSettings {
             damping_s: dto.damping_s,
         }
     }
+}
+
+/// The airspace warning settings as JavaScript sees them; categories by
+/// [`Category::name`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WarningDto {
+    enabled: bool,
+    categories: Vec<String>,
+    horizontal_m: f64,
+    vertical_m: f64,
+    lookahead_s: f64,
+    volume: f64,
+}
+
+impl From<WarningSettings> for WarningDto {
+    fn from(settings: WarningSettings) -> Self {
+        WarningDto {
+            enabled: settings.enabled,
+            categories: settings
+                .categories
+                .iter()
+                .map(|category| category.name().to_owned())
+                .collect(),
+            horizontal_m: settings.horizontal_m,
+            vertical_m: settings.vertical_m,
+            lookahead_s: settings.lookahead_s,
+            volume: settings.volume,
+        }
+    }
+}
+
+impl From<WarningDto> for WarningSettings {
+    /// Unknown category names are dropped.
+    fn from(dto: WarningDto) -> Self {
+        WarningSettings {
+            enabled: dto.enabled,
+            categories: Category::ALL
+                .into_iter()
+                .filter(|category| dto.categories.iter().any(|name| name == category.name()))
+                .collect(),
+            horizontal_m: dto.horizontal_m,
+            vertical_m: dto.vertical_m,
+            lookahead_s: dto.lookahead_s,
+            volume: dto.volume,
+        }
+    }
+}
+
+/// Reads the airspace warning settings; defaults if the file is missing or broken.
+pub fn load_warning(app: &AppHandle) -> WarningSettings {
+    let Ok(path) = config_file(app, WARNING_FILE_NAME) else {
+        return WarningSettings::default();
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(text) => WarningSettings::from_text(&text).unwrap_or_else(|error| {
+            eprintln!("ignoring {}: {error}", path.display());
+            WarningSettings::default()
+        }),
+        Err(_) => WarningSettings::default(),
+    }
+}
+
+pub fn save_warning(app: &AppHandle, settings: &WarningSettings) -> Result<(), String> {
+    write_file(config_file(app, WARNING_FILE_NAME)?, &settings.to_text())
 }
 
 pub(crate) fn config_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {

@@ -6,7 +6,7 @@
 
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use flight_core::airspace::{self, Airspace, Category, Limit, Unit};
 use serde::Serialize;
@@ -18,21 +18,6 @@ const HIDDEN_FILE_NAME: &str = "airspace-hidden.txt";
 /// Hidden as long as nothing was chosen: information sectors, FIR, military low flying
 /// areas and the like would only clutter the map.
 const HIDDEN_BY_DEFAULT: [&str; 1] = ["other"];
-
-/// All categories with the names the map style uses (see `map.js`).
-const CATEGORIES: [(Category, &str); 11] = [
-    (Category::Ctr, "ctr"),
-    (Category::Controlled, "controlled"),
-    (Category::ClassE, "classE"),
-    (Category::Restricted, "restricted"),
-    (Category::Danger, "danger"),
-    (Category::Prohibited, "prohibited"),
-    (Category::Tmz, "tmz"),
-    (Category::Rmz, "rmz"),
-    (Category::GliderSector, "gliderSector"),
-    (Category::Reserved, "reserved"),
-    (Category::Other, "other"),
-];
 
 /// File name endings read as OpenAir.
 const EXTENSIONS: [&str; 2] = ["txt", "openair"];
@@ -66,10 +51,12 @@ pub struct Airspaces {
     pub list: Vec<Airspace>,
 }
 
-/// The airspaces read last, for looking up what lies at a position. Managed by Tauri
-/// (`app.manage`); the `Mutex` lets the command threads share it.
+/// The airspaces read last, for looking up what lies at a position and for the
+/// warnings. Managed by Tauri (`app.manage`); the `Mutex` lets the command threads share
+/// it. `None` until the files were read once. `Arc` shares one list with the engine
+/// without copying it.
 #[derive(Default)]
-pub struct Loaded(Mutex<Vec<Airspace>>);
+pub struct Loaded(Mutex<Option<Arc<Vec<Airspace>>>>);
 
 /// One airspace at a position, as shown when the map is tapped.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -97,15 +84,35 @@ pub fn load(app: &AppHandle) -> Result<Airspaces, String> {
     let mut airspaces = load_dir(&dir)?;
     airspaces.hidden = load_hidden(app);
     let loaded = app.state::<Loaded>();
-    *loaded.0.lock().unwrap_or_else(PoisonError::into_inner) = airspaces.list.clone();
+    *loaded.0.lock().unwrap_or_else(PoisonError::into_inner) =
+        Some(Arc::new(airspaces.list.clone()));
     Ok(airspaces)
+}
+
+/// The airspaces read last; reads the files first if that has not happened yet (the
+/// vario can be started before the map was ever opened).
+pub fn loaded(app: &AppHandle) -> Arc<Vec<Airspace>> {
+    let current = app
+        .state::<Loaded>()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    match current {
+        Some(list) => list,
+        None => match load(app) {
+            Ok(_) => loaded(app),
+            Err(error) => {
+                eprintln!("no airspaces: {error}");
+                Arc::new(Vec::new())
+            }
+        },
+    }
 }
 
 /// The airspaces at a position, lowest first.
 pub fn at(app: &AppHandle, lat_deg: f64, lon_deg: f64) -> Vec<AirspaceInfo> {
-    let loaded = app.state::<Loaded>();
-    let list = loaded.0.lock().unwrap_or_else(PoisonError::into_inner);
-    containing(&list, lat_deg, lon_deg)
+    containing(&loaded(app), lat_deg, lon_deg)
 }
 
 /// The airspaces of `list` containing the position, sorted by lower, then upper limit.
@@ -131,7 +138,7 @@ fn containing(list: &[Airspace], lat_deg: f64, lon_deg: f64) -> Vec<AirspaceInfo
         .into_iter()
         .map(|airspace| AirspaceInfo {
             name: airspace.name.clone(),
-            category: category_name(airspace.category()),
+            category: airspace.category().name(),
             class: airspace.class.clone(),
             kind: airspace.kind.clone(),
             lower: limit_label(&airspace.lower),
@@ -161,13 +168,14 @@ pub fn save_hidden(app: &AppHandle, hidden: &[String]) -> Result<Vec<String>, St
     Ok(hidden)
 }
 
-/// Known category names from `text`, one per line, in the order of [`CATEGORIES`].
+/// Known category names from `text`, one per line, in the order of [`Category::ALL`].
 fn parse_hidden(text: &str) -> Vec<String> {
     let names: Vec<&str> = text.lines().map(str::trim).collect();
-    CATEGORIES
-        .iter()
-        .filter(|(_, name)| names.contains(name))
-        .map(|(_, name)| name.to_string())
+    Category::ALL
+        .into_iter()
+        .map(Category::name)
+        .filter(|name| names.contains(name))
+        .map(str::to_string)
         .collect()
 }
 
@@ -197,7 +205,14 @@ pub fn load_dir(dir: &Path) -> Result<Airspaces, String> {
         match std::fs::read(&path) {
             Ok(bytes) => {
                 let file = airspace::parse(&bytes);
-                features.extend(file.airspaces.iter().map(feature));
+                // The index in `list` identifies an airspace in warnings.
+                let first = list.len();
+                features.extend(
+                    file.airspaces
+                        .iter()
+                        .enumerate()
+                        .map(|(i, airspace)| feature(first + i, airspace)),
+                );
                 let count = file.airspaces.len();
                 files.push(FileSummary {
                     name,
@@ -231,14 +246,15 @@ pub fn load_dir(dir: &Path) -> Result<Airspaces, String> {
 }
 
 /// One airspace as a GeoJSON feature.
-fn feature(airspace: &Airspace) -> Value {
+fn feature(index: usize, airspace: &Airspace) -> Value {
     let lower = limit_label(&airspace.lower);
     let upper = limit_label(&airspace.upper);
     json!({
         "type": "Feature",
         "properties": {
+            "index": index,
             "name": airspace.name,
-            "category": category_name(airspace.category()),
+            "category": airspace.category().name(),
             "class": airspace.class,
             "kind": airspace.kind,
             "frequency": airspace.frequency,
@@ -297,14 +313,6 @@ fn limit_label(limit: &Limit) -> String {
 
 fn round_to_ten(metres: f64) -> i64 {
     ((metres / 10.0).round() * 10.0) as i64
-}
-
-/// The name the map style uses for `category`.
-fn category_name(category: Category) -> &'static str {
-    CATEGORIES
-        .iter()
-        .find(|(known, _)| *known == category)
-        .map_or("other", |(_, name)| name)
 }
 
 #[cfg(test)]
