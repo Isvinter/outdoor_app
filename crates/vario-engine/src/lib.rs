@@ -18,12 +18,17 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use flight_core::airspace::Airspace;
+use flight_core::airspace_warning::WarningSettings;
 use flight_core::sensor::SensorEvent;
 use flight_core::settings::VarioSettings;
+use flight_core::terrain::Terrain;
 use flight_core::time::UtcDateTime;
 use vario_audio::voice::ToneControl;
 
-pub use crate::processor::{FixInfo, Processor, RecordingInfo, SensorStats, Status, TrackPoint};
+pub use crate::processor::{
+    AirspaceWarning, FixInfo, Processor, RecordingInfo, SensorStats, Status, TrackPoint,
+};
 
 /// How often a summary line is written and the sensor rates are refreshed.
 const SUMMARY_INTERVAL: Duration = Duration::from_secs(10);
@@ -41,6 +46,12 @@ struct Shared {
     pending_settings: Mutex<Option<VarioSettings>>,
     /// The flown track since the engine started, one point per second.
     track: Mutex<Vec<TrackPoint>>,
+    /// Airspace data and settings not applied yet, like `pending_settings`.
+    pending_airspaces: Mutex<Option<Arc<Vec<Airspace>>>>,
+    pending_terrain: Mutex<Option<Box<dyn Terrain>>>,
+    pending_warning_settings: Mutex<Option<WarningSettings>>,
+    /// Warnings the user silenced, by airspace index.
+    pending_acknowledged: Mutex<Vec<usize>>,
 }
 
 /// A running engine. Stops when [`Engine::stop`] is called or the value is dropped.
@@ -108,6 +119,27 @@ impl Engine {
         *lock(&self.shared.pending_settings) = Some(settings);
     }
 
+    /// Replaces the airspaces to warn about. `Arc` shares the list with the caller
+    /// without copying it.
+    pub fn set_airspaces(&self, airspaces: Arc<Vec<Airspace>>) {
+        *lock(&self.shared.pending_airspaces) = Some(airspaces);
+    }
+
+    /// Sets where the ground elevation for AGL limits comes from. `Terrain` requires
+    /// `Send`, so the value may move to the engine thread.
+    pub fn set_terrain(&self, terrain: Box<dyn Terrain>) {
+        *lock(&self.shared.pending_terrain) = Some(terrain);
+    }
+
+    pub fn set_warning_settings(&self, settings: WarningSettings) {
+        *lock(&self.shared.pending_warning_settings) = Some(settings);
+    }
+
+    /// Silences the near warning of the airspace with this index until it ends.
+    pub fn acknowledge_warning(&self, index: usize) {
+        lock(&self.shared.pending_acknowledged).push(index);
+    }
+
     /// Stops the thread and waits until it has written its logs.
     pub fn stop(mut self) {
         self.shut_down();
@@ -139,6 +171,7 @@ fn run(mut processor: Processor, events: Receiver<SensorEvent>, shared: &Shared)
         if let Some(settings) = lock(&shared.pending_settings).take() {
             processor.set_settings(&settings);
         }
+        apply_airspace_changes(&mut processor, shared);
         // Sleep until a sample arrives, but wake up regularly to notice `stop`.
         match events.recv_timeout(IDLE_WAKEUP) {
             Ok(event) => {
@@ -169,6 +202,21 @@ fn run(mut processor: Processor, events: Receiver<SensorEvent>, shared: &Shared)
     processor.summarize(last_summary.elapsed().as_secs_f64(), &utc_clock_label());
     processor.silence();
     *lock(&shared.status) = processor.status(started.elapsed().as_secs_f64(), false);
+}
+
+fn apply_airspace_changes(processor: &mut Processor, shared: &Shared) {
+    if let Some(airspaces) = lock(&shared.pending_airspaces).take() {
+        processor.set_airspaces(airspaces);
+    }
+    if let Some(terrain) = lock(&shared.pending_terrain).take() {
+        processor.set_terrain(terrain);
+    }
+    if let Some(settings) = lock(&shared.pending_warning_settings).take() {
+        processor.set_warning_settings(settings);
+    }
+    for index in std::mem::take(&mut *lock(&shared.pending_acknowledged)) {
+        processor.acknowledge_warning(index);
+    }
 }
 
 /// Locks a mutex, ignoring "poisoning" (a panic in another thread while it held the

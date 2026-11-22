@@ -95,6 +95,11 @@ impl ToneControl {
         self.shared.alert.store(alert.to_u8(), Ordering::Relaxed);
     }
 
+    /// The warning currently asked for.
+    pub fn alert(&self) -> Alert {
+        Alert::from_u8(self.shared.alert.load(Ordering::Relaxed))
+    }
+
     /// Volume of warnings from 0.0 to 1.0, independent of the vario volume.
     pub fn set_alert_volume(&self, volume: f64) {
         self.shared.alert_volume.set(volume as f32);

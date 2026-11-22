@@ -4,16 +4,21 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
+use flight_core::airspace::Airspace;
+use flight_core::airspace_warning::{Altitudes, Fix, Level, Warner, Warning, WarningSettings};
 use flight_core::flightlog;
 use flight_core::igc::FlightMeta;
 use flight_core::sensor::{GpsFix, SensorEvent};
 use flight_core::settings::VarioSettings;
+use flight_core::terrain::{NoTerrain, Terrain};
 use flight_core::time::Timestamp;
 use flight_core::track::TrackRecorder;
 use flight_core::vario::VarioFilter;
 use serde::Serialize;
+use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
 
 /// Number of summary lines kept for display.
@@ -69,6 +74,65 @@ pub struct Status {
     pub summaries: Vec<String>,
     /// Path of the raw sensor log, if one is being written.
     pub log_file: Option<String>,
+    /// Airspaces that warn right now, alarms first, then nearest first.
+    pub airspace_warnings: Vec<AirspaceWarning>,
+}
+
+/// One airspace warning, for the user interface.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AirspaceWarning {
+    /// Index into the airspaces given to the engine; used to silence the warning.
+    pub index: usize,
+    pub name: String,
+    /// Class from the file (`D`, `CTR`, `R`, …).
+    pub class: String,
+    /// [`flight_core::airspace::Category::name`].
+    pub category: &'static str,
+    /// `near` or `alarm`.
+    pub level: &'static str,
+    /// Horizontal distance to the border in metres, negative inside.
+    pub horizontal_m: f64,
+    /// Vertical distance in metres, 0 between the limits.
+    pub vertical_m: f64,
+    /// `below`, `above` or `between` the limits.
+    pub vertical_side: &'static str,
+    /// Limits as written in the file, e.g. `GND`, `FL95`, `4500 ft`.
+    pub lower: String,
+    pub upper: String,
+    /// Seconds until flying in on the current course; 0 inside.
+    pub entry_in_s: Option<f64>,
+    pub acknowledged: bool,
+}
+
+impl AirspaceWarning {
+    fn new(warning: &Warning, airspace: &Airspace) -> Self {
+        let vertical = warning.vertical;
+        let vertical_side = if vertical.to_lower_m > 0.0 {
+            "below"
+        } else if vertical.to_upper_m > 0.0 {
+            "above"
+        } else {
+            "between"
+        };
+        AirspaceWarning {
+            index: warning.index,
+            name: airspace.name.clone(),
+            class: airspace.class.clone(),
+            category: airspace.category().name(),
+            level: match warning.level {
+                Level::Near => "near",
+                Level::Alarm => "alarm",
+            },
+            horizontal_m: warning.horizontal_m,
+            vertical_m: vertical.distance_m(),
+            vertical_side,
+            lower: airspace.lower.label(),
+            upper: airspace.upper.label(),
+            entry_in_s: warning.entry_in_s,
+            acknowledged: warning.acknowledged,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -226,6 +290,11 @@ pub struct Processor {
     summaries: VecDeque<String>,
     logs: Option<Logs>,
     recording: Option<Recording>,
+    warner: Warner,
+    /// Ground elevation for airspace limits above ground. `Box<dyn Terrain>` holds any
+    /// type that implements the trait; which one is decided at run time.
+    terrain: Box<dyn Terrain>,
+    warnings: Vec<Warning>,
 }
 
 impl Processor {
@@ -246,7 +315,83 @@ impl Processor {
             summaries: VecDeque::new(),
             logs: None,
             recording: None,
+            warner: Warner::new(Arc::new(Vec::new()), WarningSettings::default()),
+            terrain: Box::new(NoTerrain),
+            warnings: Vec::new(),
         }
+    }
+
+    /// Replaces the airspaces to warn about. Current warnings end; the next GPS fix
+    /// brings up the new ones.
+    pub fn set_airspaces(&mut self, airspaces: Arc<Vec<Airspace>>) {
+        let settings = self.warner.settings().clone();
+        self.warner = Warner::new(airspaces, settings);
+        self.warnings.clear();
+        self.update_alert();
+    }
+
+    /// Sets where the ground elevation comes from.
+    pub fn set_terrain(&mut self, terrain: Box<dyn Terrain>) {
+        self.terrain = terrain;
+    }
+
+    pub fn set_warning_settings(&mut self, settings: WarningSettings) {
+        self.control.set_alert_volume(settings.volume);
+        if !settings.enabled {
+            self.warnings.clear();
+        }
+        self.warner.set_settings(settings);
+        self.update_alert();
+    }
+
+    /// Silences a near warning until it ends (see [`Warner::acknowledge`]).
+    pub fn acknowledge_warning(&mut self, index: usize) -> bool {
+        let silenced = self.warner.acknowledge(index);
+        if silenced {
+            for warning in &mut self.warnings {
+                if warning.index == index {
+                    warning.acknowledged = true;
+                }
+            }
+            self.update_alert();
+        }
+        silenced
+    }
+
+    fn check_airspaces(&mut self, fix: &GpsFix) {
+        let reading = self.filter.reading();
+        let warning_fix = Fix {
+            time_s: fix.time.as_secs(),
+            latitude_deg: fix.latitude_deg,
+            longitude_deg: fix.longitude_deg,
+            altitudes: Altitudes {
+                msl_m: fix.fix_3d.then_some(fix.altitude_m),
+                pressure_m: reading.map(|r| r.altitude_m),
+                ground_m: self
+                    .terrain
+                    .elevation_m(fix.latitude_deg, fix.longitude_deg),
+            },
+            ground_speed_mps: fix.ground_speed_mps,
+            course_deg: fix.course_deg,
+            climb_mps: reading.map(|r| r.climb_rate_mps),
+        };
+        self.warnings = self.warner.update(&warning_fix);
+        self.update_alert();
+    }
+
+    /// Plays the most urgent warning that is not silenced.
+    fn update_alert(&self) {
+        let level = self
+            .warnings
+            .iter()
+            .filter(|warning| !warning.acknowledged)
+            .map(|warning| warning.level)
+            .max();
+        self.control.set_alert(match level {
+            None => Alert::None,
+            Some(Level::Near) => Alert::Near,
+            Some(Level::Alarm) => Alert::Alarm,
+        });
     }
 
     /// Starts writing `sensors-<name>.csv` (every sample) and `summary-<name>.txt` (one
@@ -326,6 +471,9 @@ impl Processor {
             }
         }
         self.filter.handle(event);
+        if let SensorEvent::Gps(fix) = event {
+            self.check_airspaces(fix);
+        }
         if let Some(recording) = &mut self.recording {
             recording.recorder.handle(event);
         }
@@ -395,9 +543,11 @@ impl Processor {
         self.save_flight();
     }
 
-    /// Turns the tone off.
+    /// Turns the tone and any warning off.
     pub fn silence(&mut self) {
         self.control.set_climb_rate(0.0);
+        self.warnings.clear();
+        self.update_alert();
     }
 
     pub fn status(&self, uptime_s: f64, running: bool) -> Status {
@@ -437,6 +587,14 @@ impl Processor {
             gps: self.gps.stats(),
             summaries: self.summaries.iter().cloned().collect(),
             log_file: self.logs.as_ref().map(|logs| logs.raw_path.clone()),
+            airspace_warnings: self
+                .warnings
+                .iter()
+                .filter_map(|warning| {
+                    let airspace = self.warner.airspaces().get(warning.index)?;
+                    Some(AirspaceWarning::new(warning, airspace))
+                })
+                .collect(),
         }
     }
 
@@ -731,5 +889,91 @@ mod tests {
         assert_eq!(lines.iter().filter(|l| l.starts_with("p,")).count(), 3);
         assert_eq!(lines.iter().filter(|l| l.starts_with("g,")).count(), 3);
         assert!(summary.starts_with("10:00:02  accel"));
+    }
+
+    /// A CTR whose southern edge lies about 620 m north of where the synthetic
+    /// flights start (47.0 N 11.0 E, heading north at 10 m/s).
+    fn ctr_ahead() -> Arc<Vec<Airspace>> {
+        let text = b"AC D\nAY CTR\nAN Ahead CTR\nAL GND\nAH FL100\n\
+            DP 47:00:20 N 010:50:00 E\nDP 47:00:20 N 011:10:00 E\n\
+            DP 47:10:00 N 011:10:00 E\nDP 47:10:00 N 010:50:00 E\n";
+        Arc::new(flight_core::airspace::parse(text).airspaces)
+    }
+
+    #[test]
+    fn warns_and_alarms_when_flying_towards_an_airspace() {
+        let (mut processor, control) = processor();
+        processor.set_airspaces(ctr_ahead());
+        let mut seen = Vec::new();
+        climb_simulation(50.0).run_fast(|event| {
+            processor.handle(&event);
+            if matches!(event, SensorEvent::Gps(_)) {
+                seen.push(control.alert());
+            }
+        });
+        // Near from the start (closer than 1 km), alarm in the last seconds.
+        assert_eq!(seen[1], Alert::Near);
+        assert_eq!(*seen.last().unwrap(), Alert::Alarm);
+
+        let status = processor.status(50.0, true);
+        let warning = &status.airspace_warnings[0];
+        assert_eq!(warning.name, "Ahead CTR");
+        assert_eq!(warning.category, "ctr");
+        assert_eq!(warning.level, "alarm");
+        assert!(
+            (100.0..140.0).contains(&warning.horizontal_m),
+            "{warning:?}"
+        );
+        assert_eq!(warning.vertical_side, "between");
+        assert_eq!(
+            (warning.lower.as_str(), warning.upper.as_str()),
+            ("GND", "FL100")
+        );
+        let entry = warning.entry_in_s.unwrap();
+        assert!((10.0..=14.0).contains(&entry), "{entry}");
+
+        processor.silence();
+        assert_eq!(control.alert(), Alert::None);
+    }
+
+    #[test]
+    fn silenced_and_disabled_warnings_do_not_sound() {
+        let (mut processor, control) = processor();
+        processor.set_airspaces(ctr_ahead());
+        let mut simulation = climb_simulation(20.0);
+        simulation.run_fast(|event| processor.handle(&event));
+        assert_eq!(control.alert(), Alert::Near);
+
+        assert!(processor.acknowledge_warning(0));
+        assert_eq!(control.alert(), Alert::None);
+        assert!(processor.status(20.0, true).airspace_warnings[0].acknowledged);
+
+        processor.set_warning_settings(WarningSettings {
+            enabled: false,
+            ..WarningSettings::default()
+        });
+        assert!(processor.status(20.0, true).airspace_warnings.is_empty());
+
+        // Without airspaces nothing warns either.
+        let (mut processor, control) = self::processor();
+        climb_simulation(20.0).run_fast(|event| processor.handle(&event));
+        assert_eq!(control.alert(), Alert::None);
+    }
+
+    #[test]
+    fn agl_limits_use_the_terrain() {
+        // An RMZ up to 1000 ft (305 m) above ground around the start; the flight climbs
+        // from 1500 m, so it is inside over ground at 1300 m and far above at 900 m.
+        let text = b"AC RMZ\nAN Ground RMZ\nAL GND\nAH 1000ft AGL\n\
+            DP 46:50:00 N 010:50:00 E\nDP 46:50:00 N 011:10:00 E\n\
+            DP 47:10:00 N 011:10:00 E\nDP 47:10:00 N 010:50:00 E\n";
+        let airspaces = Arc::new(flight_core::airspace::parse(text).airspaces);
+        for (ground_m, expected) in [(1300.0, Alert::Alarm), (900.0, Alert::None)] {
+            let (mut processor, control) = processor();
+            processor.set_airspaces(Arc::clone(&airspaces));
+            processor.set_terrain(Box::new(flight_core::terrain::FlatTerrain(ground_m)));
+            climb_simulation(10.0).run_fast(|event| processor.handle(&event));
+            assert_eq!(control.alert(), expected, "ground {ground_m}");
+        }
     }
 }
