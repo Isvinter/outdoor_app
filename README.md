@@ -1,6 +1,10 @@
-# outdoor_app
+# ZeroGrid
 
-Offline-Outdoor-App für Rad, MTB, Wandern und Skitouren.
+Offline-Ökosystem für draußen, mit drei Apps in einem Repository:
+
+- **ZeroGrid Base** (`apps/base`, Desktop): Planung, Karten bauen und für die mobilen Apps bereitstellen.
+- **ZeroGrid Trail** (`apps/trail`, iOS): Karte und Routenplanung für Rad, MTB, Wandern und Skitouren.
+- **ZeroGrid Sky** (`apps/sky`, iOS): Flugcomputer für Gleitschirme, siehe [apps/sky/CLAUDE.md](apps/sky/CLAUDE.md).
 
 | Dokument | Inhalt |
 |---|---|
@@ -37,9 +41,9 @@ Routen (gerade Linien mit Höhenprofil).
 ## Bauen und starten
 
 ```sh
-(cd apps/desktop/ui && pnpm install && pnpm build)   # Frontend, wird in die App eingebettet
-cargo run --release -p outdoor-desktop
-cargo run --release -p outdoor-desktop --no-default-features   # ohne Valhalla
+(cd apps/base/ui && pnpm install && pnpm build)   # Frontend, wird in die App eingebettet
+cargo run --release -p zerogrid-base
+cargo run --release -p zerogrid-base --no-default-features   # ohne Valhalla
 ```
 
 Nach Änderungen am Frontend `pnpm build` wiederholen.
@@ -62,7 +66,7 @@ In der App:
   (siehe [Im Heimnetz freigeben](#im-heimnetz-freigeben)).
 - **Über / Datenquellen** – Attribution der installierten Regionen und der Software.
 
-Die Daten liegen unter `~/.local/share/de.outdoor-app.desktop/`: Datenbank `outdoor.sqlite`,
+Die Daten liegen unter `~/.local/share/de.zeibig.zerogrid.base/`: Datenbank `outdoor.sqlite`,
 Kartenregionen in `regions/`, Beschreibungen der in der App gebauten Regionen in
 `region-defs/`, das Protokoll des letzten Baus je Region in `region-build/<id>/build.log`.
 
@@ -149,7 +153,7 @@ allen Schnittstellen auf dem Port aus dem Feld **Port** (Standard 8765, nur bei 
 Schalter änderbar; ein geänderter Port wird gespeichert). Die App zeigt die Adresse als Text und
 als QR-Code; hat der Rechner mehrere Heimnetz-Adressen, lässt sich die gezeigte wählen. Lässt die
 Firewall den Port nicht durch, nennt die App den passenden Befehl, z. B.
-`sudo ufw allow from 192.168.2.0/24 to any port 8765 proto tcp`. Ist der Port belegt, bleibt der
+`sudo ufw allow from 192.168.x.0/24 to any port 8765 proto tcp`. Ist der Port belegt, bleibt der
 Schalter aus. Schalter aus oder App beenden stoppt den Server sofort, auch laufende Downloads.
 Das iPhone holt sich von dort Regionen und Routen, siehe „iOS“ weiter unten.
 
@@ -249,7 +253,7 @@ cargo run --release -p track-cli -- record tour.gpx --db test.sqlite         # G
 
 ## iOS
 
-Die iOS-App (`apps/ios/`, SwiftUI und MapLibre Native) zeigt die Sommer- und Winterkarte
+Die iOS-App (`apps/trail/`, SwiftUI und MapLibre Native) zeigt die Sommer- und Winterkarte
 samt Hangneigung und Höhenlinien offline aus installierten Regionen, dazu die eigene
 Position. Routen plant sie ohne Netz, mit Valhalla in der App (valhalla-mobile) und der
 Planungslogik des Rust-Kerns. Regionen und Routen holt sie im Heimnetz vom Desktop, ohne
@@ -259,9 +263,9 @@ Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
 `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
 
 ```sh
-apps/ios/scripts/build-core.sh               # Rust-Kern als XCFramework und Swift-Bindings (nach jeder Änderung am Kern)
-(cd apps/ios && xcodegen generate)           # erzeugt Outdoor.xcodeproj, dann in Xcode das Schema „Outdoor“ starten
-apps/ios/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
+apps/trail/scripts/build-core.sh               # Rust-Kern als XCFramework und Swift-Bindings (nach jeder Änderung am Kern)
+(cd apps/trail && xcodegen generate)           # erzeugt ZeroGridTrail.xcodeproj, dann in Xcode das Schema „ZeroGridTrail“ starten
+apps/trail/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
 ```
 
 Die Tests mit echten Routingdaten (Referenzwanderung, Abnahme) brauchen ein Paket von
@@ -269,7 +273,7 @@ Die Tests mit echten Routingdaten (Referenzwanderung, Abnahme) brauchen ein Pake
 `ISARWINKEL_PACKAGE`. Liegt dort nur die `routing.tar`, baut das Skript daraus ein Paket nur
 mit Routing (die Karte bleibt dann leer). Ohne Paket werden diese Tests übersprungen. Auf dem
 iPhone läuft die Abnahme mit der dort installierten Region:
-`DEVICE=<udid> apps/ios/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`.
+`DEVICE=<udid> apps/trail/scripts/test.sh -only-testing:ZeroGridTrailUITests/AcceptanceUITests`.
 
 Die Tests der Regionsverwaltung und der Routen vom Desktop laden über echtes HTTP: `test.sh`
 startet dafür zweimal `share-serve` (die Freigabe ohne Desktop-App, aus `crates/core-share`)
@@ -333,11 +337,11 @@ lässt.
 
 ```sh
 cargo test --workspace                       # mit Valhalla (über die Desktop-App eingeschaltet)
-cargo test --workspace --exclude outdoor-desktop --exclude region-builder   # auf dem Mac: ohne Valhalla und ohne den Regionsbau (nur Linux)
+cargo test --workspace --exclude zerogrid-base --exclude region-builder   # auf dem Mac: ohne Valhalla und ohne den Regionsbau (nur Linux)
 cargo test -p core-routing -p core-app       # dieselben Crates ohne Valhalla
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-(cd apps/desktop/ui && pnpm typecheck)
+(cd apps/base/ui && pnpm typecheck)
 scripts/measure-performance.sh               # Messprotokoll neu aufnehmen (Release-Build, ~3 min)
 ```
 
@@ -365,10 +369,10 @@ Abweichung geprüft.
 | `crates/core-maps` | Offline-Regionen: Katalog, Download, PMTiles lesen und schreiben, Kachelzugriff, Höhen aus dem Geländemodell |
 | `crates/core-routing` | Routenprofile, Router-Schnittstelle, Valhalla (Feature `valhalla`), manuelle Route, DIN-Gehzeit |
 | `crates/core-app` | Anwendungsdienste; einzige Schnittstelle für Oberflächen |
-| `apps/desktop/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
-| `apps/desktop/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
+| `apps/base/src-tauri` | Tauri-Hülle: Commands und Events, keine Fachlogik |
+| `apps/base/ui` | Frontend (TypeScript, MapLibre GL JS), nur Darstellung |
 | `crates/core-ffi` | UniFFI-Hülle um `core-app` für die mobilen Apps |
-| `apps/ios` | iOS-App (SwiftUI, MapLibre Native, valhalla-mobile): Karte, Regionsverwaltung und Übernahme vom Desktop, Position, Routenplanung; keine Fachlogik |
+| `apps/trail` | iOS-App (SwiftUI, MapLibre Native, valhalla-mobile): Karte, Regionsverwaltung und Übernahme vom Desktop, Position, Routenplanung; keine Fachlogik |
 | `crates/region-builder` | nur Desktop: Regionen in der App bauen – Beschreibung, Wahl der Geofabrik-Auszüge, Lauf des Bauskripts mit Fortschritt und Abbruch |
 | `tools/track-cli` | Kommandozeile für Statistik und Tests |
 | `tools/slope-tiles` | Hangneigungskacheln aus Höhenkacheln |

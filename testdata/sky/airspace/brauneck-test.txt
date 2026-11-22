@@ -1,0 +1,25 @@
+* Invented airspaces for testing the warnings with the desktop simulator, which starts
+* above the Brauneck (47.665 N 11.526 E, 1700 m) heading north. NOT REAL AIRSPACE.
+*
+* A control zone whose southern edge lies about 590 m north of the start.
+AC D
+AY CTR
+AN TEST CTR Brauneck
+AL GND
+AH 7000ft MSL
+DP 47:40:15 N 011:28:00 E
+DP 47:40:15 N 011:36:00 E
+DP 47:45:00 N 011:36:00 E
+DP 47:45:00 N 011:28:00 E
+*
+* A TMA above the start with its base at FL65 (1981 m pressure altitude), to warn when
+* climbing in the simulated thermals.
+AC C
+AY TMA
+AN TEST TMA Isarwinkel
+AL FL65
+AH FL100
+DP 47:36:00 N 011:26:00 E
+DP 47:36:00 N 011:38:00 E
+DP 47:40:15 N 011:38:00 E
+DP 47:40:15 N 011:26:00 E

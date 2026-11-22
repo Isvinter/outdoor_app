@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>ZeroGrid Sky</title>
+    <link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Airspace warning, over every page -->
+    <div id="warning" hidden>
+      <div id="warning-text">
+        <b id="warning-title"></b>
+        <span id="warning-detail"></span>
+        <small id="warning-more"></small>
+      </div>
+      <button id="warning-acknowledge" class="button">Quittieren</button>
+    </div>
+
+    <!-- Instruments -->
+    <section id="page-instruments" class="page active">
+      <div class="vario">
+        <div class="bar"><div id="bar-fill"></div></div>
+        <div class="vario-number">
+          <div id="climb">–</div>
+          <div class="unit">m/s</div>
+        </div>
+      </div>
+
+      <div class="tiles">
+        <div><b id="altitude">–</b><span>Höhe m</span></div>
+        <div><b id="speed">–</b><span>km/h</span></div>
+        <div><b id="course">–</b><span id="course-label">Kurs</span></div>
+      </div>
+
+      <div id="interrupted" hidden>
+        <p id="interrupted-text"></p>
+        <button id="dismiss-interrupted" class="button">OK</button>
+      </div>
+
+      <div id="permissions" hidden>
+        <ul id="permission-problems"></ul>
+        <button id="open-settings" class="button">Einstellungen öffnen</button>
+      </div>
+
+      <button id="toggle" class="button primary">Start</button>
+      <div id="recording"></div>
+      <div id="info"></div>
+    </section>
+
+    <!-- Map -->
+    <section id="page-map" class="page">
+      <div id="map"></div>
+      <div id="map-readout" class="map-overlay">
+        <span id="map-climb">–</span> <small>m/s</small> · <span id="map-altitude">–</span>
+        <small>m</small>
+      </div>
+      <button id="follow" class="map-overlay on">Folgen</button>
+      <div id="saved-flight" class="map-overlay">
+        <span id="saved-flight-label"></span>
+        <button id="close-saved-flight" class="button">Schließen</button>
+      </div>
+      <div id="map-message" class="map-overlay"></div>
+      <div id="airspace-info" class="map-overlay" hidden>
+        <div id="airspace-info-list"></div>
+        <button id="close-airspace-info" class="button">Schließen</button>
+      </div>
+    </section>
+
+    <!-- Recorded flights -->
+    <section id="page-flights" class="page">
+      <h2>Flüge</h2>
+      <div id="flights-message" class="hint"></div>
+      <div id="flights"></div>
+      <small class="hint">
+        Jeder Lauf von Start bis Stopp wird als IGC-Datei gespeichert, sobald GPS-Positionen
+        ankommen. Die Dateien sind nicht signiert und damit nicht für Wettbewerbe gültig.
+      </small>
+    </section>
+
+    <!-- Settings -->
+    <section id="page-settings" class="page">
+      <h2>Vario-Ton</h2>
+      <div class="setting">
+        <label for="set-climb">Steigton ab <output id="out-climb"></output></label>
+        <input id="set-climb" type="range" min="0" max="2" step="0.1" />
+      </div>
+      <div class="setting">
+        <label for="set-sink">Sinkton ab <output id="out-sink"></output></label>
+        <input id="set-sink" type="range" min="-6" max="-0.5" step="0.1" />
+      </div>
+      <div class="setting">
+        <label for="set-volume">Lautstärke <output id="out-volume"></output></label>
+        <input id="set-volume" type="range" min="0" max="1" step="0.05" />
+      </div>
+      <div class="setting">
+        <label for="set-damping">Dämpfung <output id="out-damping"></output></label>
+        <input id="set-damping" type="range" min="0" max="5" step="0.1" />
+        <small>Mittelungszeit des Varios: größer ist ruhiger, reagiert aber später.</small>
+      </div>
+      <div id="settings-message"></div>
+      <div class="row">
+        <button id="tone-climb" class="button" disabled>Testton Steigen</button>
+        <button id="tone-sink" class="button" disabled>Testton Sinken</button>
+      </div>
+      <small class="hint">Testtöne gehen nur, während das Vario läuft.</small>
+      <div class="row" style="margin-top: 14px">
+        <button id="reset-settings" class="button">Standardwerte</button>
+      </div>
+
+      <h2>Karte</h2>
+      <h3>Offline-Karten</h3>
+      <div class="row" id="offline-style">
+        <button data-style="flying" class="button">Flugkarte</button>
+        <button data-style="topo" class="button">Topo (Wandern)</button>
+      </div>
+      <small class="hint">
+        Flugkarte: kräftiges Gelände, Gipfel mit Höhe, Seilbahnen rot, Stromleitungen gestrichelt, Start- und Landeplätze, Hindernisse.
+        Topo: ausführlich mit Wegen, Hütten und Pisten.
+      </small>
+      <h3>Regionen</h3>
+      <div id="regions"></div>
+      <p id="regions-none" class="hint">
+        Keine Region installiert. Regionen vom Desktop laden (unten) oder als Ordner mit
+        <code>manifest.json</code> aus ZeroGrid Base in den Ordner <b>maps</b> der
+        App kopieren: am Mac im Finder iPhone wählen → Dateien → ZeroGrid Sky. Sind Regionen
+        da, zeigt die Karte sie offline; außerhalb davon bleibt sie leer.
+      </p>
+      <p id="regions-message" class="hint"></p>
+      <div class="setting">
+        <label for="set-map-source">ZeroGrid Base im WLAN</label>
+        <input id="set-map-source" type="text" inputmode="url" placeholder="192.168.1.20:8765"
+          autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <small>
+          In ZeroGrid Base die Freigabe einschalten und die dort angezeigte
+          Adresse eintragen. iPhone und Desktop müssen im selben WLAN sein. App beim Laden
+          offen lassen; ein unterbrochener Download geht beim nächsten Laden weiter.
+        </small>
+      </div>
+      <div class="row">
+        <button id="connect-map-source" class="button">Verbinden</button>
+      </div>
+      <h3>Lufträume</h3>
+      <div id="airspace-files"></div>
+      <div class="row" id="airspace-countries"></div>
+      <div class="row">
+        <button id="update-airspaces" class="button">Lufträume aktualisieren</button>
+      </div>
+      <p id="airspace-update-message" class="hint"></p>
+      <small class="hint">
+        Lädt die gewählten Länder aus dem öffentlichen Export von openAIP, nur wenn es dort
+        etwas Neues gibt. Braucht Internet. Luftraumdaten © openAIP (openaip.net),
+        Lizenz CC BY-NC 4.0.
+      </small>
+      <p id="airspace-none" class="hint">
+        Keine Luftraumdateien. Oben „Lufträume aktualisieren“ oder OpenAir-Dateien (<code>.txt</code>, z. B. von openaip.net) in
+        den Ordner <b>airspace</b> der App kopieren: am Mac im Finder iPhone wählen →
+        Dateien → ZeroGrid Sky → airspace. Die App liest sie beim Öffnen der Einstellungen neu.
+      </p>
+      <div class="row" id="airspace-categories"></div>
+      <small class="hint">
+        Angetippte Arten zeigt die Karte. Die Daten sind nicht amtlich: vor dem Flug mit
+        aktueller Luftfahrtkarte und NOTAMs prüfen.
+      </small>
+      <h3>Luftraumwarnung</h3>
+      <div class="row">
+        <button id="warning-enabled" class="button">Warnung an</button>
+      </div>
+      <div class="row" id="warning-categories"></div>
+      <small class="hint">
+        Angetippte Arten warnen, unabhängig davon, was die Karte zeigt. Aktivierungszeiten
+        und NOTAMs kennt die App nicht: Gefahren- und Sperrgebiete warnen immer.
+      </small>
+      <div class="setting">
+        <label for="set-warn-horizontal">Abstand waagerecht <output id="out-warn-horizontal"></output></label>
+        <input id="set-warn-horizontal" type="range" min="200" max="3000" step="100" />
+      </div>
+      <div class="setting">
+        <label for="set-warn-vertical">Abstand senkrecht <output id="out-warn-vertical"></output></label>
+        <input id="set-warn-vertical" type="range" min="30" max="500" step="10" />
+      </div>
+      <div class="setting">
+        <label for="set-warn-lookahead">Vorwarnzeit <output id="out-warn-lookahead"></output></label>
+        <input id="set-warn-lookahead" type="range" min="0" max="90" step="5" />
+        <small>
+          Warnt, wenn Kurs, Geschwindigkeit und Steigen in dieser Zeit in den Luftraum
+          führen (nicht beim Kreisen).
+        </small>
+      </div>
+      <div class="setting">
+        <label for="set-warn-volume">Lautstärke Warnton <output id="out-warn-volume"></output></label>
+        <input id="set-warn-volume" type="range" min="0" max="1" step="0.05" />
+      </div>
+      <div id="warning-message"></div>
+      <div class="row">
+        <button id="alert-near" class="button" disabled>Test Vorwarnung</button>
+        <button id="alert-alarm" class="button" disabled>Test Alarm</button>
+      </div>
+      <small class="hint">
+        Testtöne gehen nur, während das Vario läuft. Ohne GPS-Position seit 30 s enden
+        Warnungen von selbst.
+      </small>
+      <div class="row" style="margin-top: 14px">
+        <button id="reset-warning" class="button">Standardwerte</button>
+      </div>
+            <h3>Online-Karte</h3>
+      <div class="setting">
+        <label for="set-map-style">Kartenstil (URL)</label>
+        <input id="set-map-style" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <small>
+          Adresse eines MapLibre-Stils, verwendet ohne installierte Region. Standard:
+          OpenFreeMap. Leer lassen für den Standard.
+        </small>
+      </div>
+      <div class="row">
+        <button id="save-map-style" class="button">Kartenstil übernehmen</button>
+      </div>
+
+      <h2>Sensoren</h2>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Anzahl</th>
+            <th>Rate Hz</th>
+            <th>Alter s</th>
+            <th>längste Pause s</th>
+          </tr>
+        </thead>
+        <tbody id="sensors"></tbody>
+      </table>
+      <h2>Protokoll (alle 10 s, Zeiten in UTC)</h2>
+      <div id="log"></div>
+    </section>
+
+    <nav id="tabs">
+      <button data-page="instruments" class="active">Instrumente</button>
+      <button data-page="map">Karte</button>
+      <button data-page="flights">Flüge</button>
+      <button data-page="settings">Einstellungen</button>
+    </nav>
+
+    <script src="vendor/maplibre-gl/maplibre-gl.js"></script>
+    <script src="map.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

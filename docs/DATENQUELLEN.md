@@ -65,7 +65,7 @@ Der Stil „OpenFreeMap (online)“ lädt gehostete OpenMapTiles-Kacheln von ope
 | Noto Sans (`assets/map/fonts`) | Kartenbeschriftung | SIL Open Font License 1.1 |
 
 Die Rust-Abhängigkeiten stehen in `Cargo.lock`, die des Frontends in
-`apps/desktop/ui/pnpm-lock.yaml`.
+`apps/base/ui/pnpm-lock.yaml`.
 
 ## Was das für die Weitergabe heißt
 

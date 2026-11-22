@@ -36,7 +36,7 @@ pub const FAILED_LEG_COLOR: &str = "#d93025";
 
 impl Profile {
     /// One colour per profile, the same on the map and in the elevation
-    /// profile on every platform (as `apps/desktop/ui/src/profile-colors.ts`).
+    /// profile on every platform (as `apps/base/ui/src/profile-colors.ts`).
     pub fn color(self) -> &'static str {
         match self {
             Profile::RoadBike => "#1565c0",

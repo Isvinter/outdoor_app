@@ -332,7 +332,7 @@ fn din_33466_combines_horizontal_and_vertical_time() {
 
 #[test]
 fn colors_match_desktop() {
-    let desktop = include_str!("../../../apps/desktop/ui/src/profile-colors.ts");
+    let desktop = include_str!("../../../apps/base/ui/src/profile-colors.ts");
     for profile in Profile::ALL {
         let line = format!("{}: \"{}\"", profile.as_str(), profile.color());
         assert!(desktop.contains(&line), "{line} not in profile-colors.ts");

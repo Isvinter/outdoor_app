@@ -107,9 +107,9 @@ Stand 2026-11-15, MacBook Air (Xcode 27.2), MapLibre Native 7.0.0, Release-Build
 | iPhone, `isarwinkel-achensee`: weitere Starts bis Karte gezeichnet | 162–174 ms (3 Läufe) |
 | iPhone, ohne Region: Start bis Hintergrund gezeichnet | 154 ms |
 
-- Gemessen ab dem Start des App-Codes (`OutdoorApp.init`), nicht ab dem Antippen des Symbols.
+- Gemessen ab dem Start des App-Codes (`ZeroGridTrailApp.init`), nicht ab dem Antippen des Symbols.
 - Die Werte liefert der Selbsttest:
-  `xcrun devicectl device process launch --console --device <id> de.zeibig.outdoor -- -selftest`
+  `xcrun devicectl device process launch --console --device <id> de.zeibig.zerogrid.trail -- -selftest`
   schreibt nach dem ersten vollständigen Bild eine Zeile mit `import_ms` und `rendered_ms`.
 - Der Import prüft die SHA-256-Summen aller Dateien (rund 1 GB/s) und verschiebt sie dann
   nur. Für das erste Bild holte die Karte 23 Kacheln und Schriftbereiche aus dem Kern.
@@ -138,10 +138,10 @@ Stand 2026-11-16, MacBook Air (Xcode 27.2), valhalla-mobile 0.6.4 (Valhalla 3.9.
   zweiten, damit ein Doppeltipp zoomt und keine zwei Punkte setzt. Diese Wartezeit kommt bei
   jedem getippten Punkt dazu.
 - Die Werte im Simulator stammen aus einem Paket **nur mit Routing** (`routing.tar` aus dem
-  Vorabtest, von `apps/ios/scripts/test.sh` zu einem Paket gemacht), also ohne Höhenprofil.
+  Vorabtest, von `apps/trail/scripts/test.sh` zu einem Paket gemacht), also ohne Höhenprofil.
   Auf dem iPhone lief das volle Paket `isarwinkel-achensee`.
 - Auf dem iPhone gemessen mit
-  `DEVICE=<udid> apps/ios/scripts/test.sh -only-testing:OutdoorUITests/AcceptanceUITests`
+  `DEVICE=<udid> apps/trail/scripts/test.sh -only-testing:ZeroGridTrailUITests/AcceptanceUITests`
   (`testReferenceHikeByTapping` und `testLegTimes`). Der Lauf nutzt die installierte Region,
   behält die App-Daten und löscht die Route, die er speichert. Der Test-Runner zählt als App:
   Das kostenlose Entwicklerprofil erlaubt drei auf dem Gerät.

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZeroGrid Base</title>
+  </head>
+  <body>
+    <aside id="sidebar">
+      <header><h1>ZeroGrid Base</h1></header>
+
+      <section id="recovery" hidden>
+        <h2 data-i18n="recovery.title"></h2>
+        <p id="recovery-text"></p>
+        <div class="row">
+          <button id="recovery-continue" class="primary" data-i18n="recovery.continue"></button>
+          <button id="recovery-finish" data-i18n="recovery.finish"></button>
+        </div>
+      </section>
+
+      <section>
+        <h2 data-i18n="recording.title"></h2>
+        <label class="field">
+          <span data-i18n="recording.activity"></span>
+          <select id="activity"></select>
+        </label>
+        <div class="row">
+          <button id="rec-start" class="primary" data-i18n="recording.start"></button>
+          <button id="rec-pause" data-i18n="recording.pause"></button>
+          <button id="rec-resume" class="primary" data-i18n="recording.resume"></button>
+          <button id="rec-stop" class="danger" data-i18n="recording.stop"></button>
+        </div>
+        <p id="rec-phase" class="hint"></p>
+        <dl id="live-stats" class="stats"></dl>
+      </section>
+
+      <section>
+        <h2 data-i18n="location.title"></h2>
+        <div class="row">
+          <button id="loc-replay" data-i18n="location.replay"></button>
+          <select id="loc-speed" aria-label="Geschwindigkeit"></select>
+        </div>
+        <div class="row">
+          <button id="loc-gpsd" data-i18n="location.gpsd"></button>
+          <button id="loc-stop" data-i18n="location.stop"></button>
+        </div>
+        <label class="check"><input type="checkbox" id="follow" checked /> <span data-i18n="location.follow"></span></label>
+        <p id="loc-status" class="hint"></p>
+      </section>
+
+      <section>
+        <h2 data-i18n="maps.title"></h2>
+        <label class="field">
+          <span data-i18n="maps.style"></span>
+          <select id="map-style"></select>
+        </label>
+        <div id="slope-controls" hidden>
+          <label class="field">
+            <span data-i18n="maps.slope"></span>
+            <input id="slope-opacity" type="range" min="0" max="100" step="5" value="60" />
+          </label>
+          <ul id="slope-legend" class="legend">
+            <li><i style="background: #f7e13c"></i>30–35°</li>
+            <li><i style="background: #f59500"></i>35–40°</li>
+            <li><i style="background: #e0241c"></i>40–45°</li>
+            <li><i style="background: #8e3fa8"></i>&gt; 45°</li>
+          </ul>
+        </div>
+        <details id="legend">
+          <summary data-i18n="legend.title"></summary>
+          <ul id="legend-list" class="lines"></ul>
+        </details>
+        <div id="build">
+          <h3 data-i18n="maps.build.title"></h3>
+          <div class="row">
+            <button id="build-pick" data-i18n="maps.build.pick"></button>
+          </div>
+          <label class="stacked">
+            <span data-i18n="maps.build.name"></span>
+            <input id="build-name" type="text" />
+          </label>
+          <p id="build-estimate" class="hint"></p>
+          <div class="row">
+            <button id="build-start" class="primary" data-i18n="maps.build.start"></button>
+          </div>
+          <p id="build-hint" class="hint"></p>
+        </div>
+        <label class="stacked">
+          <span data-i18n="maps.catalog"></span>
+          <input id="catalog-source" type="text" spellcheck="false" />
+        </label>
+        <div class="row">
+          <button id="catalog-choose" data-i18n="maps.catalog.choose"></button>
+          <button id="catalog-apply" data-i18n="maps.catalog.apply"></button>
+        </div>
+        <p id="catalog-hint" class="hint"></p>
+        <ul id="region-list"></ul>
+        <div id="share">
+          <label class="check share-switch">
+            <input type="checkbox" id="share-on" class="switch" disabled />
+            <span id="share-on-label" data-i18n="share.toggle"></span>
+          </label>
+          <label class="field">
+            <span data-i18n="share.port"></span>
+            <input id="share-port" type="number" min="1" max="65535" step="1" />
+          </label>
+          <p id="share-none" class="hint" hidden></p>
+          <div id="share-details" hidden>
+            <label class="field" id="share-address-field" hidden>
+              <span data-i18n="share.address"></span>
+              <select id="share-address"></select>
+            </label>
+            <div class="copyable">
+              <code id="share-url"></code>
+              <button id="share-url-copy" data-i18n="share.copy"></button>
+            </div>
+            <div id="share-qr"></div>
+            <p class="hint" data-i18n="share.firewall"></p>
+            <div class="copyable">
+              <code id="share-firewall"></code>
+              <button id="share-firewall-copy" data-i18n="share.copy"></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 data-i18n="route.title"></h2>
+        <label class="field">
+          <span data-i18n="route.profile"></span>
+          <select id="route-profile"></select>
+        </label>
+        <div id="route-options"></div>
+        <div class="row">
+          <button id="route-edit" class="primary"></button>
+          <button id="route-undo" data-i18n="route.undo"></button>
+          <button id="route-clear" class="danger" data-i18n="route.clear"></button>
+        </div>
+        <p id="route-hint" class="hint"></p>
+        <div id="route-result" hidden>
+          <dl id="route-stats" class="stats"></dl>
+          <ol id="route-stages" class="stages" hidden></ol>
+          <div id="route-chart"></div>
+          <p id="route-legend"></p>
+          <p id="route-note" class="hint"></p>
+          <input id="route-name" type="text" />
+          <div class="row">
+            <button id="route-save" data-i18n="route.save"></button>
+            <button id="route-save-new" data-i18n="route.save_new"></button>
+            <button id="route-export" data-i18n="route.export"></button>
+          </div>
+        </div>
+        <ul id="route-list"></ul>
+      </section>
+
+      <section class="grow">
+        <h2 data-i18n="tracks.title"></h2>
+        <div class="row">
+          <button id="track-import" data-i18n="tracks.import"></button>
+        </div>
+        <ul id="track-list"></ul>
+        <div id="track-detail" hidden>
+          <input id="track-name" type="text" />
+          <dl id="track-stats" class="stats"></dl>
+          <p id="track-dem-hint" class="hint"></p>
+          <div class="row">
+            <button id="track-export" data-i18n="tracks.export"></button>
+            <button id="track-delete" class="danger" data-i18n="tracks.delete"></button>
+          </div>
+        </div>
+      </section>
+
+      <details id="about">
+        <summary data-i18n="about.title"></summary>
+        <p class="hint" data-i18n="about.data"></p>
+        <ul id="about-attribution"></ul>
+        <p class="hint" data-i18n="about.software"></p>
+        <p class="hint" data-i18n="about.slope"></p>
+      </details>
+
+      <p id="message" role="status"></p>
+    </aside>
+    <main id="map"></main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
