@@ -238,6 +238,105 @@ impl Airspace {
         }
         inside
     }
+
+    /// Smallest rectangle in latitude and longitude that holds the outline.
+    pub fn bounds(&self) -> Bounds {
+        let mut bounds = Bounds {
+            min_lat_deg: f64::INFINITY,
+            max_lat_deg: f64::NEG_INFINITY,
+            min_lon_deg: f64::INFINITY,
+            max_lon_deg: f64::NEG_INFINITY,
+        };
+        for &(lat, lon) in &self.outline {
+            bounds.min_lat_deg = bounds.min_lat_deg.min(lat);
+            bounds.max_lat_deg = bounds.max_lat_deg.max(lat);
+            bounds.min_lon_deg = bounds.min_lon_deg.min(lon);
+            bounds.max_lon_deg = bounds.max_lon_deg.max(lon);
+        }
+        bounds
+    }
+
+    /// Horizontal distance in metres from a position to the outline: positive outside,
+    /// negative inside (then it is the distance to the nearest way out). Uses a plane
+    /// around the position, like [`Airspace::contains`].
+    pub fn signed_distance_m(&self, lat_deg: f64, lon_deg: f64) -> f64 {
+        let plane = LocalPlane::new(lat_deg, lon_deg);
+        let points = &self.outline;
+        let mut nearest = f64::INFINITY;
+        for (i, &a) in points.iter().enumerate() {
+            let b = points[(i + 1) % points.len()];
+            let a = plane.project(a.0, a.1);
+            let b = plane.project(b.0, b.1);
+            nearest = nearest.min(distance_to_segment(a, b));
+        }
+        if self.contains(lat_deg, lon_deg) {
+            -nearest
+        } else {
+            nearest
+        }
+    }
+}
+
+/// A rectangle in latitude and longitude.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bounds {
+    pub min_lat_deg: f64,
+    pub max_lat_deg: f64,
+    pub min_lon_deg: f64,
+    pub max_lon_deg: f64,
+}
+
+impl Bounds {
+    /// Horizontal distance in metres from a position to the rectangle, 0 inside. Never
+    /// more than the distance to anything inside the rectangle, so it can rule out far
+    /// away airspaces cheaply.
+    pub fn distance_m(&self, lat_deg: f64, lon_deg: f64) -> f64 {
+        let lat = lat_deg.clamp(self.min_lat_deg, self.max_lat_deg);
+        let lon = lon_deg.clamp(self.min_lon_deg, self.max_lon_deg);
+        // On the sphere the nearest point of the rectangle is not exactly the clamped
+        // one; shrink the result a little so it stays a lower bound.
+        geo::distance_m(lat_deg, lon_deg, lat, lon) * 0.99
+    }
+}
+
+/// Flat coordinates in metres (x east, y north) around a reference position.
+struct LocalPlane {
+    lat0_deg: f64,
+    lon0_deg: f64,
+    metres_per_deg_lat: f64,
+    metres_per_deg_lon: f64,
+}
+
+impl LocalPlane {
+    fn new(lat0_deg: f64, lon0_deg: f64) -> Self {
+        let metres_per_deg_lat = geo::EARTH_RADIUS_M * 1f64.to_radians();
+        LocalPlane {
+            lat0_deg,
+            lon0_deg,
+            metres_per_deg_lat,
+            metres_per_deg_lon: metres_per_deg_lat * lat0_deg.to_radians().cos(),
+        }
+    }
+
+    fn project(&self, lat_deg: f64, lon_deg: f64) -> (f64, f64) {
+        (
+            (lon_deg - self.lon0_deg) * self.metres_per_deg_lon,
+            (lat_deg - self.lat0_deg) * self.metres_per_deg_lat,
+        )
+    }
+}
+
+/// Distance from the origin to the segment between two points of a plane.
+fn distance_to_segment((ax, ay): (f64, f64), (bx, by): (f64, f64)) -> f64 {
+    let (dx, dy) = (bx - ax, by - ay);
+    let length_squared = dx * dx + dy * dy;
+    // Position of the nearest point along the segment, 0 at a and 1 at b.
+    let t = if length_squared > 0.0 {
+        (-(ax * dx + ay * dy) / length_squared).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (ax + t * dx).hypot(ay + t * dy)
 }
 
 /// Category from the type (`AY`) of the OpenAir 2 format; `None` for types such as TMA
@@ -727,6 +826,53 @@ mod tests {
         let far = geo::destination(47.5, 11.5, 30.0, 3.0 * NAUTICAL_MILE_M);
         assert!(circle.contains(near.0, near.1));
         assert!(!circle.contains(far.0, far.1));
+    }
+
+    #[test]
+    fn measures_the_distance_to_the_outline() {
+        // A square of 0.2° × 0.2° around 47.1 N 11.1 E.
+        let file = parse(
+            b"AC D\nAN Square\nAL GND\nAH FL100\n\
+              DP 47:00:00 N 011:00:00 E\nDP 47:00:00 N 011:12:00 E\n\
+              DP 47:12:00 N 011:12:00 E\nDP 47:12:00 N 011:00:00 E\n",
+        );
+        let square = &file.airspaces[0];
+        // 1 km south of the southern edge.
+        let (lat, lon) = geo::destination(47.0, 11.1, 180.0, 1000.0);
+        let d = square.signed_distance_m(lat, lon);
+        assert!((d - 1000.0).abs() < 2.0, "{d}");
+        // 300 m inside the western edge.
+        let (lat, lon) = geo::destination(47.1, 11.0, 90.0, 300.0);
+        let d = square.signed_distance_m(lat, lon);
+        assert!((d + 300.0).abs() < 1.0, "{d}");
+        // Diagonally off a corner: distance to the corner itself.
+        let (lat, lon) = geo::offset_position(47.2, 11.2, 300.0, 400.0);
+        let d = square.signed_distance_m(lat, lon);
+        assert!((d - 500.0).abs() < 2.0, "{d}");
+
+        let bounds = square.bounds();
+        assert_eq!(bounds.min_lat_deg, 47.0);
+        assert_eq!(bounds.max_lon_deg, 11.2);
+        assert_eq!(bounds.distance_m(47.1, 11.1), 0.0);
+        let (lat, lon) = geo::destination(47.0, 11.1, 180.0, 1000.0);
+        let to_bounds = bounds.distance_m(lat, lon);
+        assert!(to_bounds <= square.signed_distance_m(lat, lon));
+        assert!(to_bounds > 980.0, "{to_bounds}");
+    }
+
+    #[test]
+    fn measures_the_distance_to_a_circle() {
+        let file = parse(b"AC R\nAN C\nAL GND\nAH FL100\nV X=47:30:00 N 011:30:00 E\nDC 2\n");
+        let circle = &file.airspaces[0];
+        let radius = 2.0 * NAUTICAL_MILE_M;
+        for bearing in [0.0, 77.0, 180.0, 250.0] {
+            let (lat, lon) = geo::destination(47.5, 11.5, bearing, radius + 500.0);
+            let d = circle.signed_distance_m(lat, lon);
+            assert!((d - 500.0).abs() < 10.0, "{bearing}: {d}");
+            let (lat, lon) = geo::destination(47.5, 11.5, bearing, radius - 500.0);
+            let d = circle.signed_distance_m(lat, lon);
+            assert!((d + 500.0).abs() < 10.0, "{bearing}: {d}");
+        }
     }
 
     #[test]

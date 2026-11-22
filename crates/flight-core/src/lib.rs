@@ -5,12 +5,14 @@
 //! keeps replay, accelerated simulation and tests deterministic.
 
 pub mod airspace;
+pub mod airspace_warning;
 pub mod atmosphere;
 pub mod flightlog;
 pub mod geo;
 pub mod igc;
 pub mod sensor;
 pub mod settings;
+pub mod terrain;
 pub mod time;
 pub mod track;
 pub mod vario;
