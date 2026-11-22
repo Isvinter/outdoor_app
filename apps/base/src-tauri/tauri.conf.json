@@ -7,7 +7,7 @@
     "frontendDist": "../ui/dist"
   },
   "app": {
-    "windows": [{ "title": "ZeroGrid Base", "width": 1400, "height": 900 }],
+    "windows": [{ "title": "ZeroGrid Base", "width": 1400, "height": 900, "create": false }],
     "security": { "csp": null }
   },
   "bundle": { "active": false, "icon": ["icons/icon.png"] }

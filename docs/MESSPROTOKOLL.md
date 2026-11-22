@@ -107,9 +107,9 @@ Stand 2026-11-15, MacBook Air (Xcode 27.2), MapLibre Native 7.0.0, Release-Build
 | iPhone, `isarwinkel-achensee`: weitere Starts bis Karte gezeichnet | 162–174 ms (3 Läufe) |
 | iPhone, ohne Region: Start bis Hintergrund gezeichnet | 154 ms |
 
-- Gemessen ab dem Start des App-Codes (`OutdoorApp.init`), nicht ab dem Antippen des Symbols.
+- Gemessen ab dem Start des App-Codes (`ZeroGridTrailApp.init`), nicht ab dem Antippen des Symbols.
 - Die Werte liefert der Selbsttest:
-  `xcrun devicectl device process launch --console --device <id> de.zeibig.outdoor -- -selftest`
+  `xcrun devicectl device process launch --console --device <id> de.zeibig.zerogrid.trail -- -selftest`
   schreibt nach dem ersten vollständigen Bild eine Zeile mit `import_ms` und `rendered_ms`.
 - Der Import prüft die SHA-256-Summen aller Dateien (rund 1 GB/s) und verschiebt sie dann
   nur. Für das erste Bild holte die Karte 23 Kacheln und Schriftbereiche aus dem Kern.

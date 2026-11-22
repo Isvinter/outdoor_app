@@ -57,6 +57,20 @@ fn main() -> ExitCode {
             app.manage(core);
             app.manage(build::Builds::new(&dir));
             app.manage(share::Share::default());
+            // Created here, not from the config: with a data directory override the
+            // webview's files must stay out of the user's real data directory too.
+            let config = app
+                .config()
+                .app
+                .windows
+                .first()
+                .ok_or("no window configured")?
+                .clone();
+            let mut window = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+            if std::env::var_os(DATA_DIR_ENV).is_some() {
+                window = window.data_directory(dir.join("webview"));
+            }
+            window.build()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

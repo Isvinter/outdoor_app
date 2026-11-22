@@ -15,10 +15,22 @@ pub enum Adoption {
     NotNeeded,
 }
 
+const DATABASE: &str = "outdoor.sqlite";
+
 /// Renames `legacy` to `current` if only `legacy` exists. Never copies or deletes, so a
-/// failure leaves the data where it was.
+/// failure leaves the data where it was. If `current` exists without a database while
+/// `legacy` has one, starting would show an empty app, so this is an error.
 pub fn adopt_legacy_dir(legacy: &Path, current: &Path) -> std::io::Result<Adoption> {
-    if !legacy.is_dir() || current.symlink_metadata().is_ok() {
+    if !legacy.is_dir() {
+        return Ok(Adoption::NotNeeded);
+    }
+    if current.symlink_metadata().is_ok() {
+        if legacy.join(DATABASE).is_file() && !current.join(DATABASE).exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "das neue Verzeichnis existiert schon, aber ohne Datenbank",
+            ));
+        }
         return Ok(Adoption::NotNeeded);
     }
     std::fs::rename(legacy, current)?;
@@ -69,6 +81,20 @@ mod tests {
 
     fn file(dir: &Path) -> String {
         fs::read_to_string(dir.join("outdoor.sqlite")).unwrap()
+    }
+
+    #[test]
+    fn refuses_when_only_the_legacy_dir_has_the_database() {
+        let root = Scratch::new();
+        let (legacy, current) = (root.0.join("old"), root.0.join("new"));
+        with_file(&legacy, "routes");
+        fs::create_dir_all(current.join("localstorage")).unwrap();
+
+        assert!(adopt_legacy_dir(&legacy, &current).is_err());
+
+        assert_eq!(file(&legacy), "routes");
+        assert!(current.join("localstorage").is_dir());
+        assert!(!current.join("outdoor.sqlite").exists());
     }
 
     #[test]

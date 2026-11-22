@@ -153,7 +153,7 @@ allen Schnittstellen auf dem Port aus dem Feld **Port** (Standard 8765, nur bei 
 Schalter änderbar; ein geänderter Port wird gespeichert). Die App zeigt die Adresse als Text und
 als QR-Code; hat der Rechner mehrere Heimnetz-Adressen, lässt sich die gezeigte wählen. Lässt die
 Firewall den Port nicht durch, nennt die App den passenden Befehl, z. B.
-`sudo ufw allow from 192.168.2.0/24 to any port 8765 proto tcp`. Ist der Port belegt, bleibt der
+`sudo ufw allow from 192.168.x.0/24 to any port 8765 proto tcp`. Ist der Port belegt, bleibt der
 Schalter aus. Schalter aus oder App beenden stoppt den Server sofort, auch laufende Downloads.
 Das iPhone holt sich von dort Regionen und Routen, siehe „iOS“ weiter unten.
 
@@ -264,7 +264,7 @@ Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
 
 ```sh
 apps/trail/scripts/build-core.sh               # Rust-Kern als XCFramework und Swift-Bindings (nach jeder Änderung am Kern)
-(cd apps/trail && xcodegen generate)           # erzeugt ZeroGridTrail.xcodeproj, dann in Xcode das Schema „Outdoor“ starten
+(cd apps/trail && xcodegen generate)           # erzeugt ZeroGridTrail.xcodeproj, dann in Xcode das Schema „ZeroGridTrail“ starten
 apps/trail/scripts/test.sh                     # Unit- und UI-Tests im Simulator (iPhone 17)
 ```
 

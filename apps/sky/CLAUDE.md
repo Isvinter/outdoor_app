@@ -62,7 +62,7 @@ crates/
   vario-engine/          background thread: channel -> filter -> tone, statistics, logs,
                          flight recording; also lists/loads/deletes recorded flights
 apps/
-  vario-app/
+  sky/
     src-tauri/           Tauri app: glue only (commands, audio thread, desktop simulator)
     plugins/vario-sensors/  Tauri plugin; `ios/Sources` holds the Swift sensor bridge
     ui/                  web UI (plain HTML/JS, no bundler); `vendor/` holds MapLibre GL JS 5
@@ -70,8 +70,8 @@ apps/
                          `map/fonts/` the map glyphs (Noto Sans, from ZeroGrid Base)
     src-tauri/map-styles/  offline map style (copy of the repository's styles/topo-summer.json)
 docs/sky/ios-test.md         build and test instructions for the iOS test
-docs/handover-linux.md   handover: region transfer from the Linux desktop (next step)
-testdata/                real IGC files provided by the user
+docs/sky/handover-linux.md   handover: region transfer from the Linux desktop (next step)
+testdata/sky/                real IGC files provided by the user
 ```
 
 Regeln:
@@ -179,7 +179,7 @@ die gewählten Länder aus dem öffentlichen Export von openAIP
 die Versionskennung (ETag, gemerkt in `airspace-etags.txt`) geändert hat. Lizenz CC BY-NC 4.0,
 private Nutzung erlaubt; openAIP als Quelle immer nennen (Einstellungen und Karte). Die
 Dateien kommen nicht ins Repository.
-Zum Testen der Warnungen mit dem Desktop-Simulator `testdata/airspace/brauneck-test.txt`
+Zum Testen der Warnungen mit dem Desktop-Simulator `testdata/sky/airspace/brauneck-test.txt`
 (erfundene CTR und TMA am Flugweg) in diesen Ordner kopieren; der Selbsttest gibt dann
 den Text des Warnbanners aus. Warn-Einstellungen liegen in `airspace-warning.txt`.
 

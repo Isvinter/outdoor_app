@@ -15,7 +15,7 @@ Phase 2b ist damit freigegeben; der Anruf-Fehler wird in Phase 5 behoben.
   funktionieren, auch mit den Hintergrund-Modi `audio` und `location`.
 - Teil A: Start, Berechtigungen, Testtöne, Ton trotz Stummschalter und das Vorzeichen der
   Beschleunigung (Anheben schlägt zuerst positiv aus) stimmen laut Nutzer.
-- Teil B, je etwa 10 Minuten, ausgewertet aus den Rohdaten in `testdata/ios/`
+- Teil B, je etwa 10 Minuten, ausgewertet aus den Rohdaten in `testdata/sky/ios/`
   (`sensors-20261111-111622.csv`, 26 Minuten am Stück; die GPS-Zeilen sind entfernt,
   weil das Repository öffentlich ist):
 
@@ -275,14 +275,14 @@ Die App schreibt in ihren Dokumente-Ordner, sichtbar in der App **Dateien** unte
 - `summary-<Zeit>.txt`: eine Zeile alle 10 Sekunden mit Raten und längster Pause.
 - `sensors-<Zeit>.csv`: jeder einzelne Sensorwert (etwa 5 MB pro Stunde).
 
-Per AirDrop auf den Mac schicken und in `testdata/ios/` im Projekt ablegen. **Vor einem
+Per AirDrop auf den Mac schicken und in `testdata/sky/ios/` im Projekt ablegen. **Vor einem
 Commit die GPS-Zeilen entfernen** (`grep -v "^g," …`), wenn die Aufnahme zu Hause
 entstand – das Repository ist öffentlich. Am Kabel geht es direkt:
 
 ```sh
 xcrun devicectl device copy from --device <UDID> --domain-type appDataContainer \
   --domain-identifier de.vario.prototyp.flugcomputer \
-  --source Documents/logs --destination testdata/ios
+  --source Documents/logs --destination testdata/sky/ios
 ```
 
 Die Rohdaten sind die Grundlage, um den Vario-Filter auf echte Sensoren abzustimmen.
