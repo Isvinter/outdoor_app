@@ -835,7 +835,7 @@ Teilstücks nachträglich ändern.
 
 | | Risiko | Einschätzung | Gegenmaßnahme |
 |---|---|---|---|
-| R1 | **WebKitGTK + NVIDIA + Wayland** (RTX 5090). Tauri warnt, dass WebGL unter WebKitGTK auf NVIDIA still auf einen langsamen Pfad fallen kann | **gemessen am 2026-11-13, unkritisch:** 62 fps im Mittel, 95 % der Bilder < 17 ms, Maximum 29 ms (10 s Zoom/Drehung/Neigung, Vektorkarte, 1400×900, Debug-Build) | Messung jederzeit wiederholbar: `OUTDOOR_FPS_PROBE=1 cargo run -p outdoor-desktop`. In M6 erneut mit Topo-Stil, Schummerung und großem Fenster messen |
+| R1 | **WebKitGTK + NVIDIA + Wayland** (RTX 5090). Tauri warnt, dass WebGL unter WebKitGTK auf NVIDIA still auf einen langsamen Pfad fallen kann | **gemessen am 2026-11-13, unkritisch:** 62 fps im Mittel, 95 % der Bilder < 17 ms, Maximum 29 ms (10 s Zoom/Drehung/Neigung, Vektorkarte, 1400×900, Debug-Build) | Messung jederzeit wiederholbar: `OUTDOOR_FPS_PROBE=1 cargo run -p zerogrid-base`. In M6 erneut mit Topo-Stil, Schummerung und großem Fenster messen |
 | R2 | Valhalla-Rust-Bindings jung (wenig Nutzer, docs.rs-Build defekt), C++-Build schwergewichtig (lange Kompilierzeit) | mittel | Feature-Flag, Trait `Router`; Ausweichwege: eigener `cxx`-Wrapper oder Valhalla als lokaler Unterprozess |
 | R3 | Valhalla auf iOS/Android über denselben Crate nicht belegt | mittel (Phase 2) | eigener Spike in Phase 2; `valhalla-mobile` als Referenz |
 | R4 | MTB-Routing: keine S-Grad-Begrenzung zur Laufzeit | sicher (Befund) | Sperre ab S3 beim Kachelbau, Schwelle als Skriptparameter (siehe 3.3) |

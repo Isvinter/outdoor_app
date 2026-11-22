@@ -3,7 +3,7 @@
 #
 #   scripts/measure-performance.sh [region-id]
 #
-# Needs release builds (cargo build --release -p outdoor-desktop -p track-cli),
+# Needs release builds (cargo build --release -p zerogrid-base -p track-cli),
 # a built region in data/regions/<region-id> (default: isarwinkel-achensee)
 # and a desktop session. Takes about three minutes. Nothing is written
 # outside a temporary directory.
@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="${OUTDOOR_DATA:-$ROOT/data}"
 REGION="${1:-isarwinkel-achensee}"
-APP="$ROOT/target/release/outdoor-desktop"
+APP="$ROOT/target/release/zerogrid-base"
 CLI="$ROOT/target/release/track-cli"
 GPX="$ROOT/fixtures/gpx/real/tour_sylvensteinsee.gpx"
 # Lenggries station to the Brauneck summit, inside the test region.

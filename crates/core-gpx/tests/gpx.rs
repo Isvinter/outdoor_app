@@ -201,7 +201,7 @@ fn writes_gpx_1_1_header_escaped_text_and_millisecond_times() {
     };
     let xml = write_gpx(&doc).unwrap();
     assert!(xml.starts_with(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"outdoor_app\""
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"ZeroGrid\""
     ));
     assert!(xml.contains("xmlns=\"http://www.topografix.com/GPX/1/1\""));
     assert!(xml.contains("<name>A &lt; B &amp; \"C\"</name>"));

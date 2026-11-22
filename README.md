@@ -38,8 +38,8 @@ Routen (gerade Linien mit Höhenprofil).
 
 ```sh
 (cd apps/base/ui && pnpm install && pnpm build)   # Frontend, wird in die App eingebettet
-cargo run --release -p outdoor-desktop
-cargo run --release -p outdoor-desktop --no-default-features   # ohne Valhalla
+cargo run --release -p zerogrid-base
+cargo run --release -p zerogrid-base --no-default-features   # ohne Valhalla
 ```
 
 Nach Änderungen am Frontend `pnpm build` wiederholen.
@@ -62,7 +62,7 @@ In der App:
   (siehe [Im Heimnetz freigeben](#im-heimnetz-freigeben)).
 - **Über / Datenquellen** – Attribution der installierten Regionen und der Software.
 
-Die Daten liegen unter `~/.local/share/de.outdoor-app.desktop/`: Datenbank `outdoor.sqlite`,
+Die Daten liegen unter `~/.local/share/de.zeibig.zerogrid.base/`: Datenbank `outdoor.sqlite`,
 Kartenregionen in `regions/`, Beschreibungen der in der App gebauten Regionen in
 `region-defs/`, das Protokoll des letzten Baus je Region in `region-build/<id>/build.log`.
 
@@ -333,7 +333,7 @@ lässt.
 
 ```sh
 cargo test --workspace                       # mit Valhalla (über die Desktop-App eingeschaltet)
-cargo test --workspace --exclude outdoor-desktop --exclude region-builder   # auf dem Mac: ohne Valhalla und ohne den Regionsbau (nur Linux)
+cargo test --workspace --exclude zerogrid-base --exclude region-builder   # auf dem Mac: ohne Valhalla und ohne den Regionsbau (nur Linux)
 cargo test -p core-routing -p core-app       # dieselben Crates ohne Valhalla
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check

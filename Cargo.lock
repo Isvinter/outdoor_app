@@ -3022,28 +3022,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
-name = "outdoor-desktop"
-version = "0.1.0"
-dependencies = [
- "core-app",
- "core-gpx",
- "core-location",
- "core-maps",
- "core-routing",
- "core-share",
- "core-storage",
- "core-track",
- "region-builder",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "ureq",
- "uuid",
-]
-
-[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6192,6 +6170,29 @@ dependencies = [
  "quote",
  "syn 3.0.10",
  "synstructure",
+]
+
+[[package]]
+name = "zerogrid-base"
+version = "0.1.0"
+dependencies = [
+ "core-app",
+ "core-gpx",
+ "core-location",
+ "core-maps",
+ "core-routing",
+ "core-share",
+ "core-storage",
+ "core-track",
+ "dirs",
+ "region-builder",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "ureq",
+ "uuid",
 ]
 
 [[package]]

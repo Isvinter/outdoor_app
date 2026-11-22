@@ -2,6 +2,7 @@
 
 mod build;
 mod commands;
+mod data_adoption;
 mod error;
 mod events;
 mod share;
@@ -27,6 +28,19 @@ fn data_dir(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 
 fn main() -> ExitCode {
+    let data_override = std::env::var_os(DATA_DIR_ENV);
+    let data_root = dirs::data_dir();
+    if let Err(error) =
+        data_adoption::adopt_user_data(data_override.as_deref(), data_root.as_deref())
+    {
+        eprintln!(
+            "Die Daten konnten nicht von {} nach {} übernommen werden: {error}. \
+             Die alten Daten sind unverändert.",
+            data_adoption::LEGACY_DIR_NAME,
+            data_adoption::CURRENT_DIR_NAME,
+        );
+        return ExitCode::FAILURE;
+    }
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol(tiles::SCHEME, |context, request, responder| {
