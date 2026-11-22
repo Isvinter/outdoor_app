@@ -70,6 +70,7 @@ apps/
                          `map/fonts/` the map glyphs (Noto Sans, from the outdoor_app)
     src-tauri/map-styles/  offline map style (copy of the outdoor_app's topo-summer.json)
 docs/ios-test.md         build and test instructions for the iOS test
+docs/handover-linux.md   handover: region transfer from the Linux desktop (next step)
 testdata/                real IGC files provided by the user
 ```
 
