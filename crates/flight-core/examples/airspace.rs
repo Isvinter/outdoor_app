@@ -1,4 +1,4 @@
-//! Reads OpenAir files and prints what was found: airspaces per category and type,
+//! Reads OpenAir files or openAIP exports (`.geojson`) and prints what was found: airspaces per category and type,
 //! limits and all issues.
 //!
 //! ```text
@@ -23,7 +23,12 @@ fn main() {
                 std::process::exit(1);
             }
         };
-        let file = airspace::parse(&bytes);
+        // openAIP exports are GeoJSON, everything else is read as OpenAir.
+        let file = if path.to_lowercase().ends_with(".geojson") {
+            flight_core::openaip::parse(&bytes)
+        } else {
+            airspace::parse(&bytes)
+        };
         let points: usize = file.airspaces.iter().map(|a| a.outline.len()).sum();
         println!(
             "{path}: {} airspaces, {points} outline points, {} issues",

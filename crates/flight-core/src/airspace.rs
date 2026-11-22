@@ -384,7 +384,7 @@ fn distance_to_segment((ax, ay): (f64, f64), (bx, by): (f64, f64)) -> f64 {
 /// or NONE, where the ICAO class says more.
 fn category_of_kind(kind: &str) -> Option<Category> {
     let category = match kind {
-        "CTR" => Category::Ctr,
+        "CTR" | "MCTR" => Category::Ctr,
         "TMZ" => Category::Tmz,
         // Zones where radio contact is required.
         "RMZ" | "ATZ" | "MATZ" | "TIZ" | "TIA" | "HTZ" => Category::Rmz,

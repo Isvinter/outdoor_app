@@ -10,6 +10,7 @@ pub mod atmosphere;
 pub mod flightlog;
 pub mod geo;
 pub mod igc;
+pub mod openaip;
 pub mod sensor;
 pub mod settings;
 pub mod terrain;
