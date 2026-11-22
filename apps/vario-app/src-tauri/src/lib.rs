@@ -231,6 +231,13 @@ async fn airspaces(app: AppHandle) -> Result<airspace::Airspaces, String> {
     Ok(airspaces)
 }
 
+/// Deletes an OpenAir file and reads the remaining ones; the warnings use them at once.
+#[tauri::command]
+async fn delete_airspace_file(app: AppHandle, name: String) -> Result<airspace::Airspaces, String> {
+    airspace::delete_file(&app, &name)?;
+    airspaces(app).await
+}
+
 #[tauri::command]
 fn get_warning_settings(state: State<'_, AppState>) -> WarningDto {
     state.warning().clone().into()
@@ -476,6 +483,7 @@ pub fn run() {
             airspaces,
             set_hidden_airspace,
             airspaces_at,
+            delete_airspace_file,
             get_warning_settings,
             set_warning_settings,
             default_warning_settings,

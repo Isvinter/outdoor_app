@@ -683,16 +683,19 @@ let hiddenAirspace = [];
 
 async function loadAirspaces() {
   try {
-    const result = await invoke("airspaces");
-    hiddenAirspace = result.hidden;
-    FlightMap.setAirspaceHidden(hiddenAirspace);
-    FlightMap.setAirspaces(result.geojson);
-    showAirspaceFiles(result.files);
-    showAirspaceCategories();
+    showAirspaces(await invoke("airspaces"));
   } catch (error) {
     console.warn("airspaces", error);
     $("airspace-files").textContent = "Lufträume nicht lesbar: " + error;
   }
+}
+
+function showAirspaces(result) {
+  hiddenAirspace = result.hidden;
+  FlightMap.setAirspaceHidden(hiddenAirspace);
+  FlightMap.setAirspaces(result.geojson);
+  showAirspaceFiles(result.files);
+  showAirspaceCategories();
 }
 
 // ---- Tapping the map lists the airspaces at that place ----
@@ -769,6 +772,7 @@ function showAirspaceFiles(files) {
         facts.textContent = parts.join(" · ");
       }
       element.append(title, facts);
+      element.append(deleteAirspaceButton(file.name));
       if (file.issues.length > 0) {
         // The details are in English (from the parser); they are meant for checking a file.
         const details = document.createElement("details");
@@ -783,6 +787,36 @@ function showAirspaceFiles(files) {
       return element;
     }),
   );
+}
+
+// Deleting cannot be undone, so it takes two taps (as for flights).
+function deleteAirspaceButton(name) {
+  const row = document.createElement("div");
+  row.className = "row";
+  const button = document.createElement("button");
+  button.className = "button";
+  button.textContent = "Löschen";
+  let armed = false;
+  button.addEventListener("click", async () => {
+    if (!armed) {
+      armed = true;
+      button.textContent = "Wirklich löschen?";
+      button.classList.add("on");
+      setTimeout(() => {
+        armed = false;
+        button.textContent = "Löschen";
+        button.classList.remove("on");
+      }, 3000);
+      return;
+    }
+    try {
+      showAirspaces(await invoke("delete_airspace_file", { name }));
+    } catch (error) {
+      $("airspace-files").prepend("Löschen fehlgeschlagen: " + error);
+    }
+  });
+  row.append(button);
+  return row;
 }
 
 function showAirspaceCategories() {

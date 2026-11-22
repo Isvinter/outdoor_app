@@ -89,6 +89,27 @@ pub fn load(app: &AppHandle) -> Result<Airspaces, String> {
     Ok(airspaces)
 }
 
+/// Deletes one OpenAir file from the folder. Only plain names of files the folder can
+/// hold are accepted, so a name like `../settings.txt` never reaches another file.
+pub fn delete_file(app: &AppHandle, name: &str) -> Result<(), String> {
+    if !is_airspace_file_name(name) {
+        return Err(format!("not an airspace file: {name}"));
+    }
+    let dir = dir(app).ok_or("no data folder")?;
+    std::fs::remove_file(dir.join(name)).map_err(|error| format!("{name}: {error}"))
+}
+
+fn is_airspace_file_name(name: &str) -> bool {
+    let extension = Path::new(name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_lowercase);
+    extension.is_some_and(|ext| EXTENSIONS.contains(&ext.as_str()))
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\'])
+        && !name.contains("..")
+}
+
 /// The airspaces read last; reads the files first if that has not happened yet (the
 /// vario can be started before the map was ever opened).
 pub fn loaded(app: &AppHandle) -> Arc<Vec<Airspace>> {
@@ -337,6 +358,17 @@ mod tests {
         assert_eq!(found[0].category, "ctr");
         assert_eq!(found[1].lower, "FL65 (1980 m)");
         assert!(containing(&list, 45.0, 11.0).is_empty());
+    }
+
+    #[test]
+    fn only_plain_airspace_file_names_can_be_deleted() {
+        assert!(is_airspace_file_name("de_asp_v2.txt"));
+        assert!(is_airspace_file_name("Alps.OPENAIR"));
+        assert!(!is_airspace_file_name("../settings.txt"));
+        assert!(!is_airspace_file_name("sub/de.txt"));
+        assert!(!is_airspace_file_name(".hidden.txt"));
+        assert!(!is_airspace_file_name("flight.igc"));
+        assert!(!is_airspace_file_name("txt"));
     }
 
     #[test]
