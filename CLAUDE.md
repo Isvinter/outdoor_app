@@ -144,6 +144,8 @@ cargo run -p vario-cli -- --synthetic demo
 cargo run -p vario-cli -- testdata/flug.igc --speed 4 --climb-threshold 0.5 --volume 0.4
 # Ton ohne Soundkarte in eine WAV-Datei schreiben
 cargo run -p vario-cli -- --synthetic demo --noise --wav /tmp/demo.wav
+# Luftraumwarnung über dem Vario-Ton anhören (near oder alarm)
+cargo run -p vario-cli -- --synthetic demo --alert near
 ```
 
 ```

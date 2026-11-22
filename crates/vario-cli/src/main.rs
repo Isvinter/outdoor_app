@@ -14,6 +14,7 @@ use flight_core::time::{Date, TimeOfDay, UtcDateTime};
 use flight_core::vario::VarioFilter;
 use sensor_sim::synthetic::SyntheticFlight;
 use sensor_sim::{SimConfig, Simulation};
+use vario_audio::alert::Alert;
 use vario_audio::output::AudioOutput;
 use vario_audio::voice::{ToneControl, VarioVoice};
 use vario_audio::wav::write_wav;
@@ -73,6 +74,18 @@ struct Args {
     /// Write the tone to a WAV file instead of playing it; runs as fast as possible
     #[arg(long, value_name = "FILE", conflicts_with = "no_audio")]
     wav: Option<String>,
+
+    /// Play an airspace warning over the vario tone the whole time, to hear how it
+    /// sounds
+    #[arg(long, value_enum)]
+    alert: Option<AlertArg>,
+}
+
+/// Warning sounds selectable with --alert.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum AlertArg {
+    Near,
+    Alarm,
 }
 
 fn main() -> ExitCode {
@@ -148,6 +161,11 @@ fn play<G: GpsSource>(
     settings: &VarioSettings,
 ) -> Result<(), Box<dyn Error>> {
     let control = ToneControl::new(settings);
+    control.set_alert(match args.alert {
+        None => Alert::None,
+        Some(AlertArg::Near) => Alert::Near,
+        Some(AlertArg::Alarm) => Alert::Alarm,
+    });
     let mut filter = VarioFilter::default();
     filter.set_damping(settings.damping_s);
     let mut display = Display::default();
