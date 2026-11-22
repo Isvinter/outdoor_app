@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/*", "apps/desktop/src-tauri"]
+members = ["crates/*", "tools/*", "apps/desktop/src-tauri", "apps/sky/src-tauri", "apps/sky/plugins/*"]
+# Plain `cargo test` leaves out the Sky app: it is an iOS app, built on the Mac.
+default-members = ["crates/*", "tools/*", "apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +21,11 @@ core-routing = { path = "crates/core-routing" }
 core-storage = { path = "crates/core-storage" }
 core-ffi = { path = "crates/core-ffi" }
 core-share = { path = "crates/core-share" }
+flight-core = { path = "crates/flight-core" }
+sensor-bridge = { path = "crates/sensor-bridge" }
+sensor-sim = { path = "crates/sensor-sim" }
+vario-audio = { path = "crates/vario-audio" }
+vario-engine = { path = "crates/vario-engine" }
 
 flate2 = "1.1"
 if-addrs = "0.15"
