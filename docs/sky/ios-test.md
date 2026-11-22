@@ -135,6 +135,9 @@ xcode-select --install            # falls die Kommandozeilenwerkzeuge fehlen
 # Rust
 curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+# llvm-objcopy for release builds: since Xcode 27 swift-rs needs it, or the link fails
+# with "Undefined symbols: _init_plugin_vario_sensors" (debug builds work without it)
+rustup component add llvm-tools
 
 # Von Tauri für iOS verlangt
 brew install cocoapods
