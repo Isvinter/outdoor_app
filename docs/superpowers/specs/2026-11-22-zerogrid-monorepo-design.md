@@ -73,7 +73,7 @@ der geteilte Code in Rust liegt.
 
 **Bleibt absichtlich gleich:** `outdoor.pmtiles`, die Layer-Namen, `outdoor.sqlite`, das Schema
 `outdoor-tiles://`, die Umgebungsvariablen `OUTDOOR_*`, die Crate-Namen `core-*` und `vario-*`,
-der Ordner `outdoor` in den App-Daten von iOS. Das sind Daten- und Entwicklerschnittstellen, die
+die Rust-Bibliothek `outdoor_core` mit `OutdoorCore.xcframework`, der Ordner `outdoor` in den App-Daten von iOS. Das sind Daten- und Entwicklerschnittstellen, die
 kein Nutzer sieht. Eine Änderung würde gebaute Karten oder vorhandene Daten brechen.
 
 **Wird angepasst:** alle sichtbaren Texte, darunter Fenstertitel, Überschriften, iOS-Berechtigungs-
@@ -83,8 +83,9 @@ neuen Struktur. Historische Pläne und Specs bleiben unverändert.
 
 ## Zusammenführung
 
-- Die Sky-Historie wird mit `git filter-repo` in die Zielpfade umgeschrieben und mit
-  `--allow-unrelated-histories` gemergt, in einer frischen Kopie. Die Originale bleiben unberührt.
+- In einer frischen Kopie von Sky verschiebt ein einzelner Commit alles in die Zielpfade. Dieser
+  Stand wird mit `--allow-unrelated-histories` gemergt. So bleiben alle Commit-IDs von Sky gültig,
+  und es braucht kein zusätzliches Werkzeug. Die Originale bleiben unberührt.
 - Der Cargo-Workspace nimmt die Sky-Crates, die App und das Plugin auf.
 - Die Sky-Crates und die Sky-App behalten ihre bisherigen Lint-Regeln als eigene `[lints]`.
 - `sensor-bridge` darf weiter `unsafe` nutzen.
@@ -95,7 +96,8 @@ neuen Struktur. Historische Pläne und Specs bleiben unverändert.
 
 ## Desktop-Daten
 
-Beim Start von Base gilt: Existiert das neue Datenverzeichnis nicht, aber das alte
+Beim Start von Base, **bevor Tauri startet** (Tauri legt beim Erzeugen des Fensters sonst schon
+ein neues Verzeichnis an), gilt: Existiert das neue Datenverzeichnis nicht, aber das alte
 (`de.outdoor-app.desktop`), wird das alte per atomarem Umbenennen übernommen. Schlägt das fehl,
 startet die App mit einer klaren Fehlermeldung und legt **kein** leeres neues Verzeichnis an.
 Existieren beide, wird nichts verschoben. `OUTDOOR_DATA_DIR`-artige Überschreibungen bleiben
