@@ -69,11 +69,11 @@ impl SearchIndex {
         let Some(near) = near else {
             let mut stmt = self.conn.prepare_cached(
                 "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon
-                 FROM (SELECT rowid FROM name_terms WHERE name_terms MATCH ?1
+                 FROM (SELECT rowid, rank AS score FROM name_terms WHERE name_terms MATCH ?1
                        ORDER BY rank LIMIT ?2) f
-                 JOIN entry e ON e.id = f.rowid",
+                 JOIN entry e ON e.id = f.rowid
+                 ORDER BY f.score, e.id",
             )?;
-            // Candidates arrive in rank order.
             let rows = stmt.query_map(params![query, CANDIDATES], |row| hit(row, None))?;
             let mut hits = rows.collect::<Result<Vec<_>, _>>()?;
             hits.truncate(limit);
