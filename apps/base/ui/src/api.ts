@@ -136,6 +136,42 @@ export interface BuildRequest {
 }
 
 export type Profile = "road_bike" | "trekking" | "mtb" | "hike" | "car" | "manual";
+export type SearchCategory =
+  | "fuel"
+  | "groceries"
+  | "food"
+  | "pharmacy"
+  | "lodging"
+  | "camping"
+  | "parking"
+  | "retail"
+  | "sights";
+
+export interface SearchHit {
+  kind: "place" | "street" | "poi";
+  category: SearchCategory | null;
+  /** Empty for a POI without a name. */
+  name: string;
+  town: string | null;
+  lat: number;
+  lon: number;
+  distance_m: number;
+}
+
+export interface SearchResults {
+  hits: SearchHit[];
+  /** Names of the enabled regions that could not be searched. */
+  unsearchable: string[];
+}
+
+export interface KnownPosition {
+  lat: number;
+  lon: number;
+  age_s: number;
+}
+
+export type RouteStart = "ready" | "no_position" | "other_map";
+
 export type RouteOptionKey = "use_hills" | "use_roads" | "avoid_bad_surfaces" | "max_hiking_difficulty";
 
 export interface LatLon {
@@ -315,6 +351,14 @@ export const api = {
   regionBuildPlan: (bbox: Bbox) => invoke<BuildPlan>("region_build_plan", { bbox }),
   regionBuildStart: (request: BuildRequest) => invoke<unknown>("region_build_start", { ...request }),
   regionBuildCancel: () => invoke<void>("region_build_cancel"),
+
+  searchText: (text: string, near: LatLon, limit: number) =>
+    invoke<SearchResults>("search_text", { text, near, limit }),
+  searchCategory: (category: SearchCategory, near: LatLon, limit: number) =>
+    invoke<SearchResults>("search_category", { category, near, limit }),
+  routeStartCheck: (position: KnownPosition | null, target: LatLon) =>
+    invoke<RouteStart>("route_start_check", { position, target }),
+  routeIsUnsaved: (request: PlanRequest) => invoke<boolean>("route_is_unsaved", { request }),
 
   routeProfiles: () => invoke<ProfileInfo[]>("route_profiles"),
   routePlan: (request: PlanRequest) => invoke<RoutePlan>("route_plan", { request }),

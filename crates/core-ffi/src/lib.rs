@@ -12,14 +12,16 @@ use core_location::{Fix, SourceStatus};
 use core_maps::{Contours, Layer, StyleOptions, TilePath};
 
 mod plan;
+mod search;
 mod share;
 
 pub use plan::{
     ElevationSample, EngineFailure, LatLon, LegInput, OptionInfo, OptionValue, PlanInput, PlanLeg,
     PlanResult, PlanTotals, ProfileChoice, SavedRoute, StageSummary, ValhallaEngine,
-    failed_leg_color, plan_add_waypoint, plan_empty, plan_move_waypoint, plan_remove_waypoint,
-    plan_set_last_leg, plan_toggle_stage_end,
+    failed_leg_color, leg_can_connect_straight, plan_add_waypoint, plan_empty, plan_move_waypoint,
+    plan_remove_waypoint, plan_set_last_leg, plan_set_leg, plan_toggle_stage_end,
 };
+pub use search::{KnownPosition, RouteStart, SearchHit, SearchResults};
 pub use share::{ImportedRoute, RegionEntry, RegionList, RemoteRouteEntry};
 
 uniffi::setup_scaffolding!();
