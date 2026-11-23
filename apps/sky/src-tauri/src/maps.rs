@@ -216,6 +216,7 @@ pub fn reload(app: &AppHandle) -> Result<OfflineMaps, String> {
             bounds: Some(bounds),
             attribution: &attribution,
             contours: Contours::Tiles,
+            appearance: core_maps::Appearance::Light,
         };
         Some(
             core_maps::offline_style(variant.template(), &options)

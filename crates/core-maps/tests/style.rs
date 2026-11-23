@@ -1,7 +1,7 @@
 //! Filling the offline map styles for a platform.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use core_maps::{Contours, StyleOptions, offline_style};
+use core_maps::{Appearance, Contours, StyleOptions, offline_style};
 use serde_json::Value;
 
 const BASE: &str = "outdoor-tiles://localhost/";
@@ -18,6 +18,7 @@ fn fill(name: &str, bounds: Option<[f64; 4]>, attribution: &[String], contours: 
         bounds,
         attribution,
         contours,
+        appearance: Appearance::Light,
     };
     serde_json::from_str(&offline_style(&style(name), &options).unwrap()).unwrap()
 }
@@ -39,6 +40,7 @@ fn placeholders_are_replaced() {
             bounds: Some(BOUNDS),
             attribution: &[],
             contours: Contours::Omit,
+            appearance: Appearance::Light,
         };
         let text = offline_style(&style(name), &options).unwrap();
         for placeholder in ["__TILES__", "__FONTS__", "__CONTOURS__"] {
@@ -126,6 +128,7 @@ fn invalid_json_is_an_error() {
         bounds: Some(BOUNDS),
         attribution: &[],
         contours: Contours::Omit,
+        appearance: Appearance::Light,
     };
     let error = offline_style("{", &options).unwrap_err();
     assert_eq!(error.code(), "map_style");

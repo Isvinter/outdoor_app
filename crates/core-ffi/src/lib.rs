@@ -183,6 +183,7 @@ impl CoreApp {
             tiles_base: &tiles_base,
             bounds: overview.installed_bounds,
             attribution: &overview.attribution,
+            appearance: core_maps::Appearance::Light,
             contours: if self.app.map_has_layer(Layer::Contours) {
                 Contours::Tiles
             } else {

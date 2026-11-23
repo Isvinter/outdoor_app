@@ -4,6 +4,7 @@
 use serde_json::{Value, json};
 
 use crate::MapsError;
+use crate::dark::{Appearance, apply_dark};
 
 /// Where contour lines come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +28,7 @@ pub struct StyleOptions<'a> {
     /// Attribution lines of the installed regions.
     pub attribution: &'a [String],
     pub contours: Contours<'a>,
+    pub appearance: Appearance,
 }
 
 const CONTOURS: &str = "contours";
@@ -45,6 +47,10 @@ fn invalid(reason: impl Into<String>) -> MapsError {
 /// nothing is requested.
 pub fn offline_style(style_json: &str, options: &StyleOptions) -> Result<String, MapsError> {
     let mut style: Value = serde_json::from_str(style_json).map_err(|e| invalid(e.to_string()))?;
+    // Before the early return below: the map without regions is black as well.
+    if options.appearance == Appearance::Dark {
+        apply_dark(&mut style)?;
+    }
     let root = style
         .as_object_mut()
         .ok_or_else(|| invalid("not an object"))?;
