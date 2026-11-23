@@ -191,25 +191,26 @@ OSM_TIMESTAMP_FILE="$BUILD/osm-timestamp"
 
 step_osm() {
   [ "$REFRESH_OSM" = 1 ] || stale "$REGION_PBF" || return 0
-  local clips=() url name stamp
+  local clips=() url name stamp stamps="$OSM_TIMESTAMP_FILE.new"
   # osmium extract drops the replication timestamp from the header, so it is read
-  # from the sources; the oldest one is the age of the data.
-  rm -f "$OSM_TIMESTAMP_FILE"
+  # from the sources; the oldest one is the age of the data. It replaces the old
+  # one only together with region.osm.pbf, so the two always belong together.
+  rm -f "$stamps"
   while read -r url; do
     name="$(basename "$url")"
     [ "$REFRESH_OSM" = 1 ] && rm -f "$SOURCES/osm/$name"
     fetch "$url" "$SOURCES/osm/$name"
     stamp="$(osmium fileinfo -g header.option.osmosis_replication_timestamp "$SOURCES/osm/$name" || true)"
-    [ -z "$stamp" ] || printf '%s\n' "$stamp" >> "$OSM_TIMESTAMP_FILE"
+    [ -z "$stamp" ] || printf '%s\n' "$stamp" >> "$stamps"
     log "clipping $name to $BBOX"
     osmium extract --bbox "$BBOX" --strategy smart --overwrite \
       --output "$BUILD/clip-$name" "$SOURCES/osm/$name"
     clips+=("$BUILD/clip-$name")
   done < <(config osm)
   # ISO times sort as text.
-  if [ -s "$OSM_TIMESTAMP_FILE" ]; then
-    sort "$OSM_TIMESTAMP_FILE" | head -n 1 > "$OSM_TIMESTAMP_FILE.tmp"
-    mv "$OSM_TIMESTAMP_FILE.tmp" "$OSM_TIMESTAMP_FILE"
+  if [ -s "$stamps" ]; then
+    sort "$stamps" | head -n 1 > "$stamps.oldest"
+    mv "$stamps.oldest" "$stamps"
   fi
   log "merging ${#clips[@]} extract(s)"
   if [ "${#clips[@]}" -eq 1 ]; then
@@ -220,6 +221,11 @@ step_osm() {
     osmium merge --overwrite --output "$BUILD/merged.osm.pbf" "${clips[@]}"
     osmium time-filter --overwrite --output "$REGION_PBF" "$BUILD/merged.osm.pbf"
     rm -f "${clips[@]}" "$BUILD/merged.osm.pbf"
+  fi
+  if [ -s "$stamps" ]; then
+    mv "$stamps" "$OSM_TIMESTAMP_FILE"
+  else
+    rm -f "$stamps" "$OSM_TIMESTAMP_FILE"
   fi
 }
 
