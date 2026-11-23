@@ -6,6 +6,7 @@ import SwiftUI
 struct PlanSheet: View {
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var detent: PresentationDetent
     @State private var showingRemoteRoutes = false
 
@@ -115,7 +116,7 @@ struct PlanSheet: View {
 
     private func swatch(_ hex: String) -> some View {
         RoundedRectangle(cornerRadius: 2)
-            .fill(Color(UIColor(hex: hex)))
+            .fill(Color(UIColor(hex: colorScheme == .dark ? RouteOverlay.readableOnBlack(hex) : hex)))
             .frame(width: 12, height: 12)
     }
 

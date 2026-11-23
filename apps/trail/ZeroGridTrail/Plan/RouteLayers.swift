@@ -88,7 +88,7 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
     }
 
     /// WCAG contrast of "#rrggbb" against black.
-    static func contrastOnBlack(_ hex: String) -> Double {
+    nonisolated static func contrastOnBlack(_ hex: String) -> Double {
         let value = UInt32(hex.dropFirst(), radix: 16) ?? 0
         let linear = [16, 8, 0].map { shift -> Double in
             let channel = Double((value >> UInt32(shift)) & 0xff) / 255
@@ -99,7 +99,7 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
 
     /// The colour, mixed with white only as far as it takes to read at 4.5:1 on black,
     /// so that the hue that tells the legs apart stays.
-    static func readableOnBlack(_ hex: String) -> String {
+    nonisolated static func readableOnBlack(_ hex: String) -> String {
         guard contrastOnBlack(hex) < 4.5, let value = UInt32(hex.dropFirst(), radix: 16) else { return hex }
         let channels = [16, 8, 0].map { Double((value >> UInt32($0)) & 0xff) }
         for step in 1...20 {

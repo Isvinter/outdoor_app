@@ -49,13 +49,13 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     /// Counts the waits for a position, so that an old wait cannot end a newer one.
     private var fixRequest = 0
 
-    private static let darkKey = "map.dark"
-    private static let reliefKey = "map.reliefStrength"
+    nonisolated private static let darkKey = "map.dark"
+    nonisolated private static let reliefKey = "map.reliefStrength"
     /// The layers of the relief, as `RELIEF_LAYERS` in core-maps.
     private static let reliefLayers = ["hillshade", "contour-minor", "contour-major", "contour-label"]
 
     /// Back to the look of a first start; for the UI tests.
-    static func resetLook() {
+    nonisolated static func resetLook() {
         UserDefaults.standard.removeObject(forKey: darkKey)
         UserDefaults.standard.removeObject(forKey: reliefKey)
     }

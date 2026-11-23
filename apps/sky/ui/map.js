@@ -13,7 +13,7 @@ const FlightMap = (() => {
     version: 8,
     sources: {},
     layers: [
-      { id: "background", type: "background", paint: { "background-color": colors().fallback } },
+      { id: "background", type: "background", paint: { "background-color": themeColors().fallback } },
     ],
   });
   const TRACK_SOURCE = "track";
@@ -75,7 +75,10 @@ const FlightMap = (() => {
   };
   // The layers of the relief, as in `RELIEF_LAYERS` of core-maps.
   const RELIEF_LAYERS = ["hillshade", "contour-minor", "contour-major", "contour-label"];
-  const colors = () => OWN_COLORS[look.dark ? "dark" : "light"];
+  const themeColors = () => OWN_COLORS[look.dark ? "dark" : "light"];
+  // An online style stays light in the dark look, so what lies on it keeps the light colours.
+  const isBlackMap = () => look.dark && (usingFallback || typeof styleUrl === "object");
+  const colors = () => OWN_COLORS[isBlackMap() ? "dark" : "light"];
   const airspaceColor = () => [
     "match",
     ["get", "category"],
@@ -478,7 +481,7 @@ const FlightMap = (() => {
       tapMarker.setLngLat([longitude, latitude]).addTo(map);
     },
 
-    airspaceColor: (category) => colors().airspace[category] ?? colors().airspace.other,
+    airspaceColor: (category) => themeColors().airspace[category] ?? themeColors().airspace.other,
 
     /** Light or dark and the relief: `{ dark, relief }`. Changes nothing about the flight. */
     setLook(next) {
@@ -491,9 +494,13 @@ const FlightMap = (() => {
     lookState() {
       const present = map ? RELIEF_LAYERS.filter((layer) => map.getLayer(layer)) : [];
       return {
-        fallbackBackground: emptyStyle().layers[0].paint["background-color"],
+        fallbackBackground: themeColors().fallback,
         relief: present.length
           ? present.some((layer) => map.getLayoutProperty(layer, "visibility") !== "none")
+          : null,
+        blackMap: isBlackMap(),
+        trackColor: map && map.getLayer(TRACK_SOURCE + "-line")
+          ? map.getPaintProperty(TRACK_SOURCE + "-line", "line-color")
           : null,
         ownLayers: Boolean(
           map && map.getLayer("airspace-line") && map.getLayer(TRACK_SOURCE + "-line"),

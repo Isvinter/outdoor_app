@@ -178,6 +178,9 @@ fn check_look(window: &tauri::WebviewWindow) {
             relief,
             ownLayers: state.ownLayers,
             trackKept: FlightMap.trackLength() >= trackBefore,
+            blackMap: state.blackMap,
+            trackColor: state.trackColor,
+            listColor: FlightMap.airspaceColor("ctr"),
             warningColors,
             scriptErrors: window.scriptErrors,
           }) });
