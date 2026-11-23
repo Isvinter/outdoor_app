@@ -120,6 +120,7 @@ export const de = {
   "search.widened": "Nichts im Umkreis, nächste Treffer weiter entfernt.",
   "search.unsearchable": "{region} ist nicht durchsuchbar. Baue die Region neu.",
   "search.route": "Route hierher",
+  "search.back": "Zurück",
   "search.kind.place": "Ort",
   "search.kind.street": "Straße",
   "search.kind.poi": "Ort von Interesse",

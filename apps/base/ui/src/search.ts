@@ -6,7 +6,7 @@
 import { api, type LatLon, type SearchCategory, type SearchHit, type SearchResults } from "./api";
 import { distance } from "./format";
 import { t } from "./i18n";
-import type { MapView } from "./map";
+import type { MapCamera, MapView } from "./map";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -41,6 +41,10 @@ export class SearchPanel {
   private results: SearchResults | null = null;
   /** Kept while the app moves the map, so that fitting it does not shift the search. */
   private anchor: Anchor | null = null;
+  /** Where the map is heading, or has arrived, to show all hits. */
+  private overview: MapCamera | null = null;
+  /** Where "Zurück" takes the map: the view before the first hit was opened. */
+  private returnTo: MapCamera | null = null;
 
   constructor(
     private readonly view: MapView,
@@ -69,6 +73,7 @@ export class SearchPanel {
     $("search-route").addEventListener("click", () => {
       if (this.selected) this.host.routeHere(this.selected);
     });
+    $("search-back").addEventListener("click", () => this.back());
     this.view.onSearchHitClick((index) => {
       const hit = this.results?.hits[index];
       if (hit) this.select(hit);
@@ -76,6 +81,7 @@ export class SearchPanel {
     this.view.onUserMove(() => {
       window.clearTimeout(this.fitTimer);
       this.anchor = null;
+      this.overview = null;
     });
   }
 
@@ -89,6 +95,7 @@ export class SearchPanel {
     if (query.length < MIN_CHARS) {
       this.request++;
       this.anchor = null;
+      this.overview = null;
       this.renderResults(null);
       return;
     }
@@ -112,6 +119,7 @@ export class SearchPanel {
       const results = await search(this.anchor);
       if (request !== this.request) return;
       this.renderResults(results);
+      this.overview = null;
       if (fitDelayMs === 0) this.fit(results);
       else this.fitTimer = window.setTimeout(() => this.fit(results), fitDelayMs);
     } catch (e) {
@@ -125,7 +133,7 @@ export class SearchPanel {
   private fit(results: SearchResults): void {
     const inside = results.hits.filter((hit) => hit.distance_m <= results.radius_m);
     this.stopFollowing();
-    this.view.fitSearchHits(inside.length > 0 ? inside : results.hits);
+    this.overview = this.view.fitSearchHits(inside.length > 0 ? inside : results.hits);
   }
 
   /** The map would otherwise jump back with the next position. */
@@ -171,8 +179,12 @@ export class SearchPanel {
   }
 
   private select(hit: SearchHit): void {
+    // A search still under way must not open its list over the card.
+    window.clearTimeout(this.timer);
     window.clearTimeout(this.fitTimer);
+    this.request++;
     this.host.selectionCleared();
+    this.returnTo ??= this.overview ?? this.view.camera();
     this.selected = hit;
     const at = { lat: hit.lat, lon: hit.lon };
     this.stopFollowing();
@@ -186,12 +198,26 @@ export class SearchPanel {
     $("search-card").hidden = false;
   }
 
+  /** From the chosen hit back to the list and the view it was opened from, without searching. */
+  private back(): void {
+    const camera = this.returnTo;
+    this.clearSelection();
+    this.renderResults(this.results);
+    $("search-categories").hidden = $<HTMLInputElement>("search-input").value.trim().length > 0;
+    if (camera) {
+      this.overview = camera;
+      this.view.moveTo(camera);
+    }
+  }
+
   /** A route to the hit is on the map; its marker takes the place of the pin and the dots. */
   routeDone(): void {
     window.clearTimeout(this.fitTimer);
     this.request++;
     this.selected = null;
     this.anchor = null;
+    this.overview = null;
+    this.returnTo = null;
     this.view.showSearchPin(null);
     this.renderResults(null);
     $("search-card").hidden = true;
@@ -199,6 +225,7 @@ export class SearchPanel {
 
   private clearSelection(): void {
     this.host.selectionCleared();
+    this.returnTo = null;
     this.selected = null;
     this.view.showSearchPin(null);
     $("search-card").hidden = true;

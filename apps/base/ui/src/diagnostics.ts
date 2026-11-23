@@ -25,7 +25,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LngLat, LngLatBounds } from "maplibre-gl";
 import { api, events, type Bbox } from "./api";
 import { t } from "./i18n";
-import type { MapView } from "./map";
+import type { MapCamera, MapView } from "./map";
 import type { RoutePanel } from "./route";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -680,6 +680,75 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
     clickElement(el("route-edit"));
     await clearRoute();
 
+    // "Zurück" from a chosen hit.
+    const sameCamera = (a: MapCamera, b: MapCamera) =>
+      Math.abs(a.center[0] - b.center[0]) < 1e-4 && Math.abs(a.center[1] - b.center[1]) < 1e-4 && Math.abs(a.zoom - b.zoom) < 0.01;
+    const pressBack = async () => {
+      clickElement(el("search-back"));
+      await until("list is back", () => el("search-card").hidden && !el("search-results").hidden);
+      await settled();
+    };
+    const freshOverview = async () => {
+      view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+      await research();
+      return view.camera();
+    };
+    let overview = await freshOverview();
+    const listBefore = titles().join("|");
+    const notesBefore = text("search-notes");
+    const realSearchText = api.searchText;
+    let searches = 0;
+    api.searchText = (...args) => {
+      searches++;
+      return realSearchText(...args);
+    };
+    await clickCanvas(dots()[loneDot()] as { lat: number; lon: number });
+    await until("card", () => !el("search-card").hidden);
+    await settled();
+    await pressBack();
+    api.searchText = realSearchText;
+    report.back_restores_list = titles().join("|") === listBefore && text("search-notes") === notesBefore && dots().length > 0;
+    report.back_restores_camera = sameCamera(view.camera(), overview);
+    report.back_keeps_query = (el("search-input") as HTMLInputElement).value === query && searches === 0;
+
+    // A second hit opened from the first still leads back to the overview.
+    const firstDot = loneDot();
+    await clickCanvas(dots()[firstDot] as { lat: number; lon: number });
+    await until("first card", () => !el("search-card").hidden);
+    await settled();
+    view.map.jumpTo({ center: overview.center, zoom: overview.zoom });
+    await sleep(250);
+    const at = dots().map((p) => view.map.project([p.lon, p.lat]));
+    const secondDot = at.findIndex((a, i) => i !== firstDot && at.every((b, j) => i === j || Math.hypot(a.x - b.x, a.y - b.y) > 16));
+    if (secondDot < 0) throw new Error("no second dot stands alone");
+    const secondTitle = titles()[secondDot];
+    await clickCanvas(dots()[secondDot] as { lat: number; lon: number });
+    await until("second card", () => text("search-card-title") === secondTitle);
+    await settled();
+    await pressBack();
+    report.back_after_two_hits = sameCamera(view.camera(), overview);
+
+    // A hit opened while the map is still fitting leads back to where the fit was heading.
+    overview = await freshOverview();
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await type(query);
+    await until("fit under way", () => view.map.isMoving());
+    clickElement(hits()[0] as HTMLElement);
+    await until("card during fit", () => !el("search-card").hidden);
+    await settled();
+    await pressBack();
+    report.back_during_fit = sameCamera(view.camera(), overview);
+
+    // "Zurück" while the app asks where the route starts.
+    clickElement(hits()[0] as HTMLElement);
+    await until("card before route", () => !el("search-card").hidden);
+    await sleep(100);
+    clickElement(el("search-route"));
+    await until("asked for start", hereShown);
+    await pressBack();
+    report.back_cancels_route_here = !hereShown() && waypoints().length === 0;
+
     // No route open, no position: straight to choosing the start.
     const first = await routeToHit(0);
     await until("asked for start", hereShown);
@@ -767,6 +836,8 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
       "straight_offered_on_failed_leg", "straight_makes_manual_leg",
       "dots_match_list", "dots_fit_in_view", "typing_keeps_anchor", "dot_click_opens_hit",
       "dots_survive_style_change", "picking_ignores_dot", "dots_gone_after_route",
+      "back_restores_list", "back_restores_camera", "back_keeps_query", "back_after_two_hits",
+      "back_during_fit", "back_cancels_route_here",
     ].every((key) => report[key] === true);
   } catch (e) {
     report.ok = false;

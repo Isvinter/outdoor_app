@@ -158,6 +158,7 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 .search-hit small { display: block; color: var(--muted); }
 #search-card { display: flex; flex-direction: column; gap: 4px; }
 #search-card[hidden] { display: none; }
+#search-back { align-self: flex-start; }
 #search-notes[hidden] { display: none; }
 #route-here, #route-straight { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
 #route-here[hidden], #route-straight[hidden] { display: none; }
