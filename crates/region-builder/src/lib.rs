@@ -41,6 +41,9 @@ const REPO_ENV: &str = "OUTDOOR_REPO";
 const SCRIPT_ENV: &str = "OUTDOOR_BUILD_SCRIPT";
 /// Where the build script keeps downloads and intermediate files.
 const DATA_ENV: &str = "OUTDOOR_DATA";
+/// Marks a directory of intermediate files as created by this builder. Only
+/// such a directory is removed; others can hold hours of command-line builds.
+const OWNED_MARKER: &str = ".created-by-base";
 /// The index of extracts is a few megabytes.
 const MAX_INDEX_LEN: u64 = 64 << 20;
 
@@ -139,7 +142,9 @@ impl Builder {
         if slug.ends_with("-urlaub") || slug.ends_with("-fliegen") {
             slug.push_str("-region");
         }
-        let id = unique_id(&slug, &|id| taken(id) || self.definition_path(id).exists());
+        let id = unique_id(&slug, &|id| {
+            taken(id) || self.definition_path(id).exists() || self.work_dir(id).exists()
+        });
         let definition = RegionDefinition::new(&id, name, bbox, osm);
         self.write_definition(&definition)?;
         Ok(definition)
@@ -180,6 +185,12 @@ impl Builder {
         for dir in [&packages, &log_dir] {
             fs::create_dir_all(dir).map_err(BuildError::io(dir))?;
         }
+        let work = self.work_dir(id);
+        if !work.exists() {
+            fs::create_dir_all(&work).map_err(BuildError::io(&work))?;
+            let marker = work.join(OWNED_MARKER);
+            fs::write(&marker, "").map_err(BuildError::io(&marker))?;
+        }
         let mut command = Command::new("bash");
         command
             .arg(&self.script)
@@ -195,15 +206,18 @@ impl Builder {
         Ok(packages.join(id))
     }
 
-    /// Removes what a build of the region left behind: intermediate files, an
-    /// uninstalled package, the log and, if asked, the definition. Never fails.
+    /// Removes what a build of the region left behind: intermediate files this
+    /// builder created, an uninstalled package, the log and, if asked, the
+    /// definition. Never fails.
     pub fn cleanup(&self, id: &str, definition: bool) {
         if !is_plain_name(id) {
             return;
         }
-        let data = std::env::var_os(DATA_ENV).map_or_else(|| self.repo.join("data"), PathBuf::from);
+        let work = self.work_dir(id);
+        if work.join(OWNED_MARKER).is_file() {
+            let _ = fs::remove_dir_all(work);
+        }
         for dir in [
-            data.join("build").join(id),
             self.app_data.join("region-packages").join(id),
             self.app_data.join("region-build").join(id),
         ] {
@@ -212,6 +226,12 @@ impl Builder {
         if definition {
             let _ = fs::remove_file(self.definition_path(id));
         }
+    }
+
+    /// The directory of intermediate files the build script uses for a region.
+    fn work_dir(&self, id: &str) -> PathBuf {
+        let data = std::env::var_os(DATA_ENV).map_or_else(|| self.repo.join("data"), PathBuf::from);
+        data.join("build").join(id)
     }
 
     fn definition_path(&self, id: &str) -> PathBuf {

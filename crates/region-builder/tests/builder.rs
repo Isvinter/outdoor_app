@@ -242,7 +242,7 @@ fn cleanup_removes_everything_of_a_region() {
     let (builder, dir) = builder("cleanup");
     defined(&dir, "mini");
     build(&builder, "mini").0.unwrap();
-    std::fs::create_dir_all(dir.join("repo/data/build/mini")).unwrap();
+    assert!(dir.join("repo/data/build/mini").is_dir());
 
     builder.cleanup("mini", false);
     assert!(!dir.join("app/region-packages/mini").exists());
@@ -256,6 +256,51 @@ fn cleanup_removes_everything_of_a_region() {
     builder.cleanup("mini", true);
     builder.cleanup("..", true);
     assert!(dir.join("app").is_dir());
+}
+
+#[test]
+fn cleanup_keeps_a_build_directory_it_did_not_create() {
+    let (builder, dir) = builder("foreign-cache");
+    defined(&dir, "mini");
+    let cache = dir.join("repo/data/build/mini");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(cache.join("region.osm.pbf"), "expensive").unwrap();
+
+    // Neither a build through the app nor deleting the region touches it.
+    build(&builder, "mini").0.unwrap();
+    builder.cleanup("mini", false);
+    assert!(cache.join("region.osm.pbf").is_file());
+    builder.cleanup("mini", true);
+    assert!(cache.join("region.osm.pbf").is_file());
+    assert!(!dir.join("app/region-packages/mini").exists());
+    assert!(!dir.join("app/region-defs/mini.json").exists());
+}
+
+#[test]
+fn cleanup_removes_what_a_stopped_build_left_behind() {
+    let (builder, dir) = builder("own-cache");
+    defined(&dir, "fail");
+
+    assert!(build(&builder, "fail").0.is_err());
+    let cache = dir.join("repo/data/build/fail");
+    assert!(cache.is_dir());
+
+    // Building again after a failure still counts as the app's own directory.
+    assert!(build(&builder, "fail").0.is_err());
+    builder.cleanup("fail", true);
+    assert!(!cache.exists());
+}
+
+#[test]
+fn a_new_region_avoids_the_id_of_an_existing_build_directory() {
+    let (builder, dir) = builder("taken-cache");
+    std::fs::create_dir_all(dir.join("repo/data/build/mini")).unwrap();
+
+    let definition = builder
+        .define("Mini", [10.5, 46.5, 11.5, 47.5], &|_| false)
+        .unwrap();
+
+    assert_ne!(definition.id, "mini");
 }
 
 #[test]
