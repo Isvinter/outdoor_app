@@ -195,9 +195,9 @@ Gemessen am 2026-11-15 mit `scripts/build-region.sh <id> --steps contours,manife
 Echte Builds aller drei Vorlagen mit `scripts/build-region.sh <id> --package-dir
 data/template-test`. Die beiden `urlaub`-Pakete wurden zuerst ganz gebaut und nach den Korrekturen
 an Straßen und Orten nur mit `--steps search,manifest --force` neu erzeugt; `cusco` und
-`cusco-fliegen` wurden ganz gebaut, mit den schon vorhandenen OSM-Quelldaten. Mit den erweiterten
-Ortsnamen neu erzeugt sind nur `alpenraum-ost-urlaub` und `cusco-fliegen`; `cusco-urlaub` und `cusco`
-enthalten noch den Suchindex des Stands davor, weil ihr Bauverzeichnis fehlt. Die installierte Region
+`cusco-fliegen` wurden ganz gebaut, mit den schon vorhandenen OSM-Quelldaten. Alle vier Pakete
+enthalten den Suchindex mit den erweiterten Ortsnamen; für `cusco-urlaub` und `cusco` wurde dafür der
+OSM-Zuschnitt aus dem vorhandenen Peru-Auszug neu erzeugt. Die installierte Region
 `alpenraum-ost` und `data/regions/catalog.json` blieben unverändert: SHA-256 vorher und nachher
 gleich (`c5e956e5...` für `manifest.json`, `af273705...` für `catalog.json`).
 
@@ -206,8 +206,8 @@ Größen je Datei und Vorlage (MB):
 | Paket | Vorlage | basemap | outdoor | dem | slope | contours | search | routing | gesamt |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `alpenraum-ost-urlaub` (10 Auszüge) | urlaub | 984,2 | – | – | – | – | 88,1 | 1415,7 | 2487,9 |
-| `cusco-urlaub` (Index vom Stand davor) | urlaub | 3,46 | – | – | – | – | 0,55 | 6,40 | 10,41 |
-| `cusco` (Index vom Stand davor) | outdoor | 3,46 | 0,44 | 6,06 | 0,60 | 4,20 | 0,55 | 6,40 | 21,72 |
+| `cusco-urlaub` | urlaub | 3,46 | – | – | – | – | 0,57 | 6,40 | 10,43 |
+| `cusco` | outdoor | 3,46 | 0,44 | 6,06 | 0,60 | 4,20 | 0,57 | 6,40 | 21,74 |
 | `cusco-fliegen` | fliegen | 3,46 | 0,44 | 6,06 | – | 4,20 | 0,57 | – | 14,74 |
 
 Cusco: bbox -72.10,-13.65,-71.80,-13.40, Geofabrik Peru.
