@@ -128,6 +128,36 @@ fn ramp_region_with(name: &str, routing: bool, valhalla: Option<&str>) -> PathBu
     dir
 }
 
+/// An app whose only region has a basemap but no elevation data, covering
+/// the same ground as [`app_with_ramp`].
+pub fn app_with_basemap_only(name: &str) -> App {
+    let dir = temp_dir(name);
+    let region = dir.join("regions/flat");
+    std::fs::create_dir_all(&region).unwrap();
+    let (north_west, south_east) = (position(0.0, 0.0), position(SIZE as f64, SIZE as f64));
+    let bounds = [
+        north_west.lon,
+        south_east.lat,
+        south_east.lon,
+        north_west.lat,
+    ];
+    let size = write_archive(
+        &region.join("basemap.pmtiles"),
+        vec![(Z, X, Y, vec![0u8; 8])],
+        &ArchiveInfo {
+            tile_type: TileType::Mvt,
+            bounds,
+        },
+    )
+    .unwrap();
+    let manifest = serde_json::json!({
+        "format": 1, "id": "flat", "name": "Flat", "bbox": bounds, "version": "1", "attribution": [],
+        "files": [{ "name": "basemap.pmtiles", "size": size, "sha256": "0".repeat(64) }], "size": size,
+    });
+    std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
+    open(&dir)
+}
+
 /// An app with the `mini` region from the fixtures installed. Returns the
 /// directory of the app data, too.
 pub fn app_with_mini(name: &str) -> (App, PathBuf) {

@@ -5,7 +5,9 @@ mod common;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use common::{app_with_ramp, app_with_ramp_routing, open, position, temp_dir};
+use common::{
+    app_with_basemap_only, app_with_ramp, app_with_ramp_routing, open, position, temp_dir,
+};
 use core_app::{App, AppError, LegSpec, PlanRequest};
 use core_routing::{
     DinParams, LatLon, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError, din_time_s,
@@ -90,6 +92,19 @@ fn route_outside_of_elevation_data_has_no_ascent() {
     assert_eq!(plan.total.min_ele_m, None);
     assert_eq!(plan.total.time_s, None);
     assert_eq!(plan.stages[0].ascent_m, None);
+    assert!(plan.elevation.iter().all(|point| point.ele.is_none()));
+}
+
+#[test]
+fn route_without_dem_has_no_ascent() {
+    let app = app_with_basemap_only("basemap-only");
+
+    let plan = app.plan_route(&uphill()).unwrap();
+
+    assert!(plan.total.distance_m > 4000.0);
+    assert_eq!(plan.total.failed_legs, 0);
+    assert_eq!(plan.total.ascent_m, None);
+    assert_eq!(plan.legs[0].ascent_m, None);
     assert!(plan.elevation.iter().all(|point| point.ele.is_none()));
 }
 
