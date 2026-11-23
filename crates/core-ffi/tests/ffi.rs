@@ -101,11 +101,37 @@ fn style_has_tiles_base() {
         .unwrap();
     let json = fs::read_to_string(repo().join("styles/topo-summer.json")).unwrap();
     let style = core
-        .offline_style(json, "outdoor-tiles://localhost/".into())
+        .offline_style(json, "outdoor-tiles://localhost/".into(), false)
         .unwrap();
     assert!(style.contains("outdoor-tiles://localhost/basemap/"));
     let parsed: serde_json::Value = serde_json::from_str(&style).unwrap();
     assert!(parsed["sources"].get("contours").is_none());
+}
+
+#[test]
+fn style_can_be_dark() {
+    let (data, package) = setup("dark-style");
+    let core = open(&data);
+    core.install_local_region(package.display().to_string())
+        .unwrap();
+    let json = fs::read_to_string(repo().join("styles/topo-summer.json")).unwrap();
+    let template: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let background =
+        |style: &serde_json::Value| style["layers"][0]["paint"]["background-color"].clone();
+    let light: serde_json::Value = serde_json::from_str(
+        &core
+            .offline_style(json.clone(), "outdoor-tiles://localhost/".into(), false)
+            .unwrap(),
+    )
+    .unwrap();
+    let dark: serde_json::Value = serde_json::from_str(
+        &core
+            .offline_style(json, "outdoor-tiles://localhost/".into(), true)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(background(&light), background(&template));
+    assert_eq!(background(&dark), "#000000");
 }
 
 #[test]
@@ -117,7 +143,7 @@ fn style_uses_contour_tiles_when_installed() {
         .unwrap();
     let plain: serde_json::Value = serde_json::from_str(
         &core
-            .offline_style(json.clone(), "outdoor-tiles://localhost/".into())
+            .offline_style(json.clone(), "outdoor-tiles://localhost/".into(), false)
             .unwrap(),
     )
     .unwrap();
@@ -135,7 +161,7 @@ fn style_uses_contour_tiles_when_installed() {
 
     let style: serde_json::Value = serde_json::from_str(
         &core
-            .offline_style(json, "outdoor-tiles://localhost/".into())
+            .offline_style(json, "outdoor-tiles://localhost/".into(), false)
             .unwrap(),
     )
     .unwrap();

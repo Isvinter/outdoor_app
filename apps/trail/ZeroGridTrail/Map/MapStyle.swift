@@ -23,7 +23,7 @@ enum MapStyle {
         guard let source = Bundle.main.url(forResource: base.rawValue, withExtension: "json", subdirectory: "styles")
         else { throw MapStyleError.missing(base.rawValue) }
         let template = try String(contentsOf: source, encoding: .utf8)
-        let style = try core.offlineStyle(styleJson: template, tilesBase: TileURLProtocol.base)
+        let style = try core.offlineStyle(styleJson: template, tilesBase: TileURLProtocol.base, dark: false)
         let caches = try FileManager.default.url(
             for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let target = caches.appendingPathComponent("style-\(base.rawValue).json")
