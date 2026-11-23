@@ -20,7 +20,7 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 const CONFIRM_BYTES = 5e9;
 /** Wait this long after the last change of the area before estimating it. */
 const PLAN_DELAY_MS = 300;
-const BUILD_STEPS = ["osm", "basemap", "outdoor", "dem", "slope", "routing", "manifest"] as const;
+const BUILD_STEPS = ["osm", "basemap", "outdoor", "dem", "slope", "contours", "search", "routing", "manifest"] as const;
 
 export interface RegionsPanelHost {
   /** Called whenever the set of installed regions may have changed. */

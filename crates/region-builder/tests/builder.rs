@@ -195,6 +195,18 @@ fn define_writes_a_unique_definition() {
 }
 
 #[test]
+fn define_avoids_template_suffixes() {
+    let (builder, _) = builder("define-suffix");
+    let bbox = [10.5, 46.5, 11.5, 47.5];
+    let urlaub = builder.define("Kroatien Urlaub", bbox, &|_| false).unwrap();
+    let fliegen = builder
+        .define("Kroatien Fliegen", bbox, &|_| false)
+        .unwrap();
+    assert_eq!(urlaub.id, "kroatien-urlaub-region");
+    assert_eq!(fliegen.id, "kroatien-fliegen-region");
+}
+
+#[test]
 fn define_rejects_areas_that_cannot_be_built() {
     let (builder, dir) = builder("define-bad");
     let backwards = builder.define("x", [11.5, 46.5, 10.5, 47.5], &|_| false);

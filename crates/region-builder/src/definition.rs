@@ -16,6 +16,22 @@ const BYTES_PER_KM2: f64 = 40_000.0;
 const MIN_EDGE_KM: f64 = 1.0;
 const KM_PER_DEGREE: f64 = 111.195;
 
+/// Which layers a region package gets; decides the build steps and files.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Template {
+    Urlaub,
+    #[default]
+    Outdoor,
+    Fliegen,
+}
+
+impl Template {
+    pub fn is_outdoor(&self) -> bool {
+        *self == Template::Outdoor
+    }
+}
+
 /// What `scripts/build-region.sh` needs to know about a region.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegionDefinition {
@@ -28,6 +44,9 @@ pub struct RegionDefinition {
     pub basemap_maxzoom: u8,
     pub dem_maxzoom: u8,
     pub attribution: Vec<String>,
+    /// Missing in old definitions, which are `outdoor`.
+    #[serde(default, skip_serializing_if = "Template::is_outdoor")]
+    pub template: Template,
 }
 
 impl RegionDefinition {
@@ -46,6 +65,7 @@ impl RegionDefinition {
                 "© OpenMapTiles".to_string(),
                 MAPTERHORN_ATTRIBUTION.to_string(),
             ],
+            template: Template::Outdoor,
         }
     }
 }

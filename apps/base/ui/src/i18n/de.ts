@@ -100,6 +100,8 @@ export const de = {
   "maps.build.step.outdoor": "Outdoor-Overlay",
   "maps.build.step.dem": "Höhendaten",
   "maps.build.step.slope": "Hangneigung",
+  "maps.build.step.contours": "Höhenlinien",
+  "maps.build.step.search": "Suchindex",
   "maps.build.step.routing": "Routingdaten",
   "maps.build.step.manifest": "Abschluss",
 
