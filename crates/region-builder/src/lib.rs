@@ -28,7 +28,9 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-pub use definition::{RegionDefinition, estimated_bytes, size_km, slug, unique_id, validate_bbox};
+pub use definition::{
+    RegionDefinition, Template, estimated_bytes, size_km, slug, unique_id, validate_bbox,
+};
 pub use error::BuildError;
 pub use extracts::{Extract, GEOFABRIK_INDEX_URL, GeofabrikIndex};
 pub use run::StepProgress;
@@ -132,9 +134,12 @@ impl Builder {
             "" => "Region",
             name => name,
         };
-        let id = unique_id(&slug(name), &|id| {
-            taken(id) || self.definition_path(id).exists()
-        });
+        let mut slug = slug(name);
+        // Ids ending in a template name would be checked against that template.
+        if slug.ends_with("-urlaub") || slug.ends_with("-fliegen") {
+            slug.push_str("-region");
+        }
+        let id = unique_id(&slug, &|id| taken(id) || self.definition_path(id).exists());
         let definition = RegionDefinition::new(&id, name, bbox, osm);
         self.write_definition(&definition)?;
         Ok(definition)

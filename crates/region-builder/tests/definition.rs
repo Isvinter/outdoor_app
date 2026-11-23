@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use region_builder::{
-    BuildError, RegionDefinition, estimated_bytes, size_km, slug, unique_id, validate_bbox,
+    BuildError, RegionDefinition, Template, estimated_bytes, size_km, slug, unique_id,
+    validate_bbox,
 };
 
 #[test]
@@ -83,4 +84,38 @@ fn definition_is_written_in_the_format_of_the_build_script() {
     assert_eq!(json["attribution"].as_array().unwrap().len(), 3);
     let back: RegionDefinition = serde_json::from_value(json).unwrap();
     assert_eq!(back, definition);
+}
+
+fn sample_json(extra: &str) -> String {
+    format!(
+        r#"{{"id":"x","name":"X","bbox":[1.0,2.0,3.0,4.0],"osm":[],"basemap_maxzoom":14,
+        "dem_maxzoom":13,"attribution":[]{extra}}}"#
+    )
+}
+
+#[test]
+fn template_defaults_to_outdoor_and_is_not_written() {
+    let definition: RegionDefinition = serde_json::from_str(&sample_json("")).unwrap();
+    assert_eq!(definition.template, Template::Outdoor);
+    let written = serde_json::to_string(&definition).unwrap();
+    assert!(!written.contains("template"), "{written}");
+}
+
+#[test]
+fn urlaub_round_trips() {
+    let definition: RegionDefinition =
+        serde_json::from_str(&sample_json(r#","template":"urlaub""#)).unwrap();
+    assert_eq!(definition.template, Template::Urlaub);
+    let written = serde_json::to_string(&definition).unwrap();
+    assert!(written.contains(r#""template":"urlaub""#), "{written}");
+    assert_eq!(
+        serde_json::from_str::<RegionDefinition>(&written).unwrap(),
+        definition
+    );
+}
+
+#[test]
+fn unknown_template_is_rejected() {
+    let parsed = serde_json::from_str::<RegionDefinition>(&sample_json(r#","template":"strand""#));
+    assert!(parsed.is_err());
 }

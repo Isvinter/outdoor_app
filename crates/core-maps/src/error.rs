@@ -27,6 +27,14 @@ pub enum MapsError {
     NotInstalled(String),
     #[error("region {0} is already being downloaded")]
     Busy(String),
+    #[error(
+        "region {region} is installed with template {installed}; the new package has template {package} and was not installed"
+    )]
+    TemplateMismatch {
+        region: String,
+        installed: String,
+        package: String,
+    },
     #[error("the download was cancelled")]
     Cancelled,
     #[error("invalid map style: {0}")]
@@ -46,6 +54,7 @@ impl MapsError {
             MapsError::UnknownRegion(_) => "region_unknown",
             MapsError::NotInstalled(_) => "region_not_installed",
             MapsError::Busy(_) => "region_busy",
+            MapsError::TemplateMismatch { .. } => "region_template",
             MapsError::Cancelled => "region_cancelled",
             MapsError::Style(_) => "map_style",
         }

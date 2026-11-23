@@ -16,7 +16,7 @@ pub use error::MapsError;
 pub use fetch::{DefaultFetcher, Fetched, Fetcher};
 pub use manifest::{
     Catalog, CatalogEntry, FORMAT, Layer, ROUTING_FILE, RegionFile, RegionManifest, RoutingInfo,
-    TilePath,
+    SEARCH_FILE, SearchInfo, TilePath,
 };
 pub use pmtiles::{Archive, Header, TileType, tile_id};
 pub use store::{

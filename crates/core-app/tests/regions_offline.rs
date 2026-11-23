@@ -27,6 +27,25 @@ fn map_overview_never_reads_catalog() {
 }
 
 #[test]
+fn overview_names_the_enabled_elevation_data() {
+    let (app, _) = app_with_mini("offline-dem-regions");
+    let dem_sha = "1a6724ee06ce75b5a5d0a9acba37bc62c0cf6c6da6bcb31efc8e309f0dc20913";
+    let expected = vec![format!("mini:{dem_sha}")];
+    assert_eq!(app.map_overview().dem_regions, expected);
+    assert_eq!(app.regions().unwrap().dem_regions, expected);
+
+    app.set_region_enabled("mini", false).unwrap();
+    assert!(app.map_overview().dem_regions.is_empty());
+    assert!(app.regions().unwrap().dem_regions.is_empty());
+
+    app.set_region_enabled("mini", true).unwrap();
+    assert_eq!(app.map_overview().dem_regions, expected);
+
+    app.delete_region("mini").unwrap();
+    assert!(app.map_overview().dem_regions.is_empty());
+}
+
+#[test]
 fn disabled_region_leaves_bounds_and_attribution() {
     let (app, _) = app_with_mini("offline-disabled");
     let overview = app.map_overview();

@@ -1,0 +1,30 @@
+{
+  "id": "alpenraum-ost-urlaub",
+  "name": "Alpenraum-Ost",
+  "bbox": [
+    8.73616019857539,
+    45.649146362740225,
+    14.588490115639786,
+    48.29729424118034
+  ],
+  "osm": [
+    "https://download.geofabrik.de/europe/germany/bayern/oberbayern-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/germany/baden-wuerttemberg/tuebingen-regbez-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/germany/bayern/schwaben-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/austria-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/italy/nord-est-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/switzerland-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/slovenia-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/germany/baden-wuerttemberg/freiburg-regbez-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/italy/nord-ovest-latest.osm.pbf",
+    "https://download.geofabrik.de/europe/germany/bayern/niederbayern-latest.osm.pbf"
+  ],
+  "basemap_maxzoom": 14,
+  "dem_maxzoom": 13,
+  "attribution": [
+    "© OpenStreetMap-Mitwirkende (ODbL)",
+    "© OpenMapTiles",
+    "Höhendaten: Mapterhorn und dessen Datenquellen – mapterhorn.com/attribution"
+  ],
+  "template": "urlaub"
+}

@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use common::{fixtures, temp_dir};
-use core_maps::{ArchiveInfo, DefaultFetcher, RegionStore, TileType, write_archive};
+use core_maps::{ArchiveInfo, DefaultFetcher, Layer, RegionStore, TileType, write_archive};
 
 const SIZE: usize = 64;
 const Z: u8 = 12;
@@ -230,4 +230,34 @@ fn damaged_elevation_tile_is_an_error() {
     let store = RegionStore::open(&dir).unwrap();
     let (lat, lon) = position(32.0, 32.0);
     assert!(store.elevation(lat, lon).is_err());
+}
+
+#[test]
+fn region_without_dem_has_no_elevation() {
+    let dir = temp_dir("basemap-only");
+    let region = dir.join("flat");
+    std::fs::create_dir_all(&region).unwrap();
+    let (north, west) = position(0.0, 0.0);
+    let (south, east) = position(SIZE as f64, SIZE as f64);
+    let bounds = [west, south, east, north];
+    let size = write_archive(
+        &region.join("basemap.pmtiles"),
+        vec![(Z, X, Y, vec![0u8; 8])],
+        &ArchiveInfo {
+            tile_type: TileType::Mvt,
+            bounds,
+        },
+    )
+    .unwrap();
+    let manifest = serde_json::json!({
+        "format": 1, "id": "flat", "name": "Flat", "bbox": bounds, "version": "1", "attribution": [],
+        "files": [{ "name": "basemap.pmtiles", "size": size, "sha256": "0".repeat(64) }], "size": size,
+    });
+    std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
+    let store = RegionStore::open(&dir).unwrap();
+
+    let (lat, lon) = position(30.5, 30.5);
+    assert!(store.tile(Layer::Basemap, Z, X, Y).unwrap().is_some());
+    assert_eq!(store.elevation(lat, lon).unwrap(), None);
+    assert!(store.tile(Layer::Dem, Z, X, Y).unwrap().is_none());
 }

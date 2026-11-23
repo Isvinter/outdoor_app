@@ -787,6 +787,25 @@ mod tests {
     }
 
     #[test]
+    fn unknown_ground_keeps_the_worst_case_for_agl() {
+        let mut warner = Warner::new(
+            square("RMZ", "GND", "1000ft AGL"),
+            WarningSettings::default(),
+        );
+        let mut fix = south_of_square(0.0, -5000.0);
+        fix.altitudes.msl_m = Some(1100.0);
+        // Over known ground at 600 m the fix is 500 m above it: clear.
+        fix.altitudes.ground_m = Some(600.0);
+        assert!(warner.update(&fix).is_empty());
+        // Without terrain data the ground is unknown: never more favourable
+        // than inside the limit, so the same fix warns.
+        fix.altitudes.ground_m = None;
+        let warnings = warner.update(&fix);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].level, Level::Alarm);
+    }
+
+    #[test]
     fn warnings_end_with_a_margin() {
         let mut warner = Warner::new(
             square("CTR", "GND", "3500ft MSL"),

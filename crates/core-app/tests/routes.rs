@@ -5,7 +5,9 @@ mod common;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use common::{app_with_ramp, app_with_ramp_routing, open, position, temp_dir};
+use common::{
+    app_with_basemap_only, app_with_ramp, app_with_ramp_routing, open, position, temp_dir,
+};
 use core_app::{App, AppError, LegSpec, PlanRequest};
 use core_routing::{
     DinParams, LatLon, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError, din_time_s,
@@ -91,6 +93,43 @@ fn route_outside_of_elevation_data_has_no_ascent() {
     assert_eq!(plan.total.time_s, None);
     assert_eq!(plan.stages[0].ascent_m, None);
     assert!(plan.elevation.iter().all(|point| point.ele.is_none()));
+}
+
+/// A car router that answers with straight lines and a time of 10 m/s.
+struct CarRouter;
+
+impl Router for CarRouter {
+    fn route(&self, request: &RouteRequest) -> Result<Route, RoutingError> {
+        let mut route = core_routing::manual_route(&request.waypoints)?;
+        route.profile = request.profile;
+        route.duration_s = Some(route.distance_m / 10.0);
+        Ok(route)
+    }
+
+    fn profiles(&self) -> Vec<Profile> {
+        vec![Profile::Car]
+    }
+}
+
+#[test]
+fn route_without_dem_has_no_ascent() {
+    let app = app_with_basemap_only("basemap-only");
+    app.set_router_for_tests("flat", Arc::new(CarRouter));
+    let request = route(
+        Profile::Car,
+        vec![position(10.0, 32.0), position(50.0, 32.0)],
+    );
+
+    let plan = app.plan_route(&request).unwrap();
+
+    assert_eq!(plan.total.failed_legs, 0);
+    assert_eq!(plan.legs[0].profile, Profile::Car);
+    assert_eq!(plan.total.ascent_m, None);
+    assert_eq!(plan.legs[0].ascent_m, None);
+    assert!(plan.elevation.iter().all(|point| point.ele.is_none()));
+    let time = plan.legs[0].time_s.unwrap();
+    assert!((time - plan.total.distance_m / 10.0).abs() < 1e-6);
+    assert_eq!(plan.total.time_s, Some(time));
 }
 
 #[test]

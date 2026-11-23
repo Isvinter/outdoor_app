@@ -94,6 +94,8 @@ export interface RegionsOverview {
   regions: RegionInfo[];
   attribution: string[];
   installed_bounds: [number, number, number, number] | null;
+  /** The elevation data in use, one `<id>:<sha256>` per enabled region that has any. */
+  dem_regions: string[];
 }
 
 export interface RegionProgress {

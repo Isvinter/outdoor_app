@@ -85,6 +85,20 @@ pub struct RoutingInfo {
 /// Name of the routing tiles inside a region directory.
 pub const ROUTING_FILE: &str = "routing.tar";
 
+/// Name of the offline search file inside a region directory.
+pub const SEARCH_FILE: &str = "search.sqlite";
+
+/// What the search file of a region contains.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SearchInfo {
+    /// Version of the layout of the search file.
+    pub format: u32,
+    pub places: u64,
+    pub streets: u64,
+    pub pois: u64,
+    pub named_pois: u64,
+}
+
 /// `manifest.json` of a region package.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegionManifest {
@@ -99,12 +113,26 @@ pub struct RegionManifest {
     /// Present if the region has routing tiles ([`ROUTING_FILE`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingInfo>,
+    /// Map template the region was built with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    /// Group the region is listed under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// Present if the region has a search file ([`SEARCH_FILE`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchInfo>,
     pub files: Vec<RegionFile>,
     /// Sum of all file sizes in bytes.
     pub size: u64,
 }
 
 impl RegionManifest {
+    /// The map template; packages from before templates are `outdoor`.
+    pub fn template_name(&self) -> &str {
+        self.template.as_deref().unwrap_or("outdoor")
+    }
+
     /// Parses and validates a manifest. `location` only serves error messages.
     pub fn parse(json: &str, location: &str) -> Result<Self, MapsError> {
         let fail = |reason: String| MapsError::InvalidManifest {
@@ -121,7 +149,7 @@ impl RegionManifest {
         }
         for file in &manifest.files {
             let stem = file.name.strip_suffix(".pmtiles").unwrap_or("");
-            if !is_plain_name(stem) && file.name != ROUTING_FILE {
+            if !is_plain_name(stem) && file.name != ROUTING_FILE && file.name != SEARCH_FILE {
                 return Err(fail(format!("unexpected file name {:?}", file.name)));
             }
             let is_hex = |c: char| c.is_ascii_digit() || ('a'..='f').contains(&c);
@@ -143,6 +171,10 @@ pub struct CatalogEntry {
     pub size: u64,
     /// Directory of the region package, relative to the catalog.
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// `catalog.json`: the regions a server (or a directory) offers.

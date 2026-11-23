@@ -99,14 +99,15 @@ export interface WaypointMenuTexts {
 }
 
 // Contour lines are computed from the elevation tiles of the installed regions.
-const contours = new mlcontour.DemSource({
-  url: `${TILES}dem/{z}/{x}/{y}`,
+// `contour-dem` answers a missing tile with a tile of "no value", see tiles.rs.
+const CONTOUR_DEM = {
+  url: `${TILES}contour-dem/{z}/{x}/{y}`,
   encoding: "terrarium",
   maxzoom: 13,
-  worker: true,
   cacheSize: 100,
   timeoutMs: 10_000,
-});
+} as const;
+const contours = new mlcontour.DemSource({ ...CONTOUR_DEM, worker: true });
 addProtocol(contours.sharedDemProtocolId, contours.sharedDemProtocolV4);
 addProtocol(contours.contourProtocolId, contours.contourProtocolV4);
 const CONTOUR_TILES = contours.contourProtocolUrl({
@@ -118,11 +119,45 @@ const CONTOUR_TILES = contours.contourProtocolUrl({
   overzoom: 1,
 });
 
+/** The part of the contour source's worker connection that is not in its types. */
+interface ContourWorker {
+  managerId: number;
+  actor: {
+    send(name: "init", transfer: [], abort: AbortController, timer: undefined, message: object): Promise<unknown>;
+  };
+}
+
+/**
+ * Drops every cached elevation and contour tile, among them the "no value"
+ * answers for places that may have elevation data now. Initialising the same
+ * manager again replaces it inside the one shared worker, so neither a worker
+ * nor a protocol is added. maplibre-contour is pinned, as this uses its internals.
+ */
+function forgetContourTiles(): Promise<unknown> {
+  const { managerId, actor } = contours.manager as unknown as ContourWorker;
+  const { url: demUrlPattern, encoding, maxzoom, cacheSize, timeoutMs } = CONTOUR_DEM;
+  return actor.send("init", [], new AbortController(), undefined, {
+    managerId,
+    demUrlPattern,
+    encoding,
+    maxzoom,
+    cacheSize,
+    timeoutMs,
+  });
+}
+
 const multiLine = (line: Line) => ({
   type: "Feature" as const,
   properties: {},
   geometry: { type: "MultiLineString" as const, coordinates: line.filter((segment) => segment.length > 1) },
 });
+
+/** Takes hillshading and contour lines out of a style, for regions without elevation data. */
+function removeElevation(style: StyleSpecification): void {
+  const elevation = ["dem", "contours"];
+  style.layers = style.layers.filter((layer) => !("source" in layer && elevation.includes(layer.source)));
+  for (const id of elevation) delete style.sources[id];
+}
 
 /** Fills in the placeholders of a bundled style (see scripts/make-style.py). */
 async function offlineStyle(file: string, overview: RegionsOverview | null): Promise<StyleSpecification> {
@@ -133,6 +168,7 @@ async function offlineStyle(file: string, overview: RegionsOverview | null): Pro
     // Nothing installed: nothing to request, show the bare background.
     return { ...style, sources: {}, layers: style.layers.filter((layer) => layer.type === "background") };
   }
+  if (!overview?.dem_regions.length) removeElevation(style);
   const fill = (url: string) => url.replace("__TILES__", TILES).replace("__CONTOURS__", CONTOUR_TILES);
   style.glyphs = style.glyphs?.replace("__FONTS__", `${TILES}fonts/`);
   for (const [id, source] of Object.entries(style.sources)) {
@@ -207,6 +243,8 @@ export class MapView {
   private readonly cursor: Marker;
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
+  /** The elevation data the contour cache was filled from. */
+  private contourData: string | null = null;
   private slopeOpacity = 0.6;
   private area: Bbox | null = null;
   private areaHandles: Marker[] = [];
@@ -242,6 +280,9 @@ export class MapView {
   /** Switches the base map. The offline style only covers the installed regions. */
   async setBaseStyle(base: BaseStyle, overview: RegionsOverview | null): Promise<void> {
     const request = ++this.styleRequest;
+    const demData = overview ? JSON.stringify(overview.dem_regions) : this.contourData;
+    if (this.contourData !== null && demData !== this.contourData) await forgetContourTiles();
+    this.contourData = demData;
     const style = base === "online" ? ONLINE_STYLE : await offlineStyle(OFFLINE_STYLES[base], overview);
     if (request === this.styleRequest) this.map.setStyle(style, { diff: false });
   }

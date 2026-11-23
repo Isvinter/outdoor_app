@@ -129,6 +129,9 @@ pub struct MapOverview {
     pub attribution: Vec<String>,
     /// Smallest box around all enabled regions (west, south, east, north).
     pub installed_bounds: Option<[f64; 4]>,
+    /// The elevation data in use: `<id>:<sha256>` of each enabled region that
+    /// has any, sorted. Changes whenever a view of the elevation may be stale.
+    pub dem_regions: Vec<String>,
 }
 
 /// Everything the region list needs.
@@ -144,6 +147,9 @@ pub struct RegionsOverview {
     /// Smallest box around all enabled regions (west, south, east, north);
     /// there are no offline tiles outside of it.
     pub installed_bounds: Option<[f64; 4]>,
+    /// The elevation data in use: `<id>:<sha256>` of each enabled region that
+    /// has any, sorted. Changes whenever a view of the elevation may be stale.
+    pub dem_regions: Vec<String>,
 }
 
 impl App {
@@ -202,6 +208,7 @@ impl App {
             regions: installed,
             attribution,
             installed_bounds,
+            dem_regions,
         } = self.map_overview();
         let mut regions: BTreeMap<String, RegionInfo> = installed
             .into_iter()
@@ -260,6 +267,7 @@ impl App {
             regions: regions.into_values().collect(),
             attribution,
             installed_bounds,
+            dem_regions,
         })
     }
 
@@ -293,6 +301,22 @@ impl App {
                 ]
             });
 
+        let dem_file = Layer::Dem.file_name();
+        let mut dem_regions: Vec<String> = installed
+            .iter()
+            .filter(|region| region.enabled)
+            .flat_map(|region| {
+                let id = &region.manifest.id;
+                region
+                    .manifest
+                    .files
+                    .iter()
+                    .filter(|file| file.name == dem_file)
+                    .map(move |file| format!("{id}:{}", file.sha256))
+            })
+            .collect();
+        dem_regions.sort();
+
         let mut regions: Vec<RegionInfo> = installed
             .into_iter()
             .map(
@@ -322,6 +346,7 @@ impl App {
             regions,
             attribution,
             installed_bounds,
+            dem_regions,
         }
     }
 
@@ -384,6 +409,14 @@ impl App {
         // A rebuild replaced the routing data the open router reads.
         self.shared.routing.forget_region(&region.manifest.id);
         Ok(region)
+    }
+
+    /// Installs a package from a build on this device. A package of another
+    /// template than the installed region of its id is refused: the region
+    /// stays as it is and the package stays where it is.
+    pub fn install_built_region(&self, package: &Path) -> Result<InstalledRegion, AppError> {
+        self.shared.maps.store.check_template(package)?;
+        self.install_local_region(package)
     }
 
     /// Removes an installed region from this device, and its definition if it

@@ -1,0 +1,21 @@
+{
+  "id": "cusco-urlaub",
+  "name": "Cusco (Urlaub)",
+  "bbox": [
+    -72.1,
+    -13.65,
+    -71.8,
+    -13.4
+  ],
+  "osm": [
+    "https://download.geofabrik.de/south-america/peru-latest.osm.pbf"
+  ],
+  "template": "urlaub",
+  "basemap_maxzoom": 14,
+  "dem_maxzoom": 13,
+  "attribution": [
+    "© OpenStreetMap-Mitwirkende (ODbL)",
+    "© OpenMapTiles",
+    "Höhendaten: Mapterhorn und dessen Datenquellen – mapterhorn.com/attribution"
+  ]
+}

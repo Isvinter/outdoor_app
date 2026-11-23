@@ -1,0 +1,24 @@
+{"type": "Feature", "id": "n1", "properties": {"place": "town", "name": "Kufstein"}, "geometry": {"type": "Point", "coordinates": [12.167, 47.583]}}
+{"type": "Feature", "id": "n2", "properties": {"place": "village"}, "geometry": {"type": "Point", "coordinates": [12.9, 47.9]}}
+{"type": "Feature", "id": "n10", "properties": {"amenity": "fuel", "name": "Tankstelle Eins"}, "geometry": {"type": "Point", "coordinates": [12.168, 47.584]}}
+{"type": "Feature", "id": "n11", "properties": {"shop": "supermarket", "name": "Billa"}, "geometry": {"type": "Point", "coordinates": [12.169, 47.585]}}
+{"type": "Feature", "id": "n12", "properties": {"shop": "bakery", "name": "Baeckerei Mayer"}, "geometry": {"type": "Point", "coordinates": [12.17, 47.586]}}
+{"type": "Feature", "id": "n13", "properties": {"amenity": "restaurant", "name": "Gasthof Post"}, "geometry": {"type": "Point", "coordinates": [12.171, 47.587]}}
+{"type": "Feature", "id": "n14", "properties": {"amenity": "pharmacy", "name": "Apotheke Zentrum"}, "geometry": {"type": "Point", "coordinates": [12.172, 47.588]}}
+{"type": "Feature", "id": "n15", "properties": {"tourism": "hostel", "name": "Hostel Sonne"}, "geometry": {"type": "Point", "coordinates": [12.173, 47.589]}}
+{"type": "Feature", "id": "n16", "properties": {"tourism": "camp_site", "name": "Camping Kufstein"}, "geometry": {"type": "Point", "coordinates": [12.174, 47.59]}}
+{"type": "Feature", "id": "n17", "properties": {"amenity": "parking"}, "geometry": {"type": "Point", "coordinates": [12.175, 47.591]}}
+{"type": "Feature", "id": "n18", "properties": {"amenity": "parking", "access": "private", "name": "Privatparkplatz"}, "geometry": {"type": "Point", "coordinates": [12.176, 47.592]}}
+{"type": "Feature", "id": "n19", "properties": {"tourism": "museum", "name": "Festungsmuseum"}, "geometry": {"type": "Point", "coordinates": [12.177, 47.593]}}
+{"type": "Feature", "id": "n20", "properties": {"historic": "castle", "name": "Burg"}, "geometry": {"type": "Point", "coordinates": [12.178, 47.594]}}
+{"type": "Feature", "id": "n21", "properties": {"place": "suburb", "amenity": "cafe", "name": "Cafe Vorort"}, "geometry": {"type": "Point", "coordinates": [12.179, 47.595]}}
+{"type": "Feature", "id": "w30", "properties": {"amenity": "pharmacy", "name": "Doppel Apotheke"}, "geometry": {"type": "LineString", "coordinates": [[12.18, 47.6], [12.182, 47.6], [12.182, 47.602], [12.18, 47.602], [12.18, 47.6]]}}
+{"type": "Feature", "id": "w30", "properties": {"amenity": "pharmacy", "name": "Doppel Apotheke"}, "geometry": {"type": "Polygon", "coordinates": [[[12.18, 47.6], [12.182, 47.6], [12.182, 47.602], [12.18, 47.602], [12.18, 47.6]]]}}
+{"type": "Feature", "id": "r50", "properties": {"amenity": "cafe", "name": "Cafe Relation"}, "geometry": {"type": "MultiPolygon", "coordinates": [[[[12.18, 47.6], [12.182, 47.6], [12.182, 47.602], [12.18, 47.602], [12.18, 47.6]]]]}}
+{"type": "Feature", "id": "w40", "properties": {"highway": "residential", "name": "Hauptstraße", "name:de": "Hauptstrasse", "name:en": "Main Street", "int_name": "Hauptstr", "alt_name": "Obere Gasse;Hauptweg", "short_name": "Hpt"}, "geometry": {"type": "LineString", "coordinates": [[12.16, 47.58], [12.161, 47.581]]}}
+{"type": "Feature", "id": "w41", "properties": {"highway": "residential", "name": "Hauptstraße"}, "geometry": {"type": "LineString", "coordinates": [[12.161, 47.581], [12.163, 47.582]]}}
+{"type": "Feature", "id": "w42", "properties": {"highway": "residential", "name": "Hauptstraße"}, "geometry": {"type": "LineString", "coordinates": [[12.163, 47.582], [12.165, 47.583]]}}
+{"type": "Feature", "id": "w43", "properties": {"highway": "residential", "name": "Hauptstraße"}, "geometry": {"type": "LineString", "coordinates": [[12.16, 47.85], [12.161, 47.851]]}}
+{"type": "Feature", "id": "w44", "properties": {"highway": "residential"}, "geometry": {"type": "LineString", "coordinates": [[12.15, 47.57], [12.151, 47.571]]}}
+{"type": "Feature", "id": "w45", "properties": {"highway": "footway", "name": "Fussweg"}, "geometry": {"type": "LineString", "coordinates": [[12.14, 47.57], [12.141, 47.571]]}}
+{"type": "Feature", "id": "w47", "properties": {"highway": "tertiary", "name": "Bahnhofstraße"}, "geometry": {"type": "LineString", "coordinates": [[12.155, 47.575], [12.156, 47.576]]}}

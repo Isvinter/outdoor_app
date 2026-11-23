@@ -88,14 +88,16 @@ struct PlanSheet: View {
     @ViewBuilder private var details: some View {
         VStack(alignment: .leading, spacing: 14) {
             if plan.profile == "manual" {
-                Text("Manuell: gerade Linien zwischen den Wegpunkten, Höhen aus dem Geländemodell.")
+                Text("Manuell: gerade Linien zwischen den Wegpunkten.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             ProfileOptions(plan: plan)
             if let result = plan.plan {
-                ProfileChart(plan: result, cursor: plan.cursor) { plan.showCursor($0) }
-                    .frame(height: detent == .large ? 280 : 140)
+                if hasElevation(result) {
+                    ProfileChart(plan: result, cursor: plan.cursor) { plan.showCursor($0) }
+                        .frame(height: detent == .large ? 280 : 140)
+                }
                 legend(result)
                 stats(result.total)
                 if result.stages.count > 1 {
@@ -185,6 +187,11 @@ struct PlanSheet: View {
         }
         if let time = stage.timeS { parts.append(Format.hours(time)) }
         return parts.joined(separator: " · ")
+    }
+
+    /// False for a route over packages without terrain: no sample has a height.
+    private func hasElevation(_ result: PlanResult) -> Bool {
+        result.elevation.contains { $0.ele != nil }
     }
 
     private func notes(_ total: PlanTotals) -> String {

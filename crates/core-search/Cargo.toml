@@ -1,0 +1,15 @@
+[package]
+name = "core-search"
+description = "Offline search index for places, streets and POIs, written at build time and read from a region package"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+
+[lints]
+workspace = true
