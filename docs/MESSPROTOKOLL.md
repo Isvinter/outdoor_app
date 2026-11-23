@@ -195,7 +195,9 @@ Gemessen am 2026-11-15 mit `scripts/build-region.sh <id> --steps contours,manife
 Echte Builds aller drei Vorlagen mit `scripts/build-region.sh <id> --package-dir
 data/template-test`. Die beiden `urlaub`-Pakete wurden zuerst ganz gebaut und nach den Korrekturen
 an Straßen und Orten nur mit `--steps search,manifest --force` neu erzeugt; `cusco` und
-`cusco-fliegen` wurden ganz gebaut, mit den schon vorhandenen OSM-Quelldaten. Die installierte Region
+`cusco-fliegen` wurden ganz gebaut, mit den schon vorhandenen OSM-Quelldaten. Mit den erweiterten
+Ortsnamen neu erzeugt sind nur `alpenraum-ost-urlaub` und `cusco-fliegen`; `cusco-urlaub` und `cusco`
+enthalten noch den Suchindex des Stands davor, weil ihr Bauverzeichnis fehlt. Die installierte Region
 `alpenraum-ost` und `data/regions/catalog.json` blieben unverändert: SHA-256 vorher und nachher
 gleich (`c5e956e5...` für `manifest.json`, `af273705...` für `catalog.json`).
 
@@ -203,47 +205,54 @@ Größen je Datei und Vorlage (MB):
 
 | Paket | Vorlage | basemap | outdoor | dem | slope | contours | search | routing | gesamt |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `alpenraum-ost-urlaub` (10 Auszüge) | urlaub | 984,2 | – | – | – | – | 87,8 | 1415,7 | 2487,7 |
-| `cusco-urlaub` | urlaub | 3,46 | – | – | – | – | 0,55 | 6,40 | 10,41 |
-| `cusco` | outdoor | 3,46 | 0,44 | 6,06 | 0,60 | 4,20 | 0,55 | 6,40 | 21,72 |
-| `cusco-fliegen` | fliegen | 3,46 | 0,44 | 6,06 | – | 4,20 | 0,55 | – | 14,72 |
+| `alpenraum-ost-urlaub` (10 Auszüge) | urlaub | 984,2 | – | – | – | – | 88,1 | 1415,7 | 2487,9 |
+| `cusco-urlaub` (Index vom Stand davor) | urlaub | 3,46 | – | – | – | – | 0,55 | 6,40 | 10,41 |
+| `cusco` (Index vom Stand davor) | outdoor | 3,46 | 0,44 | 6,06 | 0,60 | 4,20 | 0,55 | 6,40 | 21,72 |
+| `cusco-fliegen` | fliegen | 3,46 | 0,44 | 6,06 | – | 4,20 | 0,57 | – | 14,74 |
 
 Cusco: bbox -72.10,-13.65,-71.80,-13.40, Geofabrik Peru.
 
-- Grenzen: Paket höchstens 2,6 GB (2487,7 MB), `search.sqlite` höchstens 100 MB (87,8 MB). Beide
+- Grenzen: Paket höchstens 2,6 GB (2487,9 MB), `search.sqlite` höchstens 100 MB (88,1 MB). Beide
   eingehalten.
 - Bauzeit und Spitzenspeicher (`/usr/bin/time -v` um das Skript): `cusco` 40,8 s und 4,1 GB,
-  `cusco-fliegen` 37,9 s und 2,7 GB. Nur `search,manifest`: Alpenraum 1 min 38 s und 515 MB,
-  `cusco-urlaub` 16,1 s und 77 MB. Erster ganzer Lauf der `urlaub`-Pakete: Alpenraum 7 min 16 s
+  `cusco-fliegen` 37,9 s und 2,7 GB. Nur `search,manifest`: Alpenraum 1 min 39 s und 517 MB,
+  `cusco-fliegen` 1,8 s und 77 MB. Erster ganzer Lauf der `urlaub`-Pakete: Alpenraum 7 min 16 s
   und 11,9 GB, Cusco 6 min 37 s und 3,4 GB.
-- Zählung im Suchindex: Alpenraum 45 974 Orte, 305 709 Straßen, 432 852 POIs (davon 244 568 mit
+- Zählung im Suchindex: Alpenraum 45 974 Orte, 305 709 Straßen, 432 852 POIs (davon 244 570 mit
   Namen); Cusco 217 Orte, 1215 Straßen, 2838 POIs (davon 2304 mit Namen).
 
 Suchabfragen gegen den neuen Alpenraum-Index (`SearchIndex::search`, Release-Build, Limit 5, ein
-Lauf je Abfrage, Position Innsbruck 47.2654, 11.3933):
+Lauf je Abfrage, Position Innsbruck 47.2654, 11.3933). Ohne Position stehen Orte vor anderen Treffern:
 
 | Abfrage | Ergebnis | Zeit |
 | --- | --- | --- |
-| `Maximilianstraße München` | Maximilianstraße in Neugermering und in Lehel | 5,5 ms |
-| `Maximilianstraße Munich` | dieselben zwei Straßen | 4,5 ms |
-| `Sonnenstraße München` | Hackenviertel, Feldkirchen, Aschheim, Oberschleißheim, Pullach | 4,7 ms |
-| `Museumstraße Innsbruck` | Museumstraße, Dreiheiligen | 1,2 ms |
-| `Erlerstraße Innsbruck` ohne Position | Erlerstraße in Innsbruck und in Hall in Tirol | 1,1 ms |
-| `Erlerstraße Innsbruck` mit Position | Innsbruck 219 m, Hall in Tirol 8595 m | 0,5 ms |
-| `Innsbruck Erlerstraße` | Erlerstraße in Innsbruck und in Hall in Tirol | 1,2 ms |
-| `Erlerstr Innsb` | Erlerstraße in Innsbruck und in Hall in Tirol | 1,1 ms |
-| `Innsbruck` | Ort Innsbruck, Innsbruckblick, Innsbrucker Straße (Kreuzbichl), pm Innsbruck, Innsbrucker Straße (Axams); keine Straße nur wegen des Ortes | 1,7 ms |
-| `Bozen` ohne Position | Ort Bolzano - Bozen, Bozenhaldenstraße, Bozener Straße, Bozener Platz, Bozenau | 1,1 ms |
+| `Maximilianstraße München` | Maximilianstraße in Neugermering und in Lehel | 5,3 ms |
+| `Maximilianstraße Munich` | dieselben zwei Straßen | 4,7 ms |
+| `Sonnenstraße München` | Hackenviertel, Oberschleißheim, Feldkirchen, Aschheim, Pullach | 5,0 ms |
+| `Museumstraße Innsbruck` | Museumstraße, Dreiheiligen | 1,3 ms |
+| `Erlerstraße Innsbruck` ohne Position | Erlerstraße in Innsbruck und in Hall in Tirol | 1,4 ms |
+| `Erlerstraße Innsbruck` mit Position | Innsbruck 219 m, Hall in Tirol 8595 m | 0,6 ms |
+| `Innsbruck Erlerstraße` | Erlerstraße in Innsbruck und in Hall in Tirol | 1,4 ms |
+| `Erlerstr Innsb` | Erlerstraße in Innsbruck und in Hall in Tirol | 1,2 ms |
+| `Innsbruck` | Orte Hungerburg und Innsbruck, Innsbruckblick, Innsbrucker Straße (Kreuzbichl), pm Innsbruck | 1,8 ms |
+| `Bozen` ohne Position | Ort Bolzano - Bozen, Bozenhaldenstraße, Bozener Platz, Bozener Straße, Bozenau | 1,1 ms |
 | `Bozen` mit Position in Bozen | Ort Bolzano - Bozen 20 m, dann POIs bis 242 m | 0,4 ms |
-| `Bolzano` ohne Position | Orte Bolzano, Bolzano - Bozen, Bolzano Bellunese, Via Bolzano, Viale Bolzano | 1,1 ms |
-| `Hostel Bergblick` | Hostel Bergblick, Kochel am See | 0,2 ms |
-| `ha` mit Position | daniel's haare 31 m, La Habana 75 m, Chaos Hairconcept 179 m, Buchhandlung Haymon 184 m, Schmuck Julius Hampl 191 m | 20,0 ms |
-| `ha` ohne Position | Orte Häusern, Häuser, Hauserdörfl, Haidenöster, Häggenschwil | 30,0 ms |
+| `Bolzano` ohne Position | Orte Bolzano, Bolzano Bellunese, Bozner Leitach - Costa, Piani di Bolzano - Bozner Boden, Bolzano - Bozen | 1,1 ms |
+| `Hostel Bergblick` | Hostel Bergblick, Kochel am See | 0,1 ms |
+| `ha` mit Position | daniel's haare 31 m, La Habana 75 m, Chaos Hairconcept 179 m, Buchhandlung Haymon 184 m, Schmuck Julius Hampl 191 m | 20,5 ms |
+| `ha` ohne Position | Orte Hänsenberg, Häusern, Häuser, Hauserdörfl, Haidenöster | 29,6 ms |
 | nächste Apotheken (`by_category`) | Zentral-Apotheke 33 m, St.-Anna-Apotheke 111 m, Stadtapotheke 294 m | 0,2 ms |
 
-- Cusco (`cusco-urlaub`, Position 13.5170 S, 71.9785 W, Limit 5): `Plaza de Armas` 40 m (0,2 ms),
-  `hostal` 182 bis 321 m (0,1 ms); `Cusco` ohne Position (0,4 ms) zeigt zuerst POIs mit Cusco im
-  Namen und keinen Ort, weil der Ort in OSM `Cuzco` heißt.
+Cusco (`cusco-fliegen`, Position 13.5170 S, 71.9785 W, Limit 5):
+
+| Abfrage | Ergebnis | Zeit |
+| --- | --- | --- |
+| `Cusco` ohne Position | Ort Cuzco, Avenida Cusco, Reserv Cusco, Pariwana Cusco, Viajes Cusco | 0,8 ms |
+| `Cuzco` ohne Position | Ort Cuzco, dann POIs mit Cuzco im Namen | 0,5 ms |
+| `Qusqu` ohne Position | Ort Cuzco | 0,1 ms |
+| `Plaza Cusco` mit Position | Plaza de Armas 40 m, Plaza Café 70 m, Cuzco Plaza Hostel 78 m, Casa Andina Standard Cusco Plaza 122 m, Plaza Kusipata 166 m | 0,2 ms |
+| `Plaza de Armas` mit Position | Plaza de Armas 40 m, Plaza de Armas San Sebastián 4651 m | 0,2 ms |
+| `hostal` mit Position | fünf Treffer von 182 bis 321 m | 0,1 ms |
 
 Base mit fehlenden Höhendaten (Release-Build, temporäres Datenverzeichnis, Kartenausschnitt und
 10 s Kartenbewegung über die vorhandenen Diagnosen, Anfragen vorübergehend mitprotokolliert):
@@ -254,6 +263,14 @@ Base mit fehlenden Höhendaten (Release-Build, temporäres Datenverzeichnis, Kar
 | Urlaubspaket, Kartenbewegung | 71, 95, 2-mal | 0, 0, – |
 | gemischt (`mini` und `cusco-urlaub`), Ausschnitt | 6, 28, 1-mal | 0, 26, 1-mal |
 | Rand der Höhendaten (`mini`), Kartenbewegung | 30, 41, 3-mal | 0, 27, 1-mal |
+
+Höhenlinien nach Änderung der Höhendaten, ohne Neustart (gleicher Ausschnitt bei Cusco, Zoom 13,
+Anzahl der Linienstücke in der Kartenquelle; Region `cusco` über die Oberfläche geladen und gelöscht):
+
+| Stand | vor dem Laden | nach dem Laden | nach dem Löschen |
+| --- | --- | --- | --- |
+| ohne Leeren des Zwischenspeichers | 0 | 0 | 0 |
+| mit Leeren des Zwischenspeichers | 0 | 319 | 0 |
 
 ## Rohdaten
 
