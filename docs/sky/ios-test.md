@@ -345,6 +345,16 @@ Im Simulator geprüft (Download, Anzeige auf der Karte); auf dem iPhone zu prüf
    „Aktualisieren“.
 6. „Löschen“ (zweimal tippen): Region verschwindet aus Liste, Karte und App „Dateien“.
 
+**Ergebnis gegen die echte Freigabe von ZeroGrid Base auf Linux (23.11.2026, iPhone):**
+
+- Bestanden: Verbinden per QR-Code, Laden, Abbrechen und Fortsetzen, Anzeige offline.
+- Bestanden: Die neu gebaute Region `poebene-mitte-ost` zeigt Seilbahnen und die übrigen
+  Objekte des Flug-Layers.
+- Vom Nutzer beobachtet: Zoomen, Verschieben und App-Start bleiben flüssig mit den
+  Lufträumen von Deutschland, Österreich und Italien und drei Kartenregionen.
+- Noch nicht ausdrücklich bestätigt: „Aktualisieren“ gegen Base (Schritt 5), Sperren
+  während des Ladens (Schritt 4) und „Löschen“ (Schritt 6).
+
 ## 6. Bewertung
 
 | Ergebnis | Folge |

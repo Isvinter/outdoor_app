@@ -3,6 +3,9 @@
 > Seit der Zusammenführung liegen Base, Trail und Sky in einem Repository (`apps/base`,
 > `apps/trail`, `apps/sky`). `outdoor_app` meint unten ZeroGrid Base, und `core-maps` ist
 > kein Git-Pin mehr, sondern ein lokaler Pfad. Die Befehle laufen im Wurzelordner.
+>
+> **Stand 23.11.2026:** Die Übertragung mit der echten Base-App ist auf dem iPhone geprüft,
+> und Sky scannt den QR-Code. Ergebnis und Restpunkte: `docs/sky/ios-test.md`.
 
 Für die Weiterarbeit auf dem Linux-Rechner. Ziel des nächsten Schritts: Regionen von der
 outdoor_app auf dem Linux-Desktop (künftig **ZeroGrid Base**) per WLAN auf **ZeroGrid Sky**
