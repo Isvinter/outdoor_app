@@ -30,5 +30,9 @@
          runs in Rust on plain sockets, which ATS does not cover.) -->
     <key>NSLocalNetworkUsageDescription</key>
     <string>Lädt Kartenregionen von ZeroGrid Base am Computer im Heimnetz.</string>
+
+    <!-- Scanning the QR code of the share of ZeroGrid Base. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Liest den QR-Code der Freigabe in ZeroGrid Base.</string>
 </dict>
 </plist>

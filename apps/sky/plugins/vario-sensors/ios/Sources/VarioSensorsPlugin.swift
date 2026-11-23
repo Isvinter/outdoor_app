@@ -15,6 +15,7 @@ import CoreMotion
 import SwiftRs
 import Tauri
 import UIKit
+import VisionKit
 import WebKit
 
 // MARK: - Rust functions (crates/sensor-bridge/src/lib.rs)
@@ -353,10 +354,141 @@ private func currentPermissions() -> JSObject {
   ]
 }
 
+// MARK: - QR code of the share
+
+/// The address in a scanned QR code, or nil if it is none: only `http://` and `https://`,
+/// with a host, without spaces. Sorts out foreign codes (a WLAN, a ticket, a shop); Rust
+/// puts the address into shape. Same rule as `ShareAddress` in ZeroGrid Trail.
+private func shareAddress(in scanned: String) -> String? {
+  let text = scanned.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard !text.isEmpty, !text.contains(where: \.isWhitespace),
+    let parts = URLComponents(string: text),
+    let scheme = parts.scheme?.lowercased(), scheme == "http" || scheme == "https",
+    let host = parts.host, !host.isEmpty
+  else { return nil }
+  return text
+}
+
+private let typeAddressInstead = "Die Adresse lässt sich stattdessen von Hand eintragen."
+
+/// Says why the camera cannot scan, or nil if it can. Asks for the camera the first time.
+@available(iOS 16.0, *)
+@MainActor
+private func qrScannerProblem() async -> String? {
+  guard DataScannerViewController.isSupported else {
+    return "Dieses Gerät kann keine QR-Codes scannen. \(typeAddressInstead)"
+  }
+  var status = AVCaptureDevice.authorizationStatus(for: .video)
+  if status == .notDetermined {
+    status = await AVCaptureDevice.requestAccess(for: .video) ? .authorized : .denied
+  }
+  guard status == .authorized else {
+    return
+      "Kein Zugriff auf die Kamera – in den Einstellungen unter ZeroGrid Sky erlauben. \(typeAddressInstead)"
+  }
+  guard DataScannerViewController.isAvailable else {
+    return "Die Kamera ist gerade nicht verfügbar. \(typeAddressInstead)"
+  }
+  return nil
+}
+
+/// The camera on a full screen, looking for the QR code ZeroGrid Base shows beside its
+/// share. Foreign codes are passed over with a hint. `done` is called exactly once.
+@available(iOS 16.0, *)
+@MainActor
+private final class QrScanSession: NSObject, DataScannerViewControllerDelegate {
+  private let done: (JSObject) -> Void
+  private var finished = false
+  private let hint = UILabel()
+  private let scanner = DataScannerViewController(
+    recognizedDataTypes: [.barcode(symbologies: [.qr])], qualityLevel: .balanced,
+    recognizesMultipleItems: false, isHighFrameRateTrackingEnabled: false,
+    isHighlightingEnabled: true)
+
+  init(done: @escaping (JSObject) -> Void) {
+    self.done = done
+    super.init()
+  }
+
+  func present(from parent: UIViewController) {
+    scanner.delegate = self
+    scanner.title = "QR-Code scannen"
+    scanner.navigationItem.leftBarButtonItem = UIBarButtonItem(
+      title: "Abbrechen", style: .plain, target: self, action: #selector(cancel))
+    showHint()
+    let navigation = UINavigationController(rootViewController: scanner)
+    navigation.modalPresentationStyle = .fullScreen
+    parent.present(navigation, animated: true) { [self] in
+      do {
+        try scanner.startScanning()
+      } catch {
+        finish(["message": "Die Kamera ließ sich nicht starten. \(typeAddressInstead)"])
+      }
+    }
+  }
+
+  private func showHint() {
+    hint.text = "Halte die Kamera auf den QR-Code in ZeroGrid Base."
+    hint.numberOfLines = 0
+    hint.textAlignment = .center
+    hint.textColor = .white
+    hint.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+    hint.layer.cornerRadius = 12
+    hint.clipsToBounds = true
+    hint.translatesAutoresizingMaskIntoConstraints = false
+    let overlay = scanner.overlayContainerView
+    overlay.addSubview(hint)
+    NSLayoutConstraint.activate([
+      hint.leadingAnchor.constraint(equalTo: overlay.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+      hint.trailingAnchor.constraint(
+        equalTo: overlay.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+      hint.bottomAnchor.constraint(equalTo: overlay.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+      hint.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
+    ])
+  }
+
+  @objc private func cancel() {
+    finish([:])
+  }
+
+  private func finish(_ result: JSObject) {
+    guard !finished else { return }
+    finished = true
+    scanner.stopScanning()
+    scanner.dismiss(animated: true) { [done] in
+      done(result)
+    }
+  }
+
+  func dataScanner(
+    _ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem],
+    allItems: [RecognizedItem]
+  ) {
+    for item in addedItems {
+      guard case .barcode(let code) = item, let text = code.payloadStringValue else { continue }
+      if let address = shareAddress(in: text) {
+        finish(["address": address])
+        return
+      }
+      hint.text = "Das ist kein Code der Freigabe. Er steht in ZeroGrid Base unter Karten → Im Heimnetz freigeben."
+    }
+  }
+
+  func dataScanner(
+    _ dataScanner: DataScannerViewController,
+    becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable
+  ) {
+    finish(["message": "Die Kamera ist gerade nicht verfügbar. \(typeAddressInstead)"])
+  }
+}
+
 // MARK: - Tauri plugin
 
 class VarioSensorsPlugin: Plugin {
   private var bridge: SensorBridge?
+  /// The open scanner (a `QrScanSession`); the delegate of the camera is only a weak
+  /// reference, so something has to keep it alive.
+  private var qrScan: AnyObject?
 
   @objc public func start(_ invoke: Invoke) {
     // Location and audio session must be set up on the main thread.
@@ -381,6 +513,34 @@ class VarioSensorsPlugin: Plugin {
         UIApplication.shared.open(url)
       }
       invoke.resolve()
+    }
+  }
+
+  /// Scans the QR code of the share; resolves when a code was found or the user cancelled.
+  @objc public func scanQr(_ invoke: Invoke) {
+    guard #available(iOS 16.0, *) else {
+      invoke.resolve(["message": "QR-Codes scannen braucht iOS 16. \(typeAddressInstead)"] as JSObject)
+      return
+    }
+    Task { @MainActor in
+      guard self.qrScan == nil else {
+        invoke.resolve(["message": "Der Scanner ist schon offen."] as JSObject)
+        return
+      }
+      if let problem = await qrScannerProblem() {
+        invoke.resolve(["message": problem] as JSObject)
+        return
+      }
+      guard let parent = self.manager.viewController else {
+        invoke.resolve(["message": "Der Scanner ließ sich nicht öffnen. \(typeAddressInstead)"] as JSObject)
+        return
+      }
+      let session = QrScanSession { [weak self] result in
+        self?.qrScan = nil
+        invoke.resolve(result)
+      }
+      self.qrScan = session
+      session.present(from: parent)
     }
   }
 

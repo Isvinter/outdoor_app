@@ -1105,7 +1105,7 @@ window.__TAURI__.event.listen("region-download", async ({ payload }) => {
   }
 });
 
-$("connect-map-source").addEventListener("click", async () => {
+async function connectMapSource() {
   try {
     const source = await invoke("set_map_source", { source: $("set-map-source").value });
     $("set-map-source").value = source;
@@ -1115,7 +1115,35 @@ $("connect-map-source").addEventListener("click", async () => {
   } catch (error) {
     $("regions-message").textContent = "Nicht übernommen: " + error;
   }
+}
+
+$("connect-map-source").addEventListener("click", connectMapSource);
+
+$("scan-map-source").addEventListener("click", async () => {
+  $("scan-map-source").disabled = true;
+  try {
+    const scan = await invoke("scan_map_source");
+    if (scan.address) {
+      $("set-map-source").value = scan.address;
+      await connectMapSource();
+    } else if (scan.message) {
+      $("regions-message").textContent = scan.message;
+    }
+  } catch (error) {
+    $("regions-message").textContent = "Scannen fehlgeschlagen: " + error;
+  } finally {
+    $("scan-map-source").disabled = false;
+  }
 });
+
+/** The scanner is a native part of the iPhone app; elsewhere the button stays hidden. */
+async function showQrScanner() {
+  try {
+    $("scan-map-source").hidden = !(await invoke("permissions")).native;
+  } catch (error) {
+    console.warn("permissions", error);
+  }
+}
 
 // ---- Polling ----
 //
@@ -1152,6 +1180,7 @@ async function init() {
   onlineStyleUrl = await invoke("get_map_style");
   $("set-map-style").value = onlineStyleUrl;
   $("set-map-source").value = await invoke("get_map_source");
+  showQrScanner();
   // The desktop is asked only when the settings are opened: on iOS the first
   // connection asks for the local network permission.
   await updateMapStyle();

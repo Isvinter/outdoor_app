@@ -11,6 +11,9 @@ links = "tauri-plugin-vario-sensors"
 tauri = { version = "2" }
 serde = { workspace = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
 
