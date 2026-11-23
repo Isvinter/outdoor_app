@@ -10,6 +10,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     let mapView: MLNMapView
     /// The planned route on this map.
     let route: RouteOverlay
+    /// The search hits on this map.
+    let searchOverlay: SearchOverlay
     private let core: CoreApp
 
     @Published private(set) var base: MapBase = .summer
@@ -72,6 +74,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         self.core = core
         mapView = MLNMapView(frame: .zero)
         route = RouteOverlay(mapView: mapView)
+        searchOverlay = SearchOverlay(mapView: mapView)
         dark = UserDefaults.standard.bool(forKey: Self.darkKey)
         reliefStrength = UserDefaults.standard.double(forKey: Self.reliefKey)
         super.init()
@@ -263,6 +266,11 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         applySlopeOpacity()
         applyRelief()
         route.styleLoaded(style)
+        searchOverlay.styleLoaded(style)
+    }
+
+    func mapView(_ mapView: MLNMapView, regionWillChangeWith reason: MLNCameraChangeReason, animated: Bool) {
+        searchOverlay.mapWillMove(reason: reason)
     }
 
     func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {

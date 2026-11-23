@@ -135,6 +135,12 @@ final class PlanController: ObservableObject {
     private let newest = Newest()
     /// From the user's input to the drawn route, per computed plan; for the self-test.
     private(set) var planTimes: [TimeInterval] = []
+    /// Asked first about a tap on the map; true means it has been dealt with.
+    var interceptTap: ((CLLocationCoordinate2D) -> Bool)?
+    /// A tap on the map that sets no waypoint.
+    var onFreeTap: ((CLLocationCoordinate2D) -> Void)?
+
+    private static let lastProfileKey = "lastRouteProfile"
 
     init(core: CoreApp, map: MapController) {
         self.core = core
@@ -143,8 +149,12 @@ final class PlanController: ObservableObject {
         self.profiles = profiles
         profile = profiles.first { $0.profile == "hike" }?.available == true ? "hike" : "manual"
         overlay.onTap = { [weak self] at in
-            guard let self, self.picking else { return }
-            self.addWaypoint(at)
+            guard let self, self.interceptTap?(at) != true else { return }
+            if self.picking {
+                self.addWaypoint(at)
+            } else {
+                self.onFreeTap?(at)
+            }
         }
         overlay.onWaypointTap = { [weak self] index in self?.menuWaypoint = index }
         overlay.onWaypointMove = { [weak self] index, to in self?.moveWaypoint(index, to: to) }
@@ -186,6 +196,7 @@ final class PlanController: ObservableObject {
         guard !replacing, profile != self.profile else { return }
         self.profile = profile
         options = [:]
+        if profile != "manual" { UserDefaults.standard.set(profile, forKey: Self.lastProfileKey) }
         formChanged()
     }
 
@@ -254,6 +265,62 @@ final class PlanController: ObservableObject {
         loaded = nil
         let core = core
         queue.async { core.startNewRoute() }
+        compute()
+    }
+
+    // MARK: Route to a search result
+
+    var isReplacingRoute: Bool { replacing }
+
+    /// A new route from `from` to `to`, in place of the one on the map.
+    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
+        guard !replacing else { return }
+        useRouteHereProfile()
+        picking = false
+        loaded = nil
+        let leg = formLeg
+        let first = planAddWaypoint(request: planEmpty(), at: LatLon(lat: from.latitude, lon: from.longitude), leg: leg)
+        request = planAddWaypoint(request: first, at: LatLon(lat: to.latitude, lon: to.longitude), leg: leg)
+        let core = core
+        queue.async { core.startNewRoute() }
+        compute()
+    }
+
+    /// `to` becomes the next destination of the route on the map.
+    func appendTarget(_ to: CLLocationCoordinate2D) {
+        guard !replacing else { return }
+        useRouteHereProfile()
+        picking = false
+        request = planAddWaypoint(request: request, at: LatLon(lat: to.latitude, lon: to.longitude), leg: formLeg)
+        compute()
+    }
+
+    /// The form shows the last profile. The open route stays as it is.
+    private func useRouteHereProfile() {
+        let available = { [profiles] (name: String?) -> Bool in
+            name != nil && name != "manual" && profiles.contains { $0.profile == name && $0.available }
+        }
+        let last = UserDefaults.standard.string(forKey: Self.lastProfileKey)
+        guard let chosen = available(last) ? last : available("hike") ? "hike" : nil, chosen != profile else { return }
+        profile = chosen
+        options = [:]
+    }
+
+    /// The first leg that failed in a way a straight line can stand in for.
+    var straightLineLeg: Int? {
+        guard !planning else { return nil }
+        return plan?.legs.firstIndex { leg in leg.errorCode.map { legCanConnectStraight(code: $0) } ?? false }
+    }
+
+    func straightLineText(leg: Int) -> String {
+        plan?.legs[leg].errorCode == "routing_unavailable"
+            ? "Für dieses Stück gibt es keine Routing-Daten."
+            : "Keine Route gefunden. Versuche ein anderes Profil, verschiebe den Punkt oder verbinde gerade."
+    }
+
+    func connectStraight(leg: Int) {
+        guard !replacing, request.legs.indices.contains(leg) else { return }
+        request = planSetLeg(request: request, index: UInt32(leg), leg: LegInput(profile: "manual", options: []))
         compute()
     }
 
