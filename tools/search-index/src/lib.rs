@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use classify::Tags;
 use streets::Streets;
-use towns::Towns;
+use towns::{Located, Rank, Towns};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
@@ -42,6 +42,8 @@ pub enum BuildError {
 struct Feature {
     id: Option<String>,
     tags: Tags,
+    /// The outer coordinates, `(lat, lon)`.
+    vertices: Vec<(f64, f64)>,
     /// Mean of the outer coordinates, `(lat, lon)`.
     position: Option<(f64, f64)>,
 }
@@ -53,57 +55,61 @@ fn parse_line(text: &str) -> Result<Feature, String> {
         _ => Tags::new(),
     };
     let id = value.get("id").and_then(Value::as_str).map(str::to_string);
-    let position = value.get("geometry").and_then(position_of);
-    Ok(Feature { id, tags, position })
+    let vertices = value
+        .get("geometry")
+        .and_then(outer_vertices)
+        .unwrap_or_default();
+    let position = mean(&vertices);
+    Ok(Feature {
+        id,
+        tags,
+        vertices,
+        position,
+    })
 }
 
-/// Mean of the outer coordinates of a geometry, `(lat, lon)`.
-fn position_of(geometry: &Value) -> Option<(f64, f64)> {
+/// The outer coordinates of a geometry, `(lat, lon)`.
+fn outer_vertices(geometry: &Value) -> Option<Vec<(f64, f64)>> {
     let coordinates = geometry.get("coordinates")?;
-    let mut sum = Sum::default();
+    let mut vertices = Vec::new();
     match geometry.get("type")?.as_str()? {
-        "Point" => sum.position(coordinates),
-        "LineString" => sum.positions(coordinates),
-        "Polygon" => sum.positions(coordinates.get(0)?),
+        "Point" => push_vertex(&mut vertices, coordinates),
+        "LineString" => push_vertices(&mut vertices, coordinates),
+        "Polygon" => push_vertices(&mut vertices, coordinates.get(0)?),
         "MultiPolygon" => {
             for polygon in coordinates.as_array()? {
-                sum.positions(polygon.get(0)?);
+                push_vertices(&mut vertices, polygon.get(0)?);
             }
         }
         _ => return None,
     }
-    sum.mean()
+    Some(vertices)
 }
 
-#[derive(Default)]
-struct Sum {
-    lat: f64,
-    lon: f64,
-    count: u32,
+fn push_vertex(vertices: &mut Vec<(f64, f64)>, position: &Value) {
+    if let (Some(lon), Some(lat)) = (
+        position.get(0).and_then(Value::as_f64),
+        position.get(1).and_then(Value::as_f64),
+    ) {
+        vertices.push((lat, lon));
+    }
 }
 
-impl Sum {
-    fn position(&mut self, position: &Value) {
-        if let (Some(lon), Some(lat)) = (
-            position.get(0).and_then(Value::as_f64),
-            position.get(1).and_then(Value::as_f64),
-        ) {
-            self.lat += lat;
-            self.lon += lon;
-            self.count += 1;
-        }
+fn push_vertices(vertices: &mut Vec<(f64, f64)>, list: &Value) {
+    for position in list.as_array().into_iter().flatten() {
+        push_vertex(vertices, position);
     }
+}
 
-    fn positions(&mut self, list: &Value) {
-        for position in list.as_array().into_iter().flatten() {
-            self.position(position);
-        }
+fn mean(vertices: &[(f64, f64)]) -> Option<(f64, f64)> {
+    if vertices.is_empty() {
+        return None;
     }
-
-    fn mean(&self) -> Option<(f64, f64)> {
-        let n = f64::from(self.count);
-        (self.count > 0).then(|| (self.lat / n, self.lon / n))
-    }
+    let n = vertices.len() as f64;
+    let (lat, lon) = vertices
+        .iter()
+        .fold((0.0, 0.0), |sum, v| (sum.0 + v.0, sum.1 + v.1));
+    Some((lat / n, lon / n))
 }
 
 /// The OSM object an id stands for. osmium numbers areas `a<2n>` for way `n`
@@ -170,6 +176,7 @@ struct Place {
     lat: f64,
     lon: f64,
     radius: f64,
+    rank: Rank,
 }
 
 /// Builds the search file `output` from `input`. The file is written as
@@ -205,8 +212,8 @@ fn build_into(
     // Pass 1: the places. A feature that is also a POI counts as POI only.
     let mut places: Vec<Place> = Vec::new();
     read_features(input, &mut HashSet::new(), |f| {
-        if let (Some(radius), Some(name), Some((lat, lon)), None) = (
-            classify::place_radius(&f.tags),
+        if let (Some((radius, rank)), Some(name), Some((lat, lon)), None) = (
+            classify::place(&f.tags),
             classify::name(&f.tags),
             f.position,
             classify::poi(&f.tags),
@@ -217,6 +224,7 @@ fn build_into(
                 lat,
                 lon,
                 radius,
+                rank,
             });
         }
         Ok(())
@@ -232,7 +240,13 @@ fn build_into(
     let mut writer = SearchWriter::create(tmp, osm_timestamp)?;
     let mut towns = Towns::default();
     for place in places {
-        towns.add(&place.name, place.lat, place.lon, place.radius);
+        towns.add(
+            &place.name,
+            &place.alt_names,
+            place.rank,
+            (place.lat, place.lon),
+            place.radius,
+        );
         writer.add(&Entry {
             kind: Kind::Place,
             category: None,
@@ -240,6 +254,7 @@ fn build_into(
             name: place.name,
             alt_names: place.alt_names,
             town: None,
+            town_names: Vec::new(),
             lat: place.lat,
             lon: place.lon,
         })?;
@@ -254,33 +269,45 @@ fn build_into(
         };
         let name = classify::name(&f.tags).unwrap_or("");
         if let Some((category, subtype)) = classify::poi(&f.tags) {
+            let mut alt_names = classify::alt_names(&f.tags, name);
+            // Without a name, the first other name is what the entry shows.
+            let display = if name.is_empty() && !alt_names.is_empty() {
+                alt_names.remove(0)
+            } else {
+                name.to_string()
+            };
+            let Located { town, town_names } = towns.locate(lat, lon);
+            info.named_pois += u64::from(!display.is_empty());
             writer.add(&Entry {
                 kind: Kind::Poi,
                 category: Some(category),
                 subtype: Some(subtype),
-                name: name.to_string(),
-                alt_names: classify::alt_names(&f.tags, name),
-                town: towns.nearest(lat, lon).map(str::to_string),
+                name: display,
+                alt_names,
+                town,
+                town_names,
                 lat,
                 lon,
             })?;
             info.pois += 1;
-            info.named_pois += u64::from(!name.is_empty());
         } else if classify::place_radius(&f.tags).is_none()
             && classify::is_street(&f.tags)
             && !name.is_empty()
         {
-            streets.add(name, classify::alt_names(&f.tags, name), lat, lon);
+            let alt_names = classify::alt_names(&f.tags, name);
+            streets.add(name, alt_names, f.vertices);
         }
         Ok(())
     })?;
 
     for street in streets.into_merged() {
+        let Located { town, town_names } = towns.locate(street.lat, street.lon);
         writer.add(&Entry {
             kind: Kind::Street,
             category: None,
             subtype: None,
-            town: towns.nearest(street.lat, street.lon).map(str::to_string),
+            town,
+            town_names,
             name: street.name,
             alt_names: street.alt_names,
             lat: street.lat,

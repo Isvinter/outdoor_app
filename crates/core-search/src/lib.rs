@@ -93,7 +93,11 @@ pub struct Entry {
     pub subtype: Option<String>,
     pub name: String,
     pub alt_names: Vec<String>,
+    /// The town shown with the entry.
     pub town: Option<String>,
+    /// All names the entry is found under in the town column, for example the
+    /// suburb and the city around it. Never shown, and never a match alone.
+    pub town_names: Vec<String>,
     pub lat: f64,
     pub lon: f64,
 }

@@ -3,6 +3,8 @@
 use core_search::Category;
 use serde_json::{Map, Value};
 
+use crate::towns::Rank;
+
 pub type Tags = Map<String, Value>;
 
 /// The string value of a tag.
@@ -72,15 +74,18 @@ const SIGHTS: &[(&str, &[&str])] = &[
 ];
 
 /// Place values and the radius in metres in which a place names its surroundings.
-const PLACES: &[(&str, f64)] = &[
-    ("city", 15_000.0),
-    ("town", 8_000.0),
-    ("suburb", 4_000.0),
-    ("village", 4_000.0),
-    ("quarter", 2_000.0),
-    ("neighbourhood", 2_000.0),
-    ("hamlet", 2_000.0),
+const PLACES: &[(&str, f64, Rank)] = &[
+    ("city", 15_000.0, Rank::City),
+    ("town", 8_000.0, Rank::Town),
+    ("suburb", 4_000.0, Rank::Part),
+    ("village", 4_000.0, Rank::Village),
+    ("quarter", 2_000.0, Rank::Part),
+    ("neighbourhood", 2_000.0, Rank::Part),
+    ("hamlet", 2_000.0, Rank::Part),
 ];
+
+/// Values of `shop` that say there is no shop (any more).
+const NOT_A_SHOP: &[&str] = &["vacant", "no", "disused"];
 
 const STREETS: &[&str] = &[
     "motorway",
@@ -116,14 +121,26 @@ pub fn poi(tags: &Tags) -> Option<(Category, String)> {
             (tag(tags, "amenity") == Some("parking") && tag(tags, "access") != Some("private"))
                 .then(|| (Category::Parking, "amenity=parking".to_string()))
         })
-        .or_else(|| tag(tags, "shop").map(|v| (Category::Retail, format!("shop={v}"))))
+        .or_else(|| {
+            tag(tags, "shop")
+                .filter(|v| !NOT_A_SHOP.contains(v))
+                .map(|v| (Category::Retail, format!("shop={v}")))
+        })
         .or_else(|| found(Category::Sights, SIGHTS))
+}
+
+/// Radius and rank of a `place` tag, if it is one that is indexed.
+pub fn place(tags: &Tags) -> Option<(f64, Rank)> {
+    let value = tag(tags, "place")?;
+    PLACES
+        .iter()
+        .find(|(v, _, _)| *v == value)
+        .map(|(_, radius, rank)| (*radius, *rank))
 }
 
 /// The radius of a `place` tag, if it is one that is indexed.
 pub fn place_radius(tags: &Tags) -> Option<f64> {
-    let value = tag(tags, "place")?;
-    PLACES.iter().find(|(v, _)| *v == value).map(|(_, r)| *r)
+    place(tags).map(|(radius, _)| radius)
 }
 
 pub fn is_street(tags: &Tags) -> bool {

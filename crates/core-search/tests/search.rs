@@ -12,6 +12,7 @@ fn entry(kind: Kind, name: &str, lat: f64, lon: f64) -> Entry {
         name: name.to_string(),
         alt_names: Vec::new(),
         town: None,
+        town_names: Vec::new(),
         lat,
         lon,
     }
@@ -72,6 +73,43 @@ fn umlauts_and_sharp_s() {
     assert!(index_terms("München").contains(&"muenchen".to_string()));
     assert!(index_terms("München").contains(&"munchen".to_string()));
     assert!(index_terms("Hauptstr.").contains(&"hauptstrasse".to_string()));
+}
+
+#[test]
+fn every_town_name_is_searchable_but_only_the_town_is_shown() {
+    let dir = tempfile_dir("town-names");
+    let mut street = entry(Kind::Street, "Testgasse", 48.0, 11.0);
+    street.town = Some("Lehel".into());
+    street.town_names = vec!["Lehel".into(), "München".into(), "Munich".into()];
+    let index = SearchIndex::open(&build(&dir, &[street])).unwrap();
+    for text in ["Testgasse Lehel", "Testgasse München", "Testgasse Munich"] {
+        let hits = index.search(text, None, 5).unwrap();
+        assert_eq!(names(&hits), ["Testgasse"], "{text}");
+        assert_eq!(hits[0].town.as_deref(), Some("Lehel"), "{text}");
+    }
+    assert!(
+        index
+            .search("Testgasse Berlin", None, 5)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(index.search("München", None, 5).unwrap().is_empty());
+}
+
+#[test]
+fn best_match_comes_first_whatever_the_order_of_the_rows() {
+    let dir = tempfile_dir("rank-order");
+    // The short name is the better match but is stored last.
+    let long = entry(
+        Kind::Poi,
+        "Alpen Haus Hof Hütte Stube Keller Garten",
+        48.0,
+        11.0,
+    );
+    let short = entry(Kind::Poi, "Alpen", 47.0, 11.0);
+    let index = SearchIndex::open(&build(&dir, &[long, short])).unwrap();
+    let hits = index.search("Alpen", None, 5).unwrap();
+    assert_eq!(hits[0].name, "Alpen");
 }
 
 #[test]

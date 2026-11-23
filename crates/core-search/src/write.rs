@@ -76,15 +76,17 @@ impl SearchWriter {
         // An entry without a name is found by category only; its town alone
         // never makes it a match.
         if !terms.is_empty() {
-            let town_terms = entry
-                .town
-                .as_deref()
-                .map(index_terms)
-                .unwrap_or_default()
-                .join(" ");
+            let mut town_terms: Vec<String> = Vec::new();
+            for town in entry.town.iter().chain(&entry.town_names) {
+                for term in index_terms(town) {
+                    if !town_terms.contains(&term) {
+                        town_terms.push(term);
+                    }
+                }
+            }
             self.conn
                 .prepare_cached("INSERT INTO name_terms (rowid, name, town) VALUES (?1, ?2, ?3)")?
-                .execute(params![id, terms.join(" "), town_terms])?;
+                .execute(params![id, terms.join(" "), town_terms.join(" ")])?;
         }
         self.next_id += 1;
         Ok(())
