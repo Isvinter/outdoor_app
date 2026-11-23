@@ -256,3 +256,113 @@ fn shops_that_are_not_open_are_left_out() {
     let names: Vec<&str> = hits.iter().map(|h| h.name.as_str()).collect();
     assert_eq!(names, ["Offen"]);
 }
+
+/// The node of Cusco as OSM has it, and a street beside it.
+fn cusco() -> Vec<Value> {
+    vec![
+        node(
+            1,
+            json!({
+                "place": "city",
+                "name": "Cuzco",
+                "official_name": "Cusco",
+                "name:it": "Cusco",
+                "name:qu": "Qusqu",
+                "name:ru": "Куско",
+                "name:left": "Linksname",
+            }),
+            -13.517,
+            -71.978,
+        ),
+        way(10, "Plaza Mayor", &[(-13.517, -71.977), (-13.517, -71.976)]),
+    ]
+}
+
+fn places(index: &SearchIndex, text: &str) -> Vec<String> {
+    index
+        .search(text, None, 20)
+        .unwrap()
+        .into_iter()
+        .filter(|h| h.kind == Kind::Place)
+        .map(|h| h.name)
+        .collect()
+}
+
+#[test]
+fn a_place_is_found_under_all_its_names() {
+    let index = index("place-names", &cusco());
+    for text in ["Cusco", "Cuzco", "Qusqu", "Куско"] {
+        assert_eq!(places(&index, text), ["Cuzco"], "{text}");
+    }
+}
+
+#[test]
+fn only_language_tags_count_as_names_of_a_place() {
+    let index = index("place-language-tags", &cusco());
+    assert!(places(&index, "Linksname").is_empty());
+}
+
+#[test]
+fn a_place_is_found_under_its_local_and_old_name() {
+    let index = index(
+        "place-old-names",
+        &[node(
+            1,
+            json!({ "place": "town", "name": "Neustadt", "loc_name": "Noistadt", "old_name": "Altburg;Vorburg" }),
+            48.0,
+            11.0,
+        )],
+    );
+    for text in ["Noistadt", "Altburg", "Vorburg"] {
+        assert_eq!(places(&index, text), ["Neustadt"], "{text}");
+    }
+}
+
+#[test]
+fn a_street_is_found_with_the_official_name_of_its_town() {
+    let index = index("street-official-town", &cusco());
+    let hits = streets(&index, "Plaza Cusco");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].town.as_deref(), Some("Cuzco"));
+}
+
+#[test]
+fn the_languages_of_a_city_stay_out_of_the_town_column() {
+    let index = index("street-town-languages", &cusco());
+    assert!(streets(&index, "Plaza Куско").is_empty());
+    assert!(streets(&index, "Plaza Qusqu").is_empty());
+}
+
+#[test]
+fn streets_and_pois_add_only_the_official_name() {
+    let tags = json!({
+        "tourism": "hostel",
+        "name": "Casa",
+        "official_name": "Hospedaje Oficial",
+        "name:fr": "Maison",
+        "old_name": "Vieja",
+    });
+    let mut street = way(11, "Calle Corta", &[(48.0, 11.0), (48.0, 11.001)]);
+    street["properties"]["official_name"] = json!("Calle Larga Oficial");
+    street["properties"]["name:fr"] = json!("Rue Courte");
+    let index = index("poi-official", &[node(1, tags, 47.0, 11.0), street]);
+    assert_eq!(index.search("Hospedaje", None, 5).unwrap().len(), 1);
+    assert!(index.search("Maison", None, 5).unwrap().is_empty());
+    assert!(index.search("Vieja", None, 5).unwrap().is_empty());
+    assert_eq!(streets(&index, "Larga").len(), 1);
+    assert!(streets(&index, "Rue").is_empty());
+}
+
+#[test]
+fn names_that_differ_only_in_spelling_count_once() {
+    let features = [node(
+        1,
+        json!({ "tourism": "hostel", "name": "Café Süd", "official_name": "CAFE SUD", "name:en": "Cafe Sud" }),
+        48.0,
+        11.0,
+    )];
+    let index = index("normalised-names", &features);
+    let hits = index.search("Cafe", None, 5).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].name, "Café Süd");
+}

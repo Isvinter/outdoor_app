@@ -172,7 +172,10 @@ fn read_features(
 /// What a place needs from the first pass.
 struct Place {
     name: String,
+    /// The short list, used when a street or POI is searched with this town.
     alt_names: Vec<String>,
+    /// Every name the place itself is found under.
+    search_names: Vec<String>,
     lat: f64,
     lon: f64,
     radius: f64,
@@ -221,6 +224,7 @@ fn build_into(
             places.push(Place {
                 name: name.to_string(),
                 alt_names: classify::alt_names(&f.tags, name),
+                search_names: classify::place_names(&f.tags, name),
                 lat,
                 lon,
                 radius,
@@ -252,7 +256,7 @@ fn build_into(
             category: None,
             subtype: None,
             name: place.name,
-            alt_names: place.alt_names,
+            alt_names: place.search_names,
             town: None,
             town_names: Vec::new(),
             lat: place.lat,
