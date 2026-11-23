@@ -134,13 +134,18 @@ final class MapUITests: XCTestCase {
         let app = XCUIApplication.selftest(withMini: true, fixture: "mini-contours", zoom: 13)
         app.waitForStatus("map rendered") { $0.rendered }
         app.buttons["look-dark"].tap()
-        app.waitForStatus("dark map rendered") { $0.values["dark"] == "1" && $0.rendered && $0.values["relief"] == "0" }
+        // Without relief, the dark map still draws the contour lines.
+        app.waitForStatus("dark map with contour lines, no relief") {
+            $0.values["dark"] == "1" && $0.rendered && $0.values["relief"] == "0" && $0.int("contours") > 0
+        }
 
         let slider = app.sliders["relief-strength"]
         slider.adjust(toNormalizedSliderPosition: 0.7)
         app.waitForStatus("relief shown", timeout: 5) { $0.values["relief"] == "1" }
         slider.adjust(toNormalizedSliderPosition: 0)
-        app.waitForStatus("relief hidden", timeout: 5) { $0.values["relief"] == "0" }
+        app.waitForStatus("relief hidden, contour lines kept", timeout: 5) {
+            $0.values["relief"] == "0" && $0.int("contours") > 0
+        }
     }
 
     func testReliefWithoutContours() {

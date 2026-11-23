@@ -74,7 +74,7 @@ const FlightMap = (() => {
     },
   };
   // The layers of the relief, as in `RELIEF_LAYERS` of core-maps.
-  const RELIEF_LAYERS = ["hillshade", "contour-minor", "contour-major", "contour-label"];
+  const RELIEF_LAYERS = ["hillshade"];
   const themeColors = () => OWN_COLORS[look.dark ? "dark" : "light"];
   // An online style stays light in the dark look, so what lies on it keeps the light colours.
   const isBlackMap = () => look.dark && (usingFallback || typeof styleUrl === "object");
@@ -497,6 +497,10 @@ const FlightMap = (() => {
         fallbackBackground: themeColors().fallback,
         relief: present.length
           ? present.some((layer) => map.getLayoutProperty(layer, "visibility") !== "none")
+          : null,
+        // Whether the contour lines show; `null` if the style has none.
+        contours: map && map.getLayer("contour-major")
+          ? map.getLayoutProperty("contour-major", "visibility") !== "none"
           : null,
         blackMap: isBlackMap(),
         trackColor: map && map.getLayer(TRACK_SOURCE + "-line")

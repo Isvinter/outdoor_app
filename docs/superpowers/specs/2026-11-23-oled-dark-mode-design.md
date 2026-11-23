@@ -87,9 +87,11 @@ wie die vorhandene Stilwahl.
 - Halos von Beschriftungen werden schwarz.
 - Die Raster-Ebene `slope` bleibt unberührt, ihre Farben stecken in den Kacheln.
 - Hillshade im Dunkelmodus: Schatten und Akzent schwarz, Licht als gedämpftes Grau.
-- Die Ebenen `hillshade`, `contour-minor`, `contour-major` und `contour-label` gehören zum
-  **Relief**. Im Dunkelmodus starten sie ausgeblendet (`visibility: none`), sodass ohne Relief
-  nichts für sie gezeichnet wird.
+- Die Ebene `hillshade` ist das **Relief**. Im Dunkelmodus startet sie ausgeblendet
+  (`visibility: none`), sodass ohne Relief nichts für sie gezeichnet wird.
+- Die Höhenlinien (`contour-minor`, `contour-major`, `contour-label`) bleiben im Dunkelmodus
+  immer sichtbar, wie in der hellen Karte. Ohne sie taugt die dunkle Karte abseits von
+  Straßen und Wegen nur zur groben Ortung (Ergebnis des iPhone-Tests vom 23.11.2026).
 
 ### `core-ffi`
 
@@ -100,8 +102,8 @@ wie die vorhandene Stilwahl.
 - `MapStyle.url` nimmt das Erscheinungsbild an. Der Cache-Dateiname enthält es.
 - `MapController` hält `appearance` und `reliefStrength` (0…1) und setzt beides nach jedem
   Laden eines Stils erneut, wie heute `slopeOpacity`.
-- Relief 0: Relief-Ebenen ausgeblendet. Über 0: eingeblendet, Hillshade-Stärke und Deckkraft
-  der Höhenlinien folgen dem Regler live, ohne den Stil neu zu laden.
+- Relief 0: Hillshade ausgeblendet. Über 0: eingeblendet, die Hillshade-Stärke folgt dem
+  Regler live, ohne den Stil neu zu laden. Die Höhenlinien hängen nicht vom Regler ab.
 - `.preferredColorScheme` folgt der Wahl.
 - Die Panels mit `.regularMaterial` zeigen im Dunkelmodus eine schwarze Fläche statt der
   Unschärfe, im hellen Modus bleiben sie wie heute.
@@ -154,5 +156,5 @@ Zoomen und Verschieben mit Relief an und aus.
 ## Dem Umsetzenden überlassen
 
 - Die konkreten Farbwerte der Palette innerhalb der Vorgaben.
-- Die genaue Abbildung des Reglers auf Hillshade-Stärke und Deckkraft der Höhenlinien.
+- Die genaue Abbildung des Reglers auf die Hillshade-Stärke.
 - Der Zuschnitt der Umschalter innerhalb der vorhandenen Leiste und Einstellungen.

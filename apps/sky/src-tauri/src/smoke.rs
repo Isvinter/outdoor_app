@@ -149,12 +149,15 @@ fn check_look(window: &tauri::WebviewWindow) {
           press("[data-look=dark]");
           await wait(2500);
           const relief = [FlightMap.lookState().relief];
+          const contours = [FlightMap.lookState().contours];
           press("[data-relief=on]");
           await wait(400);
           relief.push(FlightMap.lookState().relief);
+          contours.push(FlightMap.lookState().contours);
           press("[data-relief=off]");
           await wait(400);
           relief.push(FlightMap.lookState().relief);
+          contours.push(FlightMap.lookState().contours);
           const state = FlightMap.lookState();
           const banner = document.getElementById("warning");
           const before = [banner.hidden, banner.className];
@@ -176,6 +179,7 @@ fn check_look(window: &tauri::WebviewWindow) {
             background: getComputedStyle(document.body).backgroundColor,
             fallbackBackground: state.fallbackBackground,
             relief,
+            contours,
             ownLayers: state.ownLayers,
             trackKept: FlightMap.trackLength() >= trackBefore,
             blackMap: state.blackMap,

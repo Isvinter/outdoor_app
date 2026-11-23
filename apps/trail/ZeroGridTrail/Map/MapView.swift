@@ -22,7 +22,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     }
     /// The black OLED look of map and controls; remembered across starts.
     @Published private(set) var dark: Bool
-    /// How much relief the dark map shows, 0…1; at 0 it is not drawn at all.
+    /// How strongly the dark map shades the terrain, 0…1; at 0 it is not drawn at all.
+    /// Contour lines do not depend on it.
     @Published var reliefStrength: Double {
         didSet {
             UserDefaults.standard.set(reliefStrength, forKey: Self.reliefKey)
@@ -51,8 +52,9 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
 
     nonisolated private static let darkKey = "map.dark"
     nonisolated private static let reliefKey = "map.reliefStrength"
-    /// The layers of the relief, as `RELIEF_LAYERS` in core-maps.
-    private static let reliefLayers = ["hillshade", "contour-minor", "contour-major", "contour-label"]
+    /// The layers of the relief, as `RELIEF_LAYERS` in core-maps. Contour lines stay
+    /// visible in the dark map whatever the slider says.
+    private static let reliefLayers = ["hillshade"]
 
     /// Back to the look of a first start; for the UI tests.
     nonisolated static func resetLook() {
@@ -213,11 +215,6 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         guard visible else { return }
         let hillshade = style.layer(withIdentifier: "hillshade") as? MLNHillshadeStyleLayer
         hillshade?.hillshadeExaggeration = NSExpression(forConstantValue: 0.15 + 0.65 * reliefStrength)
-        let opacity = NSExpression(forConstantValue: 0.25 + 0.6 * reliefStrength)
-        for id in ["contour-minor", "contour-major"] {
-            (style.layer(withIdentifier: id) as? MLNLineStyleLayer)?.lineOpacity = opacity
-        }
-        (style.layer(withIdentifier: "contour-label") as? MLNSymbolStyleLayer)?.textOpacity = opacity
     }
 
     /// Whether the map draws the relief at the moment; for the self-test.

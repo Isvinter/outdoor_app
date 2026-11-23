@@ -162,6 +162,17 @@ fn relief_starts_hidden() {
 }
 
 #[test]
+fn contours_stay_visible_without_relief() {
+    for path in STYLES {
+        let style = dark(path);
+        for id in ["contour-minor", "contour-major", "contour-label"] {
+            let layer = layer(&style, id).unwrap();
+            assert_ne!(layer["layout"]["visibility"], "none", "{path} {id}");
+        }
+    }
+}
+
+#[test]
 fn relief_without_contours() {
     for path in STYLES {
         let style = fill(

@@ -15,12 +15,9 @@ pub enum Appearance {
 }
 
 /// The layers the relief control shows or hides. Hidden, they cost nothing to draw.
-pub const RELIEF_LAYERS: [&str; 4] = [
-    "hillshade",
-    "contour-minor",
-    "contour-major",
-    "contour-label",
-];
+/// Contour lines are not among them: the dark map keeps them, as the light one does,
+/// so that it stays usable for finding the way off roads and trails.
+pub const RELIEF_LAYERS: [&str; 1] = ["hillshade"];
 
 const BLACK: &str = "#000000";
 /// The lit side of the terrain, dimmed so that slopes do not outshine the trails.
@@ -178,7 +175,7 @@ fn recolor(value: &mut Value, layer: &str, property: &str) -> Result<(), MapsErr
     Ok(())
 }
 
-/// Turns a light style into its dark variant, with the relief hidden. Raster layers keep
+/// Turns a light style into its dark variant, with the relief (the hillshade) hidden. Raster layers keep
 /// their look: the colours of the slope classes are in the tiles and carry a meaning.
 pub(crate) fn apply_dark(style: &mut Value) -> Result<(), MapsError> {
     let Some(Value::Array(layers)) = style.get_mut("layers") else {
