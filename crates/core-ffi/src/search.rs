@@ -24,6 +24,10 @@ pub struct SearchResults {
     pub hits: Vec<SearchHit>,
     /// Names of the enabled regions that could not be searched.
     pub unsearchable: Vec<String>,
+    /// Nothing lay within the radius, so these are the nearest further away.
+    pub widened: bool,
+    /// The radius the search used, after its limits.
+    pub radius_m: f64,
 }
 
 /// The user's position and how old it is.
@@ -58,26 +62,34 @@ fn results_to(results: core_app::SearchResults) -> SearchResults {
             })
             .collect(),
         unsearchable: results.unsearchable,
+        widened: results.widened,
+        radius_m: results.radius_m,
     }
 }
 
 #[uniffi::export]
 impl CoreApp {
-    /// Finds places, streets and POIs around `near`. Call it off the main thread.
-    pub fn search(&self, text: String, near: LatLon, limit: u32) -> SearchResults {
-        results_to(self.app.search(&text, near.into(), limit as usize))
+    /// Finds streets and POIs within `radius_m` of `near` and places anywhere.
+    /// Call it off the main thread.
+    pub fn search(&self, text: String, near: LatLon, radius_m: f64, limit: u32) -> SearchResults {
+        results_to(
+            self.app
+                .search(&text, near.into(), radius_m, limit as usize),
+        )
     }
 
-    /// The nearest entries of a category. Call it off the main thread.
+    /// The nearest entries of a category within `radius_m`. Call it off the main thread.
     pub fn search_category(
         &self,
         category: String,
         near: LatLon,
+        radius_m: f64,
         limit: u32,
     ) -> Result<SearchResults, CoreError> {
         Ok(results_to(self.app.search_category(
             &category,
             near.into(),
+            radius_m,
             limit as usize,
         )?))
     }
@@ -121,7 +133,11 @@ mod tests {
                 distance_m: 350.0,
             }],
             unsearchable: vec!["Alt".into()],
+            widened: true,
+            radius_m: 5_000.0,
         });
+        assert!(results.widened);
+        assert_eq!(results.radius_m, 5_000.0);
         let hit = results.hits.first().unwrap();
         assert_eq!(hit.kind, "poi");
         assert_eq!(hit.category.as_deref(), Some("lodging"));

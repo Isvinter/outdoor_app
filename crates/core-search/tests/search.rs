@@ -224,6 +224,17 @@ fn category_finds_unnamed_places() {
 }
 
 #[test]
+fn category_within_stops_at_the_radius() {
+    let dir = tempfile_dir("category-within");
+    let index = SearchIndex::open(&build(&dir, &sample())).unwrap();
+    let hits = index
+        .by_category_within(Category::Parking, (47.0, 11.0), 5_000.0, 10)
+        .unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(hits.iter().all(|h| h.distance_m.unwrap() <= 5_000.0));
+}
+
+#[test]
 fn query_survives_search_syntax() {
     let dir = tempfile_dir("syntax");
     let index = SearchIndex::open(&build(&dir, &sample())).unwrap();

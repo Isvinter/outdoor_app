@@ -162,6 +162,10 @@ export interface SearchResults {
   hits: SearchHit[];
   /** Names of the enabled regions that could not be searched. */
   unsearchable: string[];
+  /** Nothing lay within the radius, so these are the nearest further away. */
+  widened: boolean;
+  /** The radius the search used, after its limits. */
+  radius_m: number;
 }
 
 export interface KnownPosition {
@@ -352,10 +356,10 @@ export const api = {
   regionBuildStart: (request: BuildRequest) => invoke<unknown>("region_build_start", { ...request }),
   regionBuildCancel: () => invoke<void>("region_build_cancel"),
 
-  searchText: (text: string, near: LatLon, limit: number) =>
-    invoke<SearchResults>("search_text", { text, near, limit }),
-  searchCategory: (category: SearchCategory, near: LatLon, limit: number) =>
-    invoke<SearchResults>("search_category", { category, near, limit }),
+  searchText: (text: string, near: LatLon, radiusM: number, limit: number) =>
+    invoke<SearchResults>("search_text", { text, near, radiusM, limit }),
+  searchCategory: (category: SearchCategory, near: LatLon, radiusM: number, limit: number) =>
+    invoke<SearchResults>("search_category", { category, near, radiusM, limit }),
   routeStartCheck: (position: KnownPosition | null, target: LatLon) =>
     invoke<RouteStart>("route_start_check", { position, target }),
   routeIsUnsaved: (request: PlanRequest) => invoke<boolean>("route_is_unsaved", { request }),

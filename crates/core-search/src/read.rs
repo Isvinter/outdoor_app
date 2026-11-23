@@ -144,6 +144,27 @@ impl SearchIndex {
         near: (f64, f64),
         limit: usize,
     ) -> Result<Vec<Hit>, SearchError> {
+        self.nearest_in_category(category, near, None, limit)
+    }
+
+    /// The `limit` nearest entries of a category no more than `max_m` away.
+    pub fn by_category_within(
+        &self,
+        category: Category,
+        near: (f64, f64),
+        max_m: f64,
+        limit: usize,
+    ) -> Result<Vec<Hit>, SearchError> {
+        self.nearest_in_category(category, near, Some(max_m), limit)
+    }
+
+    fn nearest_in_category(
+        &self,
+        category: Category,
+        near: (f64, f64),
+        max_m: Option<f64>,
+        limit: usize,
+    ) -> Result<Vec<Hit>, SearchError> {
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -151,13 +172,17 @@ impl SearchIndex {
             "SELECT kind, category, subtype, name, town, lat, lon
              FROM entry WHERE category = ?1 AND lat BETWEEN ?2 AND ?3",
         )?;
-        let mut band = 0.05_f64;
+        let widest_band = max_m.map_or(180.0, |m| m / METRES_PER_LAT_DEGREE);
+        let mut band = 0.05_f64.min(widest_band);
         loop {
             let rows = stmt.query_map(
                 params![category.code(), near.0 - band, near.0 + band],
                 |row| hit(row, Some(near)),
             )?;
             let mut hits = rows.collect::<Result<Vec<_>, _>>()?;
+            if let Some(max_m) = max_m {
+                hits.retain(|h| h.distance_m <= max_m);
+            }
             hits.sort_by(|a, b| a.distance_m.total_cmp(&b.distance_m));
             hits.truncate(limit);
             // Everything within band * 110 km lies inside the latitude band, so
@@ -166,11 +191,19 @@ impl SearchIndex {
                 && hits
                     .last()
                     .is_some_and(|h| h.distance_m <= band * METRES_PER_LAT_DEGREE);
-            if complete || band >= 180.0 {
+            if complete || band >= widest_band {
                 return hits.into_iter().map(finish_hit).collect();
             }
-            band *= 2.0;
+            band = (band * 2.0).min(widest_band);
         }
+    }
+}
+
+impl Hit {
+    /// A place that has every query word as a whole word.
+    #[must_use]
+    pub fn is_whole_word_place(&self) -> bool {
+        self.match_rank < OTHER_RANK
     }
 }
 

@@ -32,6 +32,10 @@ fn lodging(name: &str, lat: f64, lon: f64) -> Entry {
     entry(Kind::Poi, Some(Category::Lodging), name, lat, lon)
 }
 
+fn place(name: &str, lat: f64, lon: f64) -> Entry {
+    entry(Kind::Place, None, name, lat, lon)
+}
+
 /// A region directory; `entries` of `None` means it has no search file.
 fn region(dir: &Path, id: &str, name: &str, entries: Option<&[Entry]>) {
     let region = dir.join("regions").join(id);
@@ -59,7 +63,7 @@ fn region(dir: &Path, id: &str, name: &str, entries: Option<&[Entry]>) {
 }
 
 fn names(app: &App, text: &str) -> Vec<String> {
-    app.search(text, NEAR, 30)
+    app.search(text, NEAR, 50_000.0, 30)
         .hits
         .into_iter()
         .map(|h| h.name)
@@ -99,7 +103,11 @@ fn disabled_region_is_not_searched() {
     let app = common::open(&dir);
     app.set_region_enabled("a", false).unwrap();
     assert!(names(&app, "Hostel").is_empty());
-    assert!(app.search("Hostel", NEAR, 30).unsearchable.is_empty());
+    assert!(
+        app.search("Hostel", NEAR, 50_000.0, 30)
+            .unsearchable
+            .is_empty()
+    );
 }
 
 #[test]
@@ -148,7 +156,7 @@ fn region_without_index_is_named() {
         Some(&[lodging("Hostel Eins", -13.5, -72.0)]),
     );
     region(&dir, "alt", "Alt", None);
-    let results = common::open(&dir).search("Hostel", NEAR, 30);
+    let results = common::open(&dir).search("Hostel", NEAR, 50_000.0, 30);
     assert_eq!(results.unsearchable, ["Alt"]);
     assert_eq!(results.hits.len(), 1);
 }
@@ -171,7 +179,7 @@ fn damaged_index_is_named_and_others_still_hit() {
     let file = dir.join("regions/kaputt/search.sqlite");
     let size = std::fs::metadata(&file).unwrap().len();
     std::fs::write(&file, vec![b'x'; usize::try_from(size).unwrap()]).unwrap();
-    let results = common::open(&dir).search("Hostel", NEAR, 30);
+    let results = common::open(&dir).search("Hostel", NEAR, 50_000.0, 30);
     assert_eq!(results.unsearchable, ["Kaputt"]);
     assert_eq!(results.hits.len(), 1);
 }
@@ -215,13 +223,18 @@ fn too_short_input_is_empty() {
 fn limit_is_clamped() {
     let dir = common::temp_dir("search-limit");
     let entries: Vec<Entry> = (0..150)
-        .map(|i| lodging("Hostel", -13.5, -72.0 + f64::from(i) * 0.01))
+        .map(|i| lodging("Hostel", -13.5, -72.0 + f64::from(i) * 0.001))
         .collect();
     region(&dir, "a", "A", Some(&entries));
     let app = common::open(&dir);
-    assert_eq!(app.search("Hostel", NEAR, usize::MAX).hits.len(), 100);
-    assert_eq!(app.search("Hostel", NEAR, 0).hits.len(), 1);
-    let by_category = app.search_category("lodging", NEAR, usize::MAX).unwrap();
+    assert_eq!(
+        app.search("Hostel", NEAR, 50_000.0, usize::MAX).hits.len(),
+        100
+    );
+    assert_eq!(app.search("Hostel", NEAR, 50_000.0, 0).hits.len(), 1);
+    let by_category = app
+        .search_category("lodging", NEAR, 50_000.0, usize::MAX)
+        .unwrap();
     assert_eq!(by_category.hits.len(), 100);
 }
 
@@ -235,7 +248,7 @@ fn category_search_returns_nearest_with_its_key() {
         Some(&[lodging("Fern", -13.9, -72.0), lodging("Nah", -13.5, -72.0)]),
     );
     let results = common::open(&dir)
-        .search_category("lodging", NEAR, 30)
+        .search_category("lodging", NEAR, 50_000.0, 30)
         .unwrap();
     assert_eq!(results.hits[0].name, "Nah");
     assert_eq!(results.hits[0].kind, "poi");
@@ -247,7 +260,106 @@ fn unknown_category_is_an_error() {
     let dir = common::temp_dir("search-unknown");
     region(&dir, "a", "A", Some(&[lodging("Nah", -13.5, -72.0)]));
     let error = common::open(&dir)
-        .search_category("nonsense", NEAR, 30)
+        .search_category("nonsense", NEAR, 50_000.0, 30)
         .unwrap_err();
     assert_eq!(error.code(), "search_category");
+}
+
+#[test]
+fn radius_keeps_near_hits_and_places_everywhere() {
+    let dir = common::temp_dir("search-radius");
+    region(
+        &dir,
+        "a",
+        "A",
+        Some(&[
+            lodging("Hostel Nah", -13.51, -72.0),
+            lodging("Hostel Fern", -13.9, -72.0),
+            place("Hostelito", -13.95, -72.0),
+        ]),
+    );
+    let results = common::open(&dir).search("Hostel", NEAR, 10_000.0, 30);
+    let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
+    assert!(names.contains(&"Hostel Nah") && names.contains(&"Hostelito"));
+    assert!(!names.contains(&"Hostel Fern"));
+    assert!(!results.widened);
+}
+
+#[test]
+fn nothing_in_radius_shows_the_nearest_with_a_note() {
+    let dir = common::temp_dir("search-widened");
+    region(
+        &dir,
+        "a",
+        "A",
+        Some(&[
+            lodging("Hostel Fern", -13.9, -72.0),
+            place("Hostelito", -13.95, -72.0),
+        ]),
+    );
+    let results = common::open(&dir).search("Hostel", NEAR, 10_000.0, 30);
+    assert_eq!(results.hits.len(), 2);
+    assert!(results.widened);
+}
+
+#[test]
+fn a_far_place_with_the_whole_word_is_no_widening() {
+    let dir = common::temp_dir("search-far-place");
+    region(
+        &dir,
+        "a",
+        "A",
+        Some(&[
+            place("Cusco", -13.9, -72.0),
+            lodging("Cusco Hostel", -13.91, -72.0),
+        ]),
+    );
+    let results = common::open(&dir).search("Cusco", NEAR, 10_000.0, 30);
+    assert_eq!(results.hits[0].name, "Cusco");
+    assert_eq!(results.hits.len(), 2);
+    assert!(!results.widened);
+}
+
+#[test]
+fn category_stays_inside_the_radius() {
+    let dir = common::temp_dir("search-category-radius");
+    region(&dir, "a", "A", Some(&[lodging("Fern", -13.9, -72.0)]));
+    let results = common::open(&dir)
+        .search_category("lodging", NEAR, 10_000.0, 30)
+        .unwrap();
+    assert!(results.hits.is_empty());
+    assert!(!results.widened);
+}
+
+#[test]
+fn radius_applies_across_regions() {
+    let dir = common::temp_dir("search-radius-regions");
+    region(
+        &dir,
+        "a",
+        "A",
+        Some(&[lodging("Hostel Nah", -13.51, -72.0)]),
+    );
+    region(
+        &dir,
+        "b",
+        "B",
+        Some(&[lodging("Hostel Fern", -13.9, -72.0)]),
+    );
+    let results = common::open(&dir).search("Hostel", NEAR, 10_000.0, 30);
+    assert_eq!(results.hits.len(), 1);
+    assert_eq!(results.hits[0].name, "Hostel Nah");
+}
+
+#[test]
+fn radius_is_held_between_2_and_50_km() {
+    let dir = common::temp_dir("search-radius-limits");
+    region(&dir, "a", "A", Some(&[lodging("Hostel", -13.51, -72.0)]));
+    let app = common::open(&dir);
+    assert_eq!(app.search("Hostel", NEAR, 1.0, 30).radius_m, 2_000.0);
+    assert_eq!(app.search("Hostel", NEAR, 1e9, 30).radius_m, 50_000.0);
+    assert_eq!(app.search("Hostel", NEAR, -5.0, 30).radius_m, 2_000.0);
+    for invalid in [f64::NAN, f64::INFINITY] {
+        assert_eq!(app.search("Hostel", NEAR, invalid, 30).radius_m, 50_000.0);
+    }
 }

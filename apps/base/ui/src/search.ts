@@ -69,7 +69,7 @@ export class SearchPanel {
       return;
     }
     this.timer = window.setTimeout(() => {
-      void this.run(() => api.searchText(query, this.view.centre(), LIMIT));
+      void this.run(() => api.searchText(query, this.view.centre(), this.view.searchRadiusM(), LIMIT));
     }, TYPING_DELAY_MS);
   }
 
@@ -77,7 +77,7 @@ export class SearchPanel {
     window.clearTimeout(this.timer);
     this.clearSelection();
     this.markCategory(category);
-    await this.run(() => api.searchCategory(category, this.view.centre(), LIMIT));
+    await this.run(() => api.searchCategory(category, this.view.centre(), this.view.searchRadiusM(), LIMIT));
   }
 
   private async run(search: () => Promise<SearchResults>): Promise<void> {

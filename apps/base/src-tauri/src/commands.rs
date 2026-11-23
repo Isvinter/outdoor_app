@@ -78,9 +78,13 @@ pub async fn search_text(
     handle: AppHandle,
     text: String,
     near: LatLon,
+    radius_m: f64,
     limit: usize,
 ) -> CommandResult<SearchResults> {
-    blocking(handle, move |app| Ok(app.search(&text, near, limit))).await
+    blocking(handle, move |app| {
+        Ok(app.search(&text, near, radius_m, limit))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -88,10 +92,11 @@ pub async fn search_category(
     handle: AppHandle,
     category: String,
     near: LatLon,
+    radius_m: f64,
     limit: usize,
 ) -> CommandResult<SearchResults> {
     blocking(handle, move |app| {
-        app.search_category(&category, near, limit)
+        app.search_category(&category, near, radius_m, limit)
     })
     .await
 }

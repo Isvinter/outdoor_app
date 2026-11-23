@@ -529,6 +529,11 @@ export class MapView {
     return { lat, lon: lng };
   }
 
+  /** Half the diagonal of what the map shows, in metres. */
+  searchRadiusM(): number {
+    return this.map.getCenter().distanceTo(this.map.getBounds().getNorthEast());
+  }
+
   /** Moves the map to a search result, close enough to see the streets around it. */
   flyToResult(at: LatLon): void {
     this.map.easeTo({ center: [at.lon, at.lat], zoom: Math.max(this.map.getZoom(), 15), duration: 600 });
