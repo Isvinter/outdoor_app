@@ -243,3 +243,62 @@ fn nearest_hit_survives_many_matches() {
     assert_eq!(hits[0].lat, 47.0);
     assert!(hits[0].distance_m.unwrap() < 1.0);
 }
+
+fn with_town() -> Vec<Entry> {
+    let mut innsbruck = entry(Kind::Street, "Erlerstraße", 47.26, 11.39);
+    innsbruck.town = Some("Innsbruck".into());
+    let mut hall = entry(Kind::Street, "Erlerstraße", 47.28, 11.50);
+    hall.town = Some("Hall in Tirol".into());
+    let mut place = entry(Kind::Place, "Innsbruck", 47.2654, 11.3933);
+    place.town = None;
+    vec![innsbruck, hall, place]
+}
+
+fn towns(hits: &[Hit]) -> Vec<Option<&str>> {
+    hits.iter().map(|h| h.town.as_deref()).collect()
+}
+
+#[test]
+fn street_is_found_with_its_town() {
+    let dir = tempfile_dir("town-found");
+    let index = SearchIndex::open(&build(&dir, &with_town())).unwrap();
+    let hits = index.search("Erlerstraße Innsbruck", None, 10).unwrap();
+    assert_eq!(towns(&hits), vec![Some("Innsbruck")]);
+}
+
+#[test]
+fn town_alone_does_not_match_its_streets() {
+    let dir = tempfile_dir("town-alone");
+    let index = SearchIndex::open(&build(&dir, &with_town())).unwrap();
+    let hits = index.search("Innsbruck", None, 10).unwrap();
+    assert_eq!(names(&hits), vec!["Innsbruck"]);
+    assert_eq!(hits[0].kind, Kind::Place);
+}
+
+#[test]
+fn town_prefix_works() {
+    let dir = tempfile_dir("town-prefix");
+    let index = SearchIndex::open(&build(&dir, &with_town())).unwrap();
+    let hits = index.search("Erlerstr Innsb", None, 10).unwrap();
+    assert_eq!(towns(&hits), vec![Some("Innsbruck")]);
+}
+
+#[test]
+fn words_in_any_order() {
+    let dir = tempfile_dir("town-order");
+    let index = SearchIndex::open(&build(&dir, &with_town())).unwrap();
+    let hits = index.search("Innsbruck Erlerstraße", None, 10).unwrap();
+    assert_eq!(towns(&hits), vec![Some("Innsbruck")]);
+}
+
+#[test]
+fn other_town_does_not_match() {
+    let dir = tempfile_dir("town-other");
+    let index = SearchIndex::open(&build(&dir, &with_town())).unwrap();
+    assert!(
+        index
+            .search("Erlerstraße Kufstein", Some((47.0, 11.0)), 10)
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -42,11 +42,27 @@ impl SearchIndex {
         near: Option<(f64, f64)>,
         limit: usize,
     ) -> Result<Vec<Hit>, SearchError> {
-        let query = normalize(text)
+        let tokens: Vec<String> = normalize(text)
             .split_whitespace()
             .map(|token| format!("\"{token}\"*"))
-            .collect::<Vec<_>>()
-            .join(" ");
+            .collect();
+        // Every token must match the name or the town, and at least one the
+        // name, so a town alone does not list all its streets.
+        let query = if tokens.is_empty() {
+            String::new()
+        } else {
+            let each = tokens
+                .iter()
+                .map(|t| format!("{{name town}} : {t}"))
+                .collect::<Vec<_>>()
+                .join(" AND ");
+            let in_name = tokens
+                .iter()
+                .map(|t| format!("name : {t}"))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            format!("({each}) AND ({in_name})")
+        };
         if query.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }

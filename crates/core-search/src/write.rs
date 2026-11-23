@@ -30,7 +30,7 @@ impl SearchWriter {
                  lon REAL NOT NULL
              );
              CREATE VIRTUAL TABLE name_terms USING fts5(
-                 terms, content='', tokenize='unicode61 remove_diacritics 0'
+                 name, town, content='', tokenize='unicode61 remove_diacritics 0'
              );
              BEGIN;",
         )?;
@@ -73,10 +73,18 @@ impl SearchWriter {
                 }
             }
         }
+        // An entry without a name is found by category only; its town alone
+        // never makes it a match.
         if !terms.is_empty() {
+            let town_terms = entry
+                .town
+                .as_deref()
+                .map(index_terms)
+                .unwrap_or_default()
+                .join(" ");
             self.conn
-                .prepare_cached("INSERT INTO name_terms (rowid, terms) VALUES (?1, ?2)")?
-                .execute(params![id, terms.join(" ")])?;
+                .prepare_cached("INSERT INTO name_terms (rowid, name, town) VALUES (?1, ?2, ?3)")?
+                .execute(params![id, terms.join(" "), town_terms])?;
         }
         self.next_id += 1;
         Ok(())
