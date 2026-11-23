@@ -586,6 +586,9 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
     const clickMap = async (at: { lat: number; lon: number }) => {
       view.map.jumpTo({ center: [at.lon, at.lat] });
       await sleep(250);
+      await clickCanvas(at);
+    };
+    const clickCanvas = async (at: { lat: number; lon: number }) => {
       const canvas = view.map.getCanvas();
       const box = canvas.getBoundingClientRect();
       const { x, y } = view.map.project([at.lon, at.lat]);
@@ -604,6 +607,7 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
     const hereShown = () => !el("route-here").hidden;
     const nearby = { lat: lat + 0.002, lon: lon + 0.002 };
 
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
     await type(query);
     const rows = hits();
     report.hit_count = rows.length;
@@ -612,6 +616,69 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
       const [title, details] = [row.querySelector("span")?.textContent ?? "", row.querySelector("small")?.textContent ?? ""];
       return !title.toLowerCase().includes(query.toLowerCase()) && details.includes(t("search.category.lodging"));
     });
+
+    // The hits on the map.
+    const dots = () => view.searchHitPositions();
+    const titles = () => hits().map((row) => row.querySelector("span")?.textContent ?? "");
+    const settled = async () => {
+      await sleep(700);
+      await until("map at rest", () => !view.map.isMoving());
+      await sleep(150);
+    };
+    /** A dot that no other dot covers, so that a click can only mean this one. */
+    const loneDot = () => {
+      const at = dots().map((p) => view.map.project([p.lon, p.lat]));
+      const index = at.findIndex((a, i) => at.every((b, j) => i === j || Math.hypot(a.x - b.x, a.y - b.y) > 16));
+      if (index < 0) throw new Error("no dot stands alone");
+      return index;
+    };
+    const research = async () => {
+      await type("");
+      await type(query);
+      await settled();
+    };
+    report.dots_match_list = rows.length > 0 && dots().length === rows.length;
+    await settled();
+    const shown = view.map.getBounds();
+    report.dots_fit_in_view = dots().every((p) => shown.contains([p.lon, p.lat]));
+    const listed = titles().join("|");
+    await type(`${query} `);
+    await sleep(450);
+    report.typing_keeps_anchor = titles().join("|") === listed;
+    await settled();
+
+    let index = loneDot();
+    let expected = titles()[index];
+    await clickCanvas(dots()[index] as { lat: number; lon: number });
+    await until("card from a dot", () => !el("search-card").hidden);
+    report.dot_click_opens_hit = text("search-card-title") === expected;
+
+    await research();
+    const style = el("map-style") as HTMLSelectElement;
+    const styleBefore = style.value;
+    const count = dots().length;
+    style.value = styleBefore === "winter" ? "topo" : "winter";
+    style.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(400);
+    await until("new style", () => view.map.isStyleLoaded() === true && view.map.getLayer("search-hits") !== undefined);
+    await sleep(400);
+    index = loneDot();
+    expected = titles()[index];
+    await clickCanvas(dots()[index] as { lat: number; lon: number });
+    await until("card after style change", () => !el("search-card").hidden);
+    report.dots_survive_style_change = dots().length === count && text("search-card-title") === expected;
+    style.value = styleBefore;
+    style.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(400);
+    await until("old style", () => view.map.isStyleLoaded() === true && view.map.getLayer("search-hits") !== undefined);
+
+    await research();
+    clickElement(el("route-edit"));
+    await clickCanvas(dots()[loneDot()] as { lat: number; lon: number });
+    await until("waypoint from a click on a dot", () => waypoints().length === 1);
+    report.picking_ignores_dot = el("search-card").hidden;
+    clickElement(el("route-edit"));
+    await clearRoute();
 
     // No route open, no position: straight to choosing the start.
     const first = await routeToHit(0);
@@ -622,6 +689,7 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
     await until("route of two points", () => waypoints().length === 2);
     report.tap_is_start = near(waypoints()[0] ?? first, nearby) && near(waypoints()[1] ?? nearby, first);
     await until("route shown", () => !el("route-result").hidden);
+    report.dots_gone_after_route = dots().length === 0;
 
     // A route is open and unsaved: choice with warning, appending keeps it.
     const before = waypoints();
@@ -697,6 +765,8 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
       "choice_warns_when_unsaved", "append_keeps_waypoints", "wait_shows_choose_start",
       "late_fix_ignored_after_choose", "late_fix_ignored_after_cancel", "replay_age_from_receipt",
       "straight_offered_on_failed_leg", "straight_makes_manual_leg",
+      "dots_match_list", "dots_fit_in_view", "typing_keeps_anchor", "dot_click_opens_hit",
+      "dots_survive_style_change", "picking_ignores_dot", "dots_gone_after_route",
     ].every((key) => report[key] === true);
   } catch (e) {
     report.ok = false;

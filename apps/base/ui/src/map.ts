@@ -2,6 +2,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   addProtocol,
+  LngLat,
   LngLatBounds,
   Map as MapLibreMap,
   Marker,
@@ -11,6 +12,7 @@ import {
   setWorkerUrl,
   type GeoJSONSource,
   type MapMouseEvent,
+  type PointLike,
   type StyleSpecification,
 } from "maplibre-gl";
 import mlcontour from "maplibre-contour";
@@ -55,6 +57,27 @@ function areaData(area: Bbox | null) {
     features: [
       { type: "Feature" as const, properties: {}, geometry: { type: "Polygon" as const, coordinates: [ring] } },
     ],
+  };
+}
+
+const SEARCH_HITS = "search-hits";
+/** How far from a search hit, in pixels, a click still counts as on it. */
+const SEARCH_HIT_TOLERANCE_PX = 4;
+
+/** Where the map looks. */
+export interface MapCamera {
+  center: [number, number];
+  zoom: number;
+}
+
+function searchHitData(points: LatLon[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: points.map((point, index) => ({
+      type: "Feature" as const,
+      properties: { index },
+      geometry: { type: "Point" as const, coordinates: [point.lon, point.lat] },
+    })),
   };
 }
 
@@ -242,6 +265,9 @@ export class MapView {
   private routeLegs: RouteLeg[] = [];
   private readonly cursor: Marker;
   private readonly searchPin = new Marker({ color: "#b3261e" });
+  private searchHits: LatLon[] = [];
+  /** Clicks set waypoints. */
+  private picking = false;
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
   /** The elevation data the contour cache was filled from. */
@@ -318,6 +344,20 @@ export class MapView {
         source: id,
         layout: { "line-join": "round", "line-cap": "round" },
         paint: { "line-color": color, "line-width": 4, "line-opacity": 0.9 },
+      });
+    }
+    if (!this.map.getSource(SEARCH_HITS)) {
+      this.map.addSource(SEARCH_HITS, { type: "geojson", data: searchHitData(this.searchHits) });
+      this.map.addLayer({
+        id: SEARCH_HITS,
+        type: "circle",
+        source: SEARCH_HITS,
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#b3261e",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2,
+        },
       });
     }
   }
@@ -499,7 +539,78 @@ export class MapView {
 
   /** Cross-hair cursor while clicks set waypoints. */
   setPicking(picking: boolean): void {
+    this.picking = picking;
     this.map.getCanvas().style.cursor = picking ? "crosshair" : "";
+  }
+
+  /** Shows these search hits as dots on the map. */
+  showSearchHits(points: LatLon[]): void {
+    this.searchHits = points;
+    this.map.getSource<GeoJSONSource>(SEARCH_HITS)?.setData(searchHitData(points));
+  }
+
+  /** The dots on the map; for the self-tests. */
+  searchHitPositions(): LatLon[] {
+    return this.searchHits;
+  }
+
+  /** Calls `handler` with the index of a clicked dot, unless clicks mean something else. */
+  onSearchHitClick(handler: (index: number) => void): void {
+    const clicksAreFree = () => !this.picking && this.areaListener === null;
+    this.map.on("click", (e) => {
+      if (!clicksAreFree()) return;
+      const index = this.searchHitAt(e.point);
+      if (index !== null) handler(index);
+    });
+    this.map.on("mousemove", (e) => {
+      if (clicksAreFree()) this.map.getCanvas().style.cursor = this.searchHitAt(e.point) === null ? "" : "pointer";
+    });
+  }
+
+  private searchHitAt(point: { x: number; y: number }): number | null {
+    if (this.searchHits.length === 0 || !this.map.getLayer(SEARCH_HITS)) return null;
+    const box: [PointLike, PointLike] = [
+      [point.x - SEARCH_HIT_TOLERANCE_PX, point.y - SEARCH_HIT_TOLERANCE_PX],
+      [point.x + SEARCH_HIT_TOLERANCE_PX, point.y + SEARCH_HIT_TOLERANCE_PX],
+    ];
+    const index: unknown = this.map.queryRenderedFeatures(box, { layers: [SEARCH_HITS] })[0]?.properties.index;
+    return typeof index === "number" ? index : null;
+  }
+
+  /** Calls `handler` when the user starts moving the map, not when the app does. */
+  onUserMove(handler: () => void): void {
+    this.map.on("movestart", (e) => {
+      if (e.originalEvent) handler();
+    });
+  }
+
+  /** Moves the map so that all points are in view and returns where it is heading. */
+  fitSearchHits(points: LatLon[]): MapCamera | null {
+    const [first] = points;
+    if (!first) return null;
+    let target: MapCamera;
+    if (points.length === 1) {
+      target = { center: [first.lon, first.lat], zoom: Math.max(this.map.getZoom(), 15) };
+    } else {
+      const start: [number, number] = [first.lon, first.lat];
+      const bounds = points.reduce((b, p) => b.extend([p.lon, p.lat]), new LngLatBounds(start, start));
+      const camera = this.map.cameraForBounds(bounds, { padding: 60, maxZoom: 15 });
+      if (!camera?.center || camera.zoom === undefined) return null;
+      const { lng, lat } = LngLat.convert(camera.center);
+      target = { center: [lng, lat], zoom: camera.zoom };
+    }
+    this.moveTo(target);
+    return target;
+  }
+
+  /** Where the map looks now. */
+  camera(): MapCamera {
+    const { lng, lat } = this.map.getCenter();
+    return { center: [lng, lat], zoom: this.map.getZoom() };
+  }
+
+  moveTo(camera: MapCamera): void {
+    this.map.easeTo({ ...camera, duration: 600 });
   }
 
   /** Marks the chosen search result; `null` takes the mark away. */
