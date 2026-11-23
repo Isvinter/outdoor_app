@@ -81,6 +81,7 @@ Kartenregionen in `regions/`, Beschreibungen der in der App gebauten Regionen in
 | `OUTDOOR_REPO=<ordner>` | Projektordner mit `scripts/build-region.sh` für „Region bauen“ (Standard: der Ordner, aus dem die App gebaut wurde) |
 | `OUTDOOR_BUILD_SCRIPT=<datei>` | anderes Bauskript (Tests, z. B. `crates/region-builder/tests/fixtures/fake-build.sh`) |
 | `OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]` | plant über die Oberfläche eine Wanderroute durch die Punkte, speichert sie, gibt das Ergebnis als JSON aus, beendet die App (zusammen mit `OUTDOOR_SNAPSHOT` zeigt das Bild die Route). Ab vier Punkten: letztes Teilstück MTB, Etappenende am zweiten Punkt über das Menü, danach „Letzten entfernen“ |
+| `OUTDOOR_SELFTEST_SEARCH=<text>;<lat>,<lon>` | sucht um diesen Ort, geht mit echten Mausereignissen durch „Route hierher“ (Auswahl, Anhängen, Warten auf GPS, Start antippen, gerade Linie), gibt das Ergebnis als JSON aus, beendet die App |
 | `OUTDOOR_SELFTEST_SHARE=1` | schaltet „Im Heimnetz freigeben“ per Klick ein, liest `catalog.json` und `routes.json` über die gezeigte Adresse, schaltet per Klick aus, prüft, dass nichts mehr antwortet, gibt das Ergebnis als JSON aus, beendet die App. Mit `OUTDOOR_SNAPSHOT` steht der Bericht im Protokoll (`[ui:info]`), und das Bild zeigt den Bereich der Freigabe statt der Karte |
 | `OUTDOOR_SNAPSHOT=<datei.png>` | speichert ein Bild der Karte und beendet die App; mit `OUTDOOR_SNAPSHOT_VIEW=<lon>,<lat>,<zoom>` für einen bestimmten Ausschnitt und `OUTDOOR_SNAPSHOT_STYLE=topo\|winter\|online` für einen Stil |
 

@@ -13,6 +13,8 @@
  *  - OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]: plan a hike through
  *    these points with the real controls, save it, report, exit. Together with
  *    OUTDOOR_SNAPSHOT the picture shows the route.
+ *  - OUTDOOR_SELFTEST_SEARCH=<text>;<lat>,<lon>: search around this place and
+ *    go through "Route hierher" with real mouse events, report, exit.
  *  - OUTDOOR_SELFTEST_SHARE=1: switch the home-network share on and off with
  *    real clicks, read the catalog and routes from it, report, exit. Together
  *    with OUTDOOR_SNAPSHOT the picture shows the share controls.
@@ -24,6 +26,7 @@ import { LngLat, LngLatBounds } from "maplibre-gl";
 import { api, events, type Bbox } from "./api";
 import { t } from "./i18n";
 import type { MapView } from "./map";
+import type { RoutePanel } from "./route";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -541,8 +544,175 @@ async function startupProbe(view: MapView): Promise<void> {
   await api.probeReport({ page_ready_ms: Math.round(ready), map_drawn_ms: Math.round(performance.now()) });
 }
 
-export async function runDiagnostics(view: MapView): Promise<void> {
+/** Search and "Route hierher" through the real controls. */
+async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): Promise<void> {
+  const el = (id: string) => document.getElementById(id) as HTMLElement;
+  const text = (id: string) => el(id).textContent ?? "";
+  const action = (name: string) => document.querySelector<HTMLElement>(`#route-here-actions [data-action="${name}"]`);
+  const report: Record<string, unknown> = {};
+  const realNow = Date.now;
+  try {
+    const [query = "", place = ""] = spec.split(";");
+    const [lat = 0, lon = 0] = place.split(",").map(Number);
+    const centre = { lat, lon };
+    const fixAt = (at: { lat: number; lon: number }, time_ms = realNow()) => ({
+      ...at, ele: null, time_ms, h_accuracy_m: 5, speed_mps: null, course_deg: null,
+    });
+    const waypoints = () => view.waypointPositions();
+    const hits = () => [...document.querySelectorAll<HTMLElement>("#search-results .search-hit")];
+    const type = async (value: string) => {
+      const input = el("search-input") as HTMLInputElement;
+      input.focus();
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      if (value) await until(`hits for ${value}`, () => hits().length > 0);
+    };
+    /** Searches, opens hit `index` and presses "Route hierher"; returns the map position of the hit. */
+    const routeToHit = async (index: number) => {
+      view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+      await type("");
+      await type(query);
+      const hit = hits()[index];
+      if (!hit) throw new Error(`no hit ${index}`);
+      clickElement(hit);
+      await until("result card", () => !el("search-card").hidden);
+      view.map.stop();
+      const target = view.searchPinPosition();
+      if (!target) throw new Error("no pin on the map");
+      await sleep(100);
+      clickElement(el("search-route"));
+      return target;
+    };
+    const clickMap = async (at: { lat: number; lon: number }) => {
+      view.map.jumpTo({ center: [at.lon, at.lat] });
+      await sleep(250);
+      const canvas = view.map.getCanvas();
+      const box = canvas.getBoundingClientRect();
+      const { x, y } = view.map.project([at.lon, at.lat]);
+      for (const type of ["mousedown", "mouseup", "click"]) {
+        canvas.dispatchEvent(new MouseEvent(type, { clientX: box.left + x, clientY: box.top + y, bubbles: true, button: 0 }));
+      }
+      await sleep(150);
+    };
+    const clearRoute = async () => {
+      if (!(el("route-clear") as HTMLButtonElement).disabled) clickElement(el("route-clear"));
+      await until("route cleared", () => waypoints().length === 0);
+      await sleep(100);
+    };
+    const near = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) =>
+      Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lon - b.lon) < 1e-5;
+    const hereShown = () => !el("route-here").hidden;
+    const nearby = { lat: lat + 0.002, lon: lon + 0.002 };
+
+    await type(query);
+    const rows = hits();
+    report.hit_count = rows.length;
+    report.found = rows.length > 0;
+    report.category_word_found = rows.some((row) => {
+      const [title, details] = [row.querySelector("span")?.textContent ?? "", row.querySelector("small")?.textContent ?? ""];
+      return !title.toLowerCase().includes(query.toLowerCase()) && details.includes(t("search.category.lodging"));
+    });
+
+    // No route open, no position: straight to choosing the start.
+    const first = await routeToHit(0);
+    await until("asked for start", hereShown);
+    report.new_route_without_prompt = action("new") === null;
+    report.no_position_asks_for_tap = text("route-here-text") === t("route.here.tap");
+    await clickMap(nearby);
+    await until("route of two points", () => waypoints().length === 2);
+    report.tap_is_start = near(waypoints()[0] ?? first, nearby) && near(waypoints()[1] ?? nearby, first);
+    await until("route shown", () => !el("route-result").hidden);
+
+    // A route is open and unsaved: choice with warning, appending keeps it.
+    const before = waypoints();
+    const second = await routeToHit(1);
+    await until("choice", () => action("append") !== null);
+    report.choice_warns_when_unsaved = text("route-here-text") === t("route.here.unsaved");
+    clickElement(action("append") as HTMLElement);
+    await until("appended", () => waypoints().length === 3);
+    const after = waypoints();
+    const kept = before.every((point, i) => near(point, after[i] ?? { lat: 0, lon: 0 })) && near(after[2] ?? first, second);
+
+    // Appending to a route of a single point.
+    await clearRoute();
+    clickElement(el("route-edit"));
+    await clickMap(nearby);
+    clickElement(el("route-edit"));
+    await until("one point", () => waypoints().length === 1);
+    const one = await routeToHit(0);
+    await until("choice", () => action("append") !== null);
+    clickElement(action("append") as HTMLElement);
+    await until("appended to one point", () => waypoints().length === 2);
+    report.append_keeps_waypoints = kept && near(waypoints()[0] ?? one, nearby) && near(waypoints()[1] ?? nearby, one);
+
+    // Waiting for a position; a position after "Start selbst wählen" changes nothing.
+    await clearRoute();
+    panel.setSourceStatus({ state: "connecting" });
+    await routeToHit(0);
+    await until("waiting", () => action("choose-start") !== null);
+    report.wait_shows_choose_start = text("route-here-text") === t("route.here.waiting");
+    clickElement(action("choose-start") as HTMLElement);
+    await until("asked for start", () => text("route-here-text") === t("route.here.tap"));
+    panel.setPosition(fixAt(nearby));
+    await sleep(300);
+    report.late_fix_ignored_after_choose = waypoints().length === 0 && text("route-here-text") === t("route.here.tap");
+    clickElement(action("cancel") as HTMLElement);
+
+    // The same after "Abbrechen", with the position above grown old.
+    Date.now = () => realNow() + 200_000;
+    await routeToHit(0);
+    await until("waiting", () => action("choose-start") !== null);
+    clickElement(action("cancel") as HTMLElement);
+    Date.now = realNow;
+    panel.setPosition(fixAt(nearby));
+    await sleep(300);
+    report.late_fix_ignored_after_cancel = waypoints().length === 0 && !hereShown();
+
+    // A replayed fix has an old time stamp but has just arrived.
+    panel.setSourceStatus({ state: "active" });
+    panel.setPosition(fixAt(nearby, 1000));
+    const target = await routeToHit(0);
+    await until("route from the position", () => waypoints().length === 2);
+    report.replay_age_from_receipt = near(waypoints()[0] ?? target, nearby) && near(waypoints()[1] ?? nearby, target);
+    await clearRoute();
+
+    // A start outside every region: no routing data, a straight line on request.
+    panel.setSourceStatus(null);
+    Date.now = () => realNow() + 200_000;
+    await routeToHit(0);
+    await until("asked for start", () => text("route-here-text") === t("route.here.tap"));
+    Date.now = realNow;
+    await clickMap({ lat: lat + 5, lon: lon + 5 });
+    await until("straight line offered", () => !el("route-straight").hidden);
+    report.straight_offered_on_failed_leg = text("route-straight-text") === t("route.straight.no_data");
+    clickElement(el("route-straight-button"));
+    await until("straight line drawn", () => el("route-straight").hidden && !el("route-result").hidden);
+    await until("manual leg", () => text("route-legend").includes(t("route.profile.manual")));
+    report.straight_makes_manual_leg = true;
+    await clearRoute();
+
+    report.layout_problems = layoutProblems();
+    report.ok = [
+      "found", "category_word_found", "new_route_without_prompt", "no_position_asks_for_tap", "tap_is_start",
+      "choice_warns_when_unsaved", "append_keeps_waypoints", "wait_shows_choose_start",
+      "late_fix_ignored_after_choose", "late_fix_ignored_after_cancel", "replay_age_from_receipt",
+      "straight_offered_on_failed_leg", "straight_makes_manual_leg",
+    ].every((key) => report[key] === true);
+  } catch (e) {
+    report.ok = false;
+    report.error = String(e);
+    report.message = text("message");
+    report.route_here = text("route-here-text");
+  } finally {
+    Date.now = realNow;
+  }
+  await api.probeReport(report);
+}
+
+export async function runDiagnostics(view: MapView, routePanel: RoutePanel): Promise<void> {
   if (await invoke<boolean>("startup_probe")) await startupProbe(view);
+  const search = await invoke<string | null>("selftest_search");
+  if (search) return searchSelfTest(view, routePanel, search);
   const shot = await api.snapshotRequest();
   if (await invoke<boolean>("selftest_share")) return shareSelfTest(shot !== null);
   const route = await invoke<string | null>("selftest_route");

@@ -334,6 +334,15 @@ pub fn selftest_route() -> Option<String> {
     std::env::var(SELFTEST_ROUTE_ENV).ok()
 }
 
+/// Set to `<text>;<lat>,<lon>` to go through search and "Route hierher" with
+/// real mouse events on start, report and exit (see README).
+const SELFTEST_SEARCH_ENV: &str = "OUTDOOR_SELFTEST_SEARCH";
+
+#[tauri::command]
+pub fn selftest_search() -> Option<String> {
+    std::env::var(SELFTEST_SEARCH_ENV).ok()
+}
+
 /// Replay speed of the recording self-test; 1 records in real time.
 #[tauri::command]
 pub fn selftest_speed() -> Option<f64> {

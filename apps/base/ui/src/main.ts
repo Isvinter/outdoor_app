@@ -455,7 +455,7 @@ async function start(): Promise<void> {
   await share.refresh();
   await loadRecordingState();
   await refreshTracks();
-  await runDiagnostics(view);
+  await runDiagnostics(view, route);
 }
 
 start().catch(showError);

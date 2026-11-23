@@ -508,6 +508,21 @@ export class MapView {
     else this.searchPin.remove();
   }
 
+  /** Where the waypoint markers are, in order; for the self-tests. */
+  waypointPositions(): LatLon[] {
+    return this.waypointMarkers.map((marker) => {
+      const { lat, lng } = marker.getLngLat();
+      return { lat, lon: lng };
+    });
+  }
+
+  /** Where the search pin is, if it is shown; for the self-tests. */
+  searchPinPosition(): LatLon | null {
+    if (!this.searchPin.getElement().isConnected) return null;
+    const { lat, lng } = this.searchPin.getLngLat();
+    return { lat, lon: lng };
+  }
+
   /** The middle of what the map shows. */
   centre(): LatLon {
     const { lat, lng } = this.map.getCenter();

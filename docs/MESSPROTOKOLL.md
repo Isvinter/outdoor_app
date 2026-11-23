@@ -272,6 +272,18 @@ Anzahl der Linienstücke in der Kartenquelle; Region `cusco` über die Oberfläc
 | ohne Leeren des Zwischenspeichers | 0 | 0 | 0 |
 | mit Leeren des Zwischenspeichers | 0 | 319 | 0 |
 
+## Offline-Suche (2026-11-23)
+
+Größtes Testpaket `alpenraum-ost-urlaub` (Suchindex 88 MB), Release-Build unter Linux, Index je Suche neu geöffnet wie in der App, Kartenmitte Innsbruck, 30 Treffer, je 7 Läufe mit warmem Dateicache. Ziel: unter 300 ms. Auf dem iPhone noch nicht gemessen.
+
+| Suche | Median | Maximum |
+| --- | --- | --- |
+| `Hostel` (Name und Kategorie) | 3 ms | 5 ms |
+| `Apotheke` (Name und Kategorie) | 4 ms | 4 ms |
+| `Hauptstraße` | 0 ms | 0 ms |
+| `Innsbruck` | 0 ms | 6 ms |
+| `Ma` (kürzeste, breiteste Suche) | 39 ms | 41 ms |
+
 ## Rohdaten
 
 ```
