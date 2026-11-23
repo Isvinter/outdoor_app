@@ -106,8 +106,22 @@ impl Sum {
     }
 }
 
-/// Calls `each` for every feature of the file, once per id: a closed way
-/// appears as linestring and as polygon.
+/// The OSM object an id stands for. osmium numbers areas `a<2n>` for way `n`
+/// and `a<2n+1>` for relation `n`; a closed way is exported as linestring
+/// (`w<n>`) and as polygon (`a<2n>`), which must count as one object.
+fn source_id(id: &str) -> Result<String, String> {
+    let Some(number) = id.strip_prefix('a') else {
+        return Ok(id.to_string());
+    };
+    let number: u64 = number
+        .parse()
+        .map_err(|_| format!("area id \"{id}\" is not a number"))?;
+    let kind = if number.is_multiple_of(2) { 'w' } else { 'r' };
+    Ok(format!("{kind}{}", number / 2))
+}
+
+/// Calls `each` for every feature of the file, once per OSM object: a closed
+/// way appears as linestring and as polygon.
 fn read_features(
     input: &Path,
     seen: &mut HashSet<String>,
@@ -129,8 +143,18 @@ fn read_features(
             line: index + 1,
             reason,
         })?;
-        if let Some(id) = &feature.id
-            && !seen.insert(id.clone())
+        let source = feature
+            .id
+            .as_deref()
+            .map(source_id)
+            .transpose()
+            .map_err(|reason| BuildError::Line {
+                path: input.to_path_buf(),
+                line: index + 1,
+                reason,
+            })?;
+        if let Some(id) = source
+            && !seen.insert(id)
         {
             continue;
         }

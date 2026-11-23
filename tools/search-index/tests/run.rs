@@ -184,3 +184,49 @@ fn stale_temporary_file_is_replaced() {
     assert!(out.exists());
     assert!(!stale.exists());
 }
+
+fn parking_input(dir: &Path, second_id: &str) -> PathBuf {
+    let input = dir.join("closed.geojsonseq");
+    let line = |id: &str, geometry: &str| {
+        format!(
+            "\u{1e}{{\"type\":\"Feature\",\"id\":\"{id}\",\"properties\":{{\"amenity\":\"parking\"}},\"geometry\":{geometry}}}\n"
+        )
+    };
+    let ring = "[[1,2],[1,3],[2,3],[1,2]]";
+    std::fs::write(
+        &input,
+        line(
+            "w11",
+            &format!("{{\"type\":\"LineString\",\"coordinates\":{ring}}}"),
+        ) + &line(
+            second_id,
+            &format!("{{\"type\":\"Polygon\",\"coordinates\":[{ring}]}}"),
+        ),
+    )
+    .unwrap();
+    input
+}
+
+#[test]
+fn closed_way_exported_twice_counts_once() {
+    let dir = temp("closed-way");
+    let info = build(&parking_input(&dir, "a22"), &dir.join("s.sqlite"), None).unwrap();
+    assert_eq!(info.pois, 1);
+}
+
+#[test]
+fn area_of_a_relation_is_not_a_way() {
+    let dir = temp("relation-area");
+    // a23 is relation 11, a different object than way 11.
+    let info = build(&parking_input(&dir, "a23"), &dir.join("s.sqlite"), None).unwrap();
+    assert_eq!(info.pois, 2);
+}
+
+#[test]
+fn broken_area_id_is_an_error() {
+    let dir = temp("bad-area");
+    let out = dir.join("s.sqlite");
+    let err = build(&parking_input(&dir, "ax"), &out, None).unwrap_err();
+    assert!(matches!(err, BuildError::Line { line: 2, .. }), "{err}");
+    assert!(!out.exists());
+}

@@ -187,19 +187,30 @@ osmium() { # runs osmium in a container with the data directory mounted at the s
 planetiler() { java "-Xmx$JAVA_HEAP" "$@"; }
 
 REGION_PBF="$BUILD/region.osm.pbf"
+OSM_TIMESTAMP_FILE="$BUILD/osm-timestamp"
 
 step_osm() {
   [ "$REFRESH_OSM" = 1 ] || stale "$REGION_PBF" || return 0
-  local clips=() url name
+  local clips=() url name stamp
+  # osmium extract drops the replication timestamp from the header, so it is read
+  # from the sources; the oldest one is the age of the data.
+  rm -f "$OSM_TIMESTAMP_FILE"
   while read -r url; do
     name="$(basename "$url")"
     [ "$REFRESH_OSM" = 1 ] && rm -f "$SOURCES/osm/$name"
     fetch "$url" "$SOURCES/osm/$name"
+    stamp="$(osmium fileinfo -g header.option.osmosis_replication_timestamp "$SOURCES/osm/$name" || true)"
+    [ -z "$stamp" ] || printf '%s\n' "$stamp" >> "$OSM_TIMESTAMP_FILE"
     log "clipping $name to $BBOX"
     osmium extract --bbox "$BBOX" --strategy smart --overwrite \
       --output "$BUILD/clip-$name" "$SOURCES/osm/$name"
     clips+=("$BUILD/clip-$name")
   done < <(config osm)
+  # ISO times sort as text.
+  if [ -s "$OSM_TIMESTAMP_FILE" ]; then
+    sort "$OSM_TIMESTAMP_FILE" | head -n 1 > "$OSM_TIMESTAMP_FILE.tmp"
+    mv "$OSM_TIMESTAMP_FILE.tmp" "$OSM_TIMESTAMP_FILE"
+  fi
   log "merging ${#clips[@]} extract(s)"
   if [ "${#clips[@]}" -eq 1 ]; then
     mv "${clips[0]}" "$REGION_PBF"
@@ -306,7 +317,10 @@ step_search() {
   [ -s "$REGION_PBF" ] || die "run the osm step first"
   log "building search file"
   local timestamp args=()
-  timestamp="$(osmium fileinfo -g header.option.osmosis_replication_timestamp "$REGION_PBF" || true)"
+  # Only known from the osm step of this build; never guessed from a source that
+  # may have been refreshed since.
+  timestamp=""
+  [ ! -s "$OSM_TIMESTAMP_FILE" ] || timestamp="$(head -n 1 "$OSM_TIMESTAMP_FILE")"
   [ -z "$timestamp" ] || args+=(--osm-timestamp "$timestamp")
   osmium tags-filter --overwrite --output "$BUILD/search.osm.pbf" "$REGION_PBF" \
     n/place=city,town,village,suburb,quarter,neighbourhood,hamlet \
