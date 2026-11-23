@@ -23,6 +23,8 @@ const PROFILE_STEP_M: f64 = 25.0;
 const ELE_SMOOTH_M: f64 = 50.0;
 /// Changes of direction smaller than this do not count as ascent or descent.
 const ELE_THRESHOLD_M: f64 = 3.0;
+/// A position older than this no longer says where the user is.
+pub const MAX_POSITION_AGE_S: f64 = 120.0;
 /// Format of [`RoutePlan`] as saved; plans without it are older.
 pub const PLAN_FORMAT: u32 = 2;
 /// More computed legs than this are forgotten all at once.
@@ -53,6 +55,38 @@ pub struct LegError {
     /// As [`AppError::code`].
     pub code: String,
     pub message: String,
+}
+
+/// The user's position and how old it is.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct KnownPosition {
+    pub lat: f64,
+    pub lon: f64,
+    pub age_s: f64,
+}
+
+/// Where a route to a search result can start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteStart {
+    /// At the user's position.
+    Ready,
+    /// No recent position is known.
+    NoPosition,
+    /// No routing data holds both the position and the destination.
+    OtherMap,
+}
+
+impl LegError {
+    /// Whether the leg can only be joined by hand: there is no routing data
+    /// for it or no way was found. Other errors would not go away that way.
+    #[must_use]
+    pub fn can_connect_straight(&self) -> bool {
+        matches!(
+            self.code.as_str(),
+            "routing_unavailable" | "route_not_found"
+        )
+    }
 }
 
 /// One computed leg. A failed leg has no line and adds nothing to the totals.
@@ -310,6 +344,16 @@ impl PlanRequest {
         next
     }
 
+    /// Replaces the leg at `index`; nothing else changes.
+    #[must_use]
+    pub fn set_leg(&self, index: usize, leg: LegSpec) -> Self {
+        let mut next = self.clone();
+        if let Some(slot) = next.legs.get_mut(index) {
+            *slot = leg;
+        }
+        next
+    }
+
     /// Only inner waypoints can end a stage.
     fn keep_inner_stage_ends(&mut self) {
         let n = self.waypoints.len();
@@ -357,6 +401,20 @@ impl App {
             .routing
             .routers()
             .insert(region.to_string(), router);
+    }
+
+    /// Whether a route to `target` can start at `position`.
+    #[must_use]
+    pub fn route_start(&self, position: Option<KnownPosition>, target: LatLon) -> RouteStart {
+        let Some(position) = position.filter(|p| p.age_s <= MAX_POSITION_AGE_S) else {
+            return RouteStart::NoPosition;
+        };
+        let points = [(position.lat, position.lon), (target.lat, target.lon)];
+        if self.shared.maps.store().routing_tiles(&points).is_some() {
+            RouteStart::Ready
+        } else {
+            RouteStart::OtherMap
+        }
     }
 
     /// Computes a route leg by leg and remembers it as the planned route,

@@ -441,6 +441,29 @@ impl App {
         }
     }
 
+    /// Whether `request`, the route on screen, would be lost if replaced: it
+    /// has waypoints and differs from what is saved of it.
+    #[must_use]
+    pub fn route_is_unsaved(&self, request: &PlanRequest) -> bool {
+        if request.waypoints.is_empty() {
+            return false;
+        }
+        let Some(id) = self.loaded_route() else {
+            return true;
+        };
+        let Ok(json) = self.shared.inner().storage.route_plan(id) else {
+            return true;
+        };
+        let saved = serde_json::from_str::<serde_json::Value>(&json)
+            .map_err(|e| AppError::RoutePlan(e.to_string()))
+            .and_then(|value| read_plan(&value));
+        match saved {
+            Ok(ReadPlan::Current(saved)) => saved.request != *request,
+            Ok(ReadPlan::Old(old)) => old.route.waypoints != request.waypoints,
+            Err(_) => true,
+        }
+    }
+
     /// Loads a saved route; it becomes the planned route.
     pub fn saved_route(&self, id: Uuid) -> Result<RoutePlan, AppError> {
         let plan = self.load_plan(id)?;

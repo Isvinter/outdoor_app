@@ -12,7 +12,10 @@ mod share;
 
 pub use app::{App, AppListener, LinePoint, RecordingPhase, RecordingStatus, TrackDetail};
 pub use error::AppError;
-pub use plan::{Leg, LegError, LegSpec, PlanRequest, RoutePlan, RoutePoint, Stage, Totals};
+pub use plan::{
+    KnownPosition, Leg, LegError, LegSpec, MAX_POSITION_AGE_S, PlanRequest, RoutePlan, RoutePoint,
+    RouteStart, Stage, Totals,
+};
 pub use regions::{MapOverview, RegionInfo, RegionState, RegionsOverview};
 pub use routes::{ProfileInfo, RouterFactory};
 pub use search::{SearchHit, SearchResults};
