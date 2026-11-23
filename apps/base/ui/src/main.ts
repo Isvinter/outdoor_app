@@ -228,7 +228,9 @@ let styleBeforeSelection: BaseStyle | null = null;
 
 const regions = new RegionsPanel(view, {
   onOverview: (next) => {
-    const changed = JSON.stringify(next.installed_bounds) !== JSON.stringify(overview?.installed_bounds);
+    const changed =
+      JSON.stringify(next.installed_bounds) !== JSON.stringify(overview?.installed_bounds) ||
+      next.has_dem !== overview?.has_dem;
     const first = overview === null;
     overview = next;
     $("about-attribution").replaceChildren(

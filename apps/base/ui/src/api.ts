@@ -94,6 +94,8 @@ export interface RegionsOverview {
   regions: RegionInfo[];
   attribution: string[];
   installed_bounds: [number, number, number, number] | null;
+  /** An enabled region has elevation tiles. */
+  has_dem: boolean;
 }
 
 export interface RegionProgress {

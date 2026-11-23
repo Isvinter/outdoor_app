@@ -3,6 +3,7 @@
 //!
 //! ```text
 //! tiles://localhost/<layer>/<z>/<x>/<y>          tile, or 204 if no region has it
+//! tiles://localhost/contour-dem/<z>/<x>/<y>      elevation for contour lines
 //! tiles://localhost/fonts/<font>/<range>.pbf     glyph range bundled with the app
 //! ```
 
@@ -14,6 +15,13 @@ use tauri::{AppHandle, Manager};
 pub const SCHEME: &str = "tiles";
 /// Where the glyph files live among the bundled frontend assets.
 const FONT_ASSETS: &str = "map/fonts/";
+/// Elevation tiles for the contour lines computed in the page. That code cannot
+/// handle a missing tile, so here a missing tile is answered with [`NO_DATA_DEM`].
+const CONTOUR_DEM: &str = "/contour-dem/";
+/// A black 512 x 512 tile. In Terrarium encoding black is -32768 m, which the
+/// contour code treats as "no value": it draws no line there, not even at the
+/// edge towards a tile with real heights.
+const NO_DATA_DEM: &[u8] = include_bytes!("no-data-dem.png");
 
 fn response(status: StatusCode, mime: &str, body: Vec<u8>) -> Response<Vec<u8>> {
     let mut response = Response::new(body);
@@ -48,7 +56,12 @@ pub fn respond(handle: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u
             .unwrap_or_default();
         return response(StatusCode::OK, "application/x-protobuf", glyphs);
     }
-    let Ok(tile) = path.parse::<TilePath>() else {
+    let contour_dem = path.strip_prefix(CONTOUR_DEM);
+    let parsed = match contour_dem {
+        Some(rest) => format!("/dem/{rest}").parse::<TilePath>(),
+        None => path.parse::<TilePath>(),
+    };
+    let Ok(tile) = parsed else {
         return empty(StatusCode::BAD_REQUEST);
     };
     match handle
@@ -56,10 +69,26 @@ pub fn respond(handle: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u
         .map_tile(tile.layer, tile.z, tile.x, tile.y)
     {
         Ok(Some(tile)) => response(StatusCode::OK, tile.mime, tile.data),
+        Ok(None) if contour_dem.is_some() => {
+            response(StatusCode::OK, "image/png", NO_DATA_DEM.to_vec())
+        }
         Ok(None) => empty(StatusCode::NO_CONTENT),
         Err(e) => {
             eprintln!("error: {path}: {e}");
             empty(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NO_DATA_DEM;
+
+    #[test]
+    fn no_data_tile_is_a_png_of_the_size_of_the_elevation_tiles() {
+        assert_eq!(&NO_DATA_DEM[1..4], b"PNG");
+        assert_eq!(&NO_DATA_DEM[12..16], b"IHDR");
+        assert_eq!(&NO_DATA_DEM[16..20], &512_u32.to_be_bytes());
+        assert_eq!(&NO_DATA_DEM[20..24], &512_u32.to_be_bytes());
     }
 }

@@ -27,6 +27,18 @@ fn map_overview_never_reads_catalog() {
 }
 
 #[test]
+fn overview_says_whether_an_enabled_region_has_elevation() {
+    let (app, _) = app_with_mini("offline-has-dem");
+    assert!(app.map_overview().has_dem);
+    assert!(app.regions().unwrap().has_dem);
+
+    app.set_region_enabled("mini", false).unwrap();
+
+    assert!(!app.map_overview().has_dem);
+    assert!(!app.regions().unwrap().has_dem);
+}
+
+#[test]
 fn disabled_region_leaves_bounds_and_attribution() {
     let (app, _) = app_with_mini("offline-disabled");
     let overview = app.map_overview();

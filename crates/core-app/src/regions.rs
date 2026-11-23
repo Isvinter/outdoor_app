@@ -129,6 +129,8 @@ pub struct MapOverview {
     pub attribution: Vec<String>,
     /// Smallest box around all enabled regions (west, south, east, north).
     pub installed_bounds: Option<[f64; 4]>,
+    /// An enabled region has elevation tiles.
+    pub has_dem: bool,
 }
 
 /// Everything the region list needs.
@@ -144,6 +146,8 @@ pub struct RegionsOverview {
     /// Smallest box around all enabled regions (west, south, east, north);
     /// there are no offline tiles outside of it.
     pub installed_bounds: Option<[f64; 4]>,
+    /// An enabled region has elevation tiles.
+    pub has_dem: bool,
 }
 
 impl App {
@@ -202,6 +206,7 @@ impl App {
             regions: installed,
             attribution,
             installed_bounds,
+            has_dem,
         } = self.map_overview();
         let mut regions: BTreeMap<String, RegionInfo> = installed
             .into_iter()
@@ -260,6 +265,7 @@ impl App {
             regions: regions.into_values().collect(),
             attribution,
             installed_bounds,
+            has_dem,
         })
     }
 
@@ -322,6 +328,7 @@ impl App {
             regions,
             attribution,
             installed_bounds,
+            has_dem: maps.store.has_layer(Layer::Dem),
         }
     }
 

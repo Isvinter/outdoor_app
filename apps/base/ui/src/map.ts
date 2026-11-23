@@ -99,8 +99,9 @@ export interface WaypointMenuTexts {
 }
 
 // Contour lines are computed from the elevation tiles of the installed regions.
+// `contour-dem` answers a missing tile with a tile of "no value", see tiles.rs.
 const contours = new mlcontour.DemSource({
-  url: `${TILES}dem/{z}/{x}/{y}`,
+  url: `${TILES}contour-dem/{z}/{x}/{y}`,
   encoding: "terrarium",
   maxzoom: 13,
   worker: true,
@@ -124,6 +125,13 @@ const multiLine = (line: Line) => ({
   geometry: { type: "MultiLineString" as const, coordinates: line.filter((segment) => segment.length > 1) },
 });
 
+/** Takes hillshading and contour lines out of a style, for regions without elevation data. */
+function removeElevation(style: StyleSpecification): void {
+  const elevation = ["dem", "contours"];
+  style.layers = style.layers.filter((layer) => !("source" in layer && elevation.includes(layer.source)));
+  for (const id of elevation) delete style.sources[id];
+}
+
 /** Fills in the placeholders of a bundled style (see scripts/make-style.py). */
 async function offlineStyle(file: string, overview: RegionsOverview | null): Promise<StyleSpecification> {
   const response = await fetch(new URL(`map/styles/${file}`, document.baseURI));
@@ -133,6 +141,7 @@ async function offlineStyle(file: string, overview: RegionsOverview | null): Pro
     // Nothing installed: nothing to request, show the bare background.
     return { ...style, sources: {}, layers: style.layers.filter((layer) => layer.type === "background") };
   }
+  if (!overview?.has_dem) removeElevation(style);
   const fill = (url: string) => url.replace("__TILES__", TILES).replace("__CONTOURS__", CONTOUR_TILES);
   style.glyphs = style.glyphs?.replace("__FONTS__", `${TILES}fonts/`);
   for (const [id, source] of Object.entries(style.sources)) {
