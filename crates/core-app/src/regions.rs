@@ -386,6 +386,14 @@ impl App {
         Ok(region)
     }
 
+    /// Installs a package from a build on this device. A package of another
+    /// template than the installed region of its id is refused: the region
+    /// stays as it is and the package stays where it is.
+    pub fn install_built_region(&self, package: &Path) -> Result<InstalledRegion, AppError> {
+        self.shared.maps.store.check_template(package)?;
+        self.install_local_region(package)
+    }
+
     /// Removes an installed region from this device, and its definition if it
     /// was defined here. A region that was defined but never built only loses
     /// the definition.

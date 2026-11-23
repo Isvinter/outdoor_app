@@ -75,6 +75,7 @@ const errorKeys: Partial<Record<MessageKey, true>> = {
   "error.region_unknown": true,
   "error.region_not_installed": true,
   "error.region_busy": true,
+  "error.region_template": true,
   "error.route_too_few_waypoints": true,
   "error.route_not_found": true,
   "error.routing_unavailable": true,

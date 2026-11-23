@@ -128,6 +128,11 @@ pub struct RegionManifest {
 }
 
 impl RegionManifest {
+    /// The map template; packages from before templates are `outdoor`.
+    pub fn template_name(&self) -> &str {
+        self.template.as_deref().unwrap_or("outdoor")
+    }
+
     /// Parses and validates a manifest. `location` only serves error messages.
     pub fn parse(json: &str, location: &str) -> Result<Self, MapsError> {
         let fail = |reason: String| MapsError::InvalidManifest {

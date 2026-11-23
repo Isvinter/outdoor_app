@@ -213,6 +213,7 @@ export const de = {
   "error.region_unknown": "Die Region ist nicht im Katalog",
   "error.region_not_installed": "Die Region ist nicht installiert",
   "error.region_busy": "Die Region wird bereits geladen",
+  "error.region_template": "Die Region ist mit einer anderen Kartenvorlage installiert. Sie bleibt unverändert, das neue Paket wurde nicht installiert.",
   "error.route_too_few_waypoints": "Eine Route braucht Start und Ziel",
   "error.route_not_found": "Keine Route gefunden – für dieses Profil gibt es keinen Weg zwischen den Wegpunkten",
   "error.routing_unavailable": "Keine Routingdaten: Alle Wegpunkte müssen in einer installierten Region mit Routing liegen",

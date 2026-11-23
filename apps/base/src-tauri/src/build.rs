@@ -158,7 +158,8 @@ pub async fn region_build_start(
         let package = builds
             .builder
             .build(&id, refresh, &mut |step| report(step), &cancel)?;
-        let installed = app.install_local_region(&package)?;
+        // On a refused package nothing is cleaned up, so it can be inspected.
+        let installed = app.install_built_region(&package)?;
         builds.builder.cleanup(&id, false);
         Ok(installed)
     })

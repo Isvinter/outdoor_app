@@ -290,6 +290,28 @@ impl RegionStore {
         self.activate(id, &staging)
     }
 
+    /// Fails if `package` would replace an installed region of another template.
+    /// Changes nothing.
+    pub fn check_template(&self, package: &Path) -> Result<(), MapsError> {
+        let manifest_path = package.join(MANIFEST);
+        let manifest_json =
+            fs::read_to_string(&manifest_path).map_err(MapsError::io(&manifest_path))?;
+        let manifest = RegionManifest::parse(&manifest_json, &manifest_path.to_string_lossy())?;
+        let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
+        let Some(region) = regions.get(&manifest.id) else {
+            return Ok(());
+        };
+        let installed = region.info.manifest.template_name();
+        if installed == manifest.template_name() {
+            return Ok(());
+        }
+        Err(MapsError::TemplateMismatch {
+            region: manifest.id.clone(),
+            installed: installed.to_string(),
+            package: manifest.template_name().to_string(),
+        })
+    }
+
     /// Moves a verified download into place, replacing an older version.
     fn activate(&self, id: &str, staging: &Path) -> Result<InstalledRegion, MapsError> {
         let target = self.dir.join(id);

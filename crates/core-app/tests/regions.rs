@@ -246,6 +246,77 @@ fn local_package_is_installed() {
     assert!(app.map_tile(Layer::Basemap, 0, 0, 0).unwrap().is_some());
 }
 
+/// Sets the template in the manifest of a package; `None` removes it.
+fn with_template(package: PathBuf, template: Option<&str>) -> PathBuf {
+    let path = package.join("manifest.json");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let fields = manifest.as_object_mut().unwrap();
+    match template {
+        Some(template) => fields.insert("template".into(), template.into()),
+        None => fields.remove("template"),
+    };
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    package
+}
+
+#[test]
+fn built_package_of_the_same_template_replaces_the_region() {
+    let (app, _, _) = open("template-same");
+    app.install_local_region(&with_template(package("template-same-a"), Some("urlaub")))
+        .unwrap();
+    let new = with_template(package("template-same-b"), Some("urlaub"));
+    let installed = app.install_built_region(&new).unwrap();
+    assert_eq!(installed.manifest.template.as_deref(), Some("urlaub"));
+    assert!(!new.exists());
+}
+
+#[test]
+fn installed_region_without_template_counts_as_outdoor() {
+    let (app, _, _) = open("template-old");
+    app.install_local_region(&with_template(package("template-old-a"), None))
+        .unwrap();
+    let same = with_template(package("template-old-b"), Some("outdoor"));
+    app.install_built_region(&same).unwrap();
+
+    let (app, _, _) = open("template-old-2");
+    app.install_local_region(&with_template(package("template-old-c"), None))
+        .unwrap();
+    let other = with_template(package("template-old-d"), Some("fliegen"));
+    let error = app.install_built_region(&other).unwrap_err();
+    assert_eq!(error.code(), "region_template");
+}
+
+#[test]
+fn built_package_of_another_template_leaves_everything_in_place() {
+    let (app, _, _) = open("template-other");
+    app.install_local_region(&with_template(package("template-other-a"), Some("outdoor")))
+        .unwrap();
+    let new = with_template(package("template-other-b"), Some("urlaub"));
+
+    let error = app.install_built_region(&new).unwrap_err();
+
+    assert_eq!(error.code(), "region_template");
+    let message = error.to_string();
+    assert!(
+        message.contains("outdoor") && message.contains("urlaub"),
+        "{message}"
+    );
+    // The installed region still works, the new package can be inspected.
+    assert_eq!(app.regions().unwrap().regions.len(), 1);
+    assert!(app.map_tile(Layer::Basemap, 0, 0, 0).unwrap().is_some());
+    assert!(new.join("manifest.json").is_file());
+    assert!(new.join("basemap.pmtiles").is_file());
+}
+
+#[test]
+fn built_package_of_a_new_region_is_installed() {
+    let (app, _, _) = open("template-new");
+    let new = with_template(package("template-new-a"), Some("fliegen"));
+    let installed = app.install_built_region(&new).unwrap();
+    assert_eq!(installed.manifest.template.as_deref(), Some("fliegen"));
+}
+
 #[test]
 fn region_without_definition_is_not_buildable() {
     let (app, _, _) = open("not-buildable");
