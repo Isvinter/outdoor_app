@@ -24,7 +24,7 @@ use serde::Serialize;
 
 use crate::settings::{SettingsDto, WarningDto};
 use tauri::{AppHandle, Manager, State};
-use tauri_plugin_vario_sensors::{Permissions, SensorStart, VarioSensorsExt};
+use tauri_plugin_vario_sensors::{Permissions, QrScan, SensorStart, VarioSensorsExt};
 use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
 use vario_engine::flights::{self, FlightEntry};
@@ -205,6 +205,15 @@ async fn permissions(app: AppHandle) -> Result<Permissions, String> {
 #[tauri::command]
 async fn open_settings(app: AppHandle) -> Result<(), String> {
     app.vario_sensors().open_settings()
+}
+
+/// Scans the QR code of the share of ZeroGrid Base. The camera stays open until a code is
+/// found or the user cancels, so this waits on a thread meant for blocking work.
+#[tauri::command]
+async fn scan_map_source(app: AppHandle) -> Result<QrScan, String> {
+    tauri::async_runtime::spawn_blocking(move || app.vario_sensors().scan_qr())
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Installed offline map regions and the map style for them. Reads the regions folder
@@ -523,6 +532,7 @@ pub fn run() {
             acknowledge_warning,
             get_map_source,
             set_map_source,
+            scan_map_source,
             map_regions,
             download_region,
             cancel_region_download,

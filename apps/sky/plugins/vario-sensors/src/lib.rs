@@ -58,6 +58,16 @@ impl Default for Permissions {
     }
 }
 
+/// How scanning a QR code ended. Both fields empty: the user cancelled.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct QrScan {
+    /// The address of the share of ZeroGrid Base.
+    pub address: Option<String>,
+    /// Why the camera could not be used, in words for the user.
+    pub message: Option<String>,
+}
+
 // Declares the Swift function `init_plugin_vario_sensors` (see the bottom of
 // `ios/Sources/VarioSensorsPlugin.swift`) so that Rust can call it.
 #[cfg(target_os = "ios")]
@@ -121,6 +131,25 @@ impl<R: Runtime> VarioSensors<R> {
         }
     }
 
+    /// Opens the camera and waits until a QR code with a share address was found or the
+    /// user cancelled, so this can take minutes. Same threading rule as
+    /// [`VarioSensors::start`]. Outside iOS there is no scanner.
+    pub fn scan_qr(&self) -> Result<QrScan, String> {
+        #[cfg(target_os = "ios")]
+        {
+            self.handle
+                .run_mobile_plugin("scanQr", ())
+                .map_err(|error| error.to_string())
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            Ok(QrScan {
+                address: None,
+                message: Some("QR-Codes lassen sich nur auf dem iPhone scannen.".to_owned()),
+            })
+        }
+    }
+
     /// Stops all sensors. Same threading rule as [`VarioSensors::start`].
     pub fn stop(&self) -> Result<(), String> {
         #[cfg(target_os = "ios")]
@@ -164,4 +193,23 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             Ok(())
         })
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::QrScan;
+
+    #[test]
+    fn a_scan_result_is_read_from_what_swift_sends() {
+        let found: QrScan = serde_json::from_str(r#"{"address":"http://host:8765/"}"#).unwrap();
+        assert_eq!(found.address.as_deref(), Some("http://host:8765/"));
+        assert_eq!(found.message, None);
+
+        let refused: QrScan = serde_json::from_str(r#"{"message":"Kein Zugriff"}"#).unwrap();
+        assert_eq!(refused.address, None);
+        assert_eq!(refused.message.as_deref(), Some("Kein Zugriff"));
+
+        let cancelled: QrScan = serde_json::from_str("{}").unwrap();
+        assert_eq!(cancelled, QrScan::default());
+    }
 }

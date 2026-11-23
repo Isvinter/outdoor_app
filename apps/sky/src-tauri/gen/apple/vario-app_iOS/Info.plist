@@ -57,5 +57,7 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Lädt Kartenregionen von ZeroGrid Base am Computer im Heimnetz.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Liest den QR-Code der Freigabe in ZeroGrid Base.</string>
 </dict>
 </plist>
