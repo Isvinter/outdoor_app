@@ -85,7 +85,11 @@ final class PlanController: ObservableObject {
 
     /// The profiles of the core, in the order they are offered.
     @Published private(set) var profiles: [ProfileChoice]
-    @Published private(set) var request = planEmpty()
+    @Published private(set) var request = planEmpty() {
+        didSet {
+            if request != oldValue { onRouteChanged?() }
+        }
+    }
     /// The answer to `request`, or to an older one while `planning`.
     @Published private(set) var plan: PlanResult?
     /// What the form shows: the profile and settings of the last leg and of new legs.
@@ -139,6 +143,8 @@ final class PlanController: ObservableObject {
     var interceptTap: ((CLLocationCoordinate2D) -> Bool)?
     /// A tap on the map that sets no waypoint.
     var onFreeTap: ((CLLocationCoordinate2D) -> Void)?
+    /// The waypoints or legs of the planned route changed.
+    var onRouteChanged: (() -> Void)?
 
     private static let lastProfileKey = "lastRouteProfile"
 
@@ -156,7 +162,13 @@ final class PlanController: ObservableObject {
                 self.onFreeTap?(at)
             }
         }
-        overlay.onWaypointTap = { [weak self] index in self?.menuWaypoint = index }
+        overlay.onWaypointTap = { [weak self] index in
+            guard let self, self.request.waypoints.indices.contains(index) else { return }
+            let point = self.request.waypoints[index]
+            // While a route start is being chosen, a waypoint is a place like any other.
+            let at = CLLocationCoordinate2D(latitude: point.lat, longitude: point.lon)
+            if self.interceptTap?(at) != true { self.menuWaypoint = index }
+        }
         overlay.onWaypointMove = { [weak self] index, to in self?.moveWaypoint(index, to: to) }
         routes = (try? core.savedRoutes()) ?? []
     }
@@ -273,8 +285,8 @@ final class PlanController: ObservableObject {
     var isReplacingRoute: Bool { replacing }
 
     /// A new route from `from` to `to`, in place of the one on the map.
-    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
-        guard !replacing else { return }
+    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool {
+        guard !replacing else { return false }
         useRouteHereProfile()
         picking = false
         loaded = nil
@@ -284,15 +296,17 @@ final class PlanController: ObservableObject {
         let core = core
         queue.async { core.startNewRoute() }
         compute()
+        return true
     }
 
     /// `to` becomes the next destination of the route on the map.
-    func appendTarget(_ to: CLLocationCoordinate2D) {
-        guard !replacing else { return }
+    func appendTarget(_ to: CLLocationCoordinate2D) -> Bool {
+        guard !replacing else { return false }
         useRouteHereProfile()
         picking = false
         request = planAddWaypoint(request: request, at: LatLon(lat: to.latitude, lon: to.longitude), leg: formLeg)
         compute()
+        return true
     }
 
     /// The form shows the last profile. The open route stays as it is.

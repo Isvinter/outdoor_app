@@ -95,11 +95,11 @@ final class LiveRouteHereHost: RouteHereHost {
         return await Task.detached(priority: .userInitiated) { core.routeStart(position: position, target: to) }.value
     }
 
-    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
+    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool {
         plan.startRoute(from: from, to: to)
     }
 
-    func appendTarget(_ to: CLLocationCoordinate2D) {
+    func appendTarget(_ to: CLLocationCoordinate2D) -> Bool {
         plan.appendTarget(to)
     }
 

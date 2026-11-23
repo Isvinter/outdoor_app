@@ -15,6 +15,7 @@ private final class FakeHost: RouteHereHost {
     var requests = 0
     var stops = 0
     var pickingStopped = 0
+    var acceptsRoute = true
 
     func routeIsUnsaved() async -> Bool { unsaved }
 
@@ -22,12 +23,16 @@ private final class FakeHost: RouteHereHost {
         position == nil && start == .ready ? .noPosition : start
     }
 
-    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
+    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool {
+        guard acceptsRoute else { return false }
         started.append((from, to))
+        return true
     }
 
-    func appendTarget(_ to: CLLocationCoordinate2D) {
+    func appendTarget(_ to: CLLocationCoordinate2D) -> Bool {
+        guard acceptsRoute else { return false }
         appended.append(to)
+        return true
     }
 
     func requestPosition(_ onUpdate: @escaping (CLLocation) -> Void, denied: @escaping () -> Void) {
@@ -162,6 +167,33 @@ final class RouteHereFlowTests: XCTestCase {
         XCTAssertTrue(flow.tapped(tap))
         XCTAssertEqual(host.started[0].0.latitude, tap.latitude)
         XCTAssertEqual(host.started[0].1.latitude, target.latitude)
+    }
+
+    func testRouteChangedWhileWaitingEndsTheFlow() async {
+        let host = FakeHost()
+        let flow = RouteHereFlow(host: host)
+        flow.begin(target: target)
+        await wait("waiting") { flow.step == .waiting }
+        flow.routeChanged()
+        XCTAssertEqual(flow.step, .idle)
+        XCTAssertEqual(host.stops, 1)
+        host.start = .ready
+        flow.received(fix)
+        await settle()
+        XCTAssertTrue(host.started.isEmpty)
+    }
+
+    func testRefusedRouteDoesNotReportDone() async {
+        let host = FakeHost()
+        host.acceptsRoute = false
+        var done = 0
+        let flow = RouteHereFlow(host: host, positionWait: 0.01)
+        flow.onDone = { done += 1 }
+        flow.begin(target: target)
+        await wait("tap") { flow.step == .tapStart(otherMap: false) }
+        XCTAssertTrue(flow.tapped(tap))
+        XCTAssertEqual(done, 0)
+        XCTAssertEqual(flow.step, .idle)
     }
 
     func testNothingHappensWhileARouteIsBeingReplaced() async {

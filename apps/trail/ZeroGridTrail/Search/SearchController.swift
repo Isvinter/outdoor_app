@@ -154,6 +154,8 @@ final class SearchController: ObservableObject {
     private let map: SearchMap
     private let typingDelay: Double
     private let fitDelay: Double
+    /// Lets the panel take its new height before the map fits the hits below it.
+    private let layoutDelay: Double
     private let queue = DispatchQueue(label: "de.zeibig.zerogrid.trail.search", qos: .userInitiated)
     /// Counts the searches, so that a slow answer cannot replace a newer one.
     private var request = 0
@@ -168,11 +170,14 @@ final class SearchController: ObservableObject {
     /// Counts map moves not made by the search, so that a late answer leaves them alone.
     private var otherMoves = 0
 
-    init(backend: SearchBackend, map: SearchMap, typingDelay: Double = 0.2, fitDelay: Double = 0.5) {
+    init(backend: SearchBackend, map: SearchMap, typingDelay: Double = 0.2, fitDelay: Double = 0.5,
+        layoutDelay: Double = 0.1
+    ) {
         self.backend = backend
         self.map = map
         self.typingDelay = typingDelay
         self.fitDelay = fitDelay
+        self.layoutDelay = layoutDelay
     }
 
     /// Hints below the list.
@@ -221,7 +226,7 @@ final class SearchController: ObservableObject {
         clearSelection()
         category = key
         let backend = backend
-        run(fitDelay: 0) { near, radius in
+        run(fitDelay: layoutDelay) { near, radius in
             try backend.category(key, near, radius, Self.limit)
         }
     }
@@ -248,14 +253,10 @@ final class SearchController: ObservableObject {
             self.show(results)
             self.overview = nil
             guard self.otherMoves == movesBefore else { return }
-            if fitDelay == 0 {
+            self.fitTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(fitDelay * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
                 self.fit(results)
-            } else {
-                self.fitTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: UInt64(fitDelay * 1_000_000_000))
-                    guard !Task.isCancelled, let self else { return }
-                    self.fit(results)
-                }
             }
         }
     }
@@ -307,6 +308,7 @@ final class SearchController: ObservableObject {
     func back() {
         let camera = returnTo
         clearSelection()
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { open = true }
         drawDots()
         if let camera {
             overview = camera

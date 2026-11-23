@@ -63,6 +63,7 @@ private struct RootView: View {
             map.searchOverlay.onOtherMove = { [weak search] in search?.mapMoved() }
             // A tap first answers "where does the route start", then sets a waypoint, then opens a dot.
             plan.interceptTap = { [weak routeHere] at in routeHere?.tapped(at) ?? false }
+            plan.onRouteChanged = { [weak routeHere] in routeHere?.routeChanged() }
             plan.onFreeTap = { [weak search, weak map] at in
                 if let index = map?.searchOverlay.dot(at: at) { search?.tappedDot(index) }
             }

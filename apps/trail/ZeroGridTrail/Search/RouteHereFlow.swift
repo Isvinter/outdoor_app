@@ -19,8 +19,9 @@ protocol RouteHereHost: AnyObject {
     var lastPosition: CLLocation? { get }
     func routeIsUnsaved() async -> Bool
     func routeStart(position: KnownPosition?, target: CLLocationCoordinate2D) async -> RouteStart
-    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D)
-    func appendTarget(_ to: CLLocationCoordinate2D)
+    /// False if the planning cannot take the route now.
+    func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool
+    func appendTarget(_ to: CLLocationCoordinate2D) -> Bool
     func requestPosition(_ onUpdate: @escaping (CLLocation) -> Void, denied: @escaping () -> Void)
     func stopRequestingPosition()
     func stopPicking()
@@ -71,8 +72,7 @@ final class RouteHereFlow: ObservableObject {
 
     func chooseAppend() {
         guard case .choosing = step, let target else { return }
-        host.appendTarget(target)
-        finish()
+        finish(made: host.appendTarget(target))
     }
 
     func chooseStartMyself() {
@@ -88,6 +88,11 @@ final class RouteHereFlow: ObservableObject {
         target = nil
     }
 
+    /// The route on the map changed: what was asked or waited for no longer holds.
+    func routeChanged() {
+        if target != nil { cancel() }
+    }
+
     /// A new position while waiting for one.
     func received(_ location: CLLocation) {
         guard step == .waiting else { return }
@@ -97,8 +102,7 @@ final class RouteHereFlow: ObservableObject {
     /// A tap on the map; true if it was the start of the route.
     func tapped(_ at: CLLocationCoordinate2D) -> Bool {
         guard case .tapStart = step, let target else { return false }
-        host.startRoute(from: at, to: target)
-        finish()
+        finish(made: host.startRoute(from: at, to: target))
         return true
     }
 
@@ -118,8 +122,7 @@ final class RouteHereFlow: ObservableObject {
             switch start {
             case .ready:
                 if let location {
-                    self.host.startRoute(from: location.coordinate, to: target)
-                    self.finish()
+                    self.finish(made: self.host.startRoute(from: location.coordinate, to: target))
                 } else {
                     self.askForStart(otherMap: false)
                 }
@@ -164,8 +167,8 @@ final class RouteHereFlow: ObservableObject {
         }
     }
 
-    private func finish() {
+    private func finish(made: Bool) {
         cancel()
-        onDone?()
+        if made { onDone?() }
     }
 }

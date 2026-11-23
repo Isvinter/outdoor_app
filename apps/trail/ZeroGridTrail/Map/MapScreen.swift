@@ -68,6 +68,13 @@ struct MapScreen: View {
                 SelfTestStatus(controller: controller, plan: plan, regions: regions, start: start)
             }
         }
+        // The hits and the chosen one must not end up behind a raised sheet.
+        .onChange(of: searchIsOpen) { open in
+            if open { detent = PlanSheet.collapsed }
+        }
+        .onChange(of: search.selected) { selected in
+            if selected != nil { detent = PlanSheet.collapsed }
+        }
         // Always there, like the sheet of Apple Maps; the map stays usable beside it.
         .sheet(isPresented: .constant(true)) {
             PlanSheet(plan: plan, regions: regions, detent: $detent)

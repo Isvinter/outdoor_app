@@ -10,6 +10,7 @@ private final class FakeMap: SearchMap {
     var dots: [CLLocationCoordinate2D] = []
     var selectedDot: Int?
     var fitted: [[CLLocationCoordinate2D]] = []
+    var fitInsets: [Double] = []
 
     func showSearchHits(_ points: [CLLocationCoordinate2D], selected: Int?) {
         dots = points
@@ -19,6 +20,7 @@ private final class FakeMap: SearchMap {
     func fitSearchHits(_ points: [CLLocationCoordinate2D], topInset: Double) -> SearchCamera? {
         guard let first = points.first else { return nil }
         fitted.append(points)
+        fitInsets.append(topInset)
         searchCamera = SearchCamera(center: first, zoom: 13)
         return searchCamera
     }
@@ -66,7 +68,7 @@ final class SearchControllerTests: XCTestCase {
                 calls.add(key, near)
                 return answer([hit("Kategorie")])
             })
-        return SearchController(backend: backend, map: map, typingDelay: 0.01, fitDelay: 0.01)
+        return SearchController(backend: backend, map: map, typingDelay: 0.01, fitDelay: 0.01, layoutDelay: 0.08)
     }
 
     private func wait(_ what: String, _ condition: @MainActor () -> Bool) async {
@@ -181,6 +183,30 @@ final class SearchControllerTests: XCTestCase {
         XCTAssertNil(map.selectedDot)
         XCTAssertEqual(search.text, "Hostel")
         XCTAssertEqual(calls.all.count, 1)
+    }
+
+    func testBackBringsTheCategoriesBack() async {
+        let map = FakeMap()
+        let search = controller(map: map)
+        search.open = true
+        search.chooseCategory("lodging")
+        await wait("dots") { map.dots.count == 1 }
+        search.tappedDot(0)
+        XCTAssertFalse(search.showsCategories)
+        search.back()
+        XCTAssertTrue(search.showsCategories)
+        XCTAssertEqual(search.category, "lodging")
+    }
+
+    func testCategoryFitUsesThePanelAfterItsLayout() async {
+        let map = FakeMap()
+        let search = controller(map: map)
+        search.topInset = 60
+        search.chooseCategory("lodging")
+        await wait("answer") { search.results != nil }
+        search.topInset = 280
+        await wait("fit") { map.fitted.count == 1 }
+        XCTAssertEqual(map.fitInsets, [280])
     }
 
     func testRouteDoneRemovesTheDots() async {
