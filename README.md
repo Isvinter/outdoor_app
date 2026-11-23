@@ -186,6 +186,12 @@ cargo run --release -p contour-tiles -- dem.pmtiles contours.pmtiles   # --bound
 Die Stile werden aus `scripts/make-style.py` erzeugt (`styles/topo-summer.json`,
 `styles/topo-winter.json`).
 
+**Dunkelmodus für OLED:** Trail und Sky schalten Karte und Bedienung zwischen Hell und Dunkel
+um. `core-maps` färbt die hellen Stile dafür zur Laufzeit um (`crates/core-maps/src/dark.rs`),
+der Grund ist echt schwarz. Das Relief ist zuschaltbar, in Trail als Regler, in Sky als
+Schalter. Die Hangneigungsfarben der Winterkarte bleiben unverändert. Eine neue Farbe in
+einem Stil braucht einen Eintrag in der Palette, sonst schlägt der Test fehl. Base bleibt hell.
+
 Kartendaten: © OpenStreetMap-Mitwirkende (ODbL), Schema © OpenMapTiles (CC BY), Höhendaten
 über Mapterhorn (u. a. Bayerische Vermessungsverwaltung, geoland.at, Copernicus); die genauen
 Angaben stehen im Manifest jeder Region und in der Karte unten rechts.
