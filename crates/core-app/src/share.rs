@@ -49,6 +49,8 @@ impl App {
                 bbox: region.manifest.bbox,
                 version: region.manifest.version,
                 size: region.manifest.size,
+                template: region.manifest.template,
+                group: region.manifest.group,
             })
             .collect();
         Catalog {

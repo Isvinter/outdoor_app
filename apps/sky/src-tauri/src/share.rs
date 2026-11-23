@@ -406,6 +406,9 @@ mod tests {
             version: version.to_owned(),
             attribution: vec!["test".to_owned()],
             routing: None,
+            template: None,
+            group: None,
+            search: None,
             files: vec![RegionFile {
                 name,
                 size: data.len() as u64,
@@ -433,6 +436,8 @@ mod tests {
                     version: manifest.version.clone(),
                     size: manifest.size,
                     path: manifest.id.clone(),
+                    template: None,
+                    group: None,
                 })
                 .collect(),
         };

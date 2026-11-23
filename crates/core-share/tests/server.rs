@@ -54,6 +54,8 @@ impl ShareContent for Fake {
                 version: "202611130000".into(),
                 size: 1,
                 path: self.region.clone(),
+                template: None,
+                group: None,
             }],
         }
     }
@@ -269,6 +271,26 @@ fn post_is_rejected() {
         405
     );
     assert_eq!(raw_status(server.local_addr(), "DELETE", "/x"), 405);
+}
+
+#[test]
+fn search_file_is_served_with_range() {
+    let dir = temp_dir("search");
+    let path = dir.join("search.sqlite");
+    std::fs::write(&path, big_bytes()).unwrap();
+    let fake = Fake {
+        region: "r".into(),
+        files: BTreeMap::from([("search.sqlite".to_string(), path)]),
+        routes: Vec::new(),
+        asked: Mutex::default(),
+    };
+    let server = start(fake, ShareOptions::default());
+    let response = agent()
+        .get(url(&server, "/r/search.sqlite"))
+        .header("Range", "bytes=1-")
+        .call()
+        .unwrap();
+    assert_eq!(response.status(), 206);
 }
 
 #[test]

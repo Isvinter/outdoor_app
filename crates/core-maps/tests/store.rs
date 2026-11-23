@@ -571,3 +571,72 @@ fn has_layer_follows_installed_files() {
         .unwrap();
     assert!(store.has_layer(Layer::Contours));
 }
+
+// --- search file and templates ------------------------------------------------
+
+const SEARCH_ENTRY: &str = "\"files\": [\n    { \"name\": \"search.sqlite\", \"size\": 10, \"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\" },";
+
+#[test]
+fn manifest_accepts_the_search_file() {
+    let json = manifest_json().replacen("\"files\": [", SEARCH_ENTRY, 1);
+    let manifest = RegionManifest::parse(&json, "test").unwrap();
+    assert_eq!(manifest.files[0].name, "search.sqlite");
+}
+
+#[test]
+fn manifest_rejects_other_sqlite_files() {
+    for name in ["other.sqlite", "search.sqlite.bak"] {
+        let json = manifest_json()
+            .replacen("\"files\": [", SEARCH_ENTRY, 1)
+            .replacen("search.sqlite", name, 1);
+        assert!(
+            matches!(
+                RegionManifest::parse(&json, "test"),
+                Err(MapsError::InvalidManifest { .. })
+            ),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn old_manifest_has_no_template() {
+    let manifest = RegionManifest::parse(&manifest_json(), "test").unwrap();
+    assert_eq!(manifest.template, None);
+    assert_eq!(manifest.group, None);
+    assert_eq!(manifest.search, None);
+    let value = serde_json::to_value(&manifest).unwrap();
+    for key in ["template", "group", "search"] {
+        assert!(value.get(key).is_none(), "{key}");
+    }
+}
+
+#[test]
+fn package_with_search_file_installs_shares_and_deletes() {
+    let package = common::temp_dir("search-pkg").join("withsearch");
+    std::fs::create_dir_all(&package).unwrap();
+    let data = b"not really sqlite";
+    std::fs::write(package.join("search.sqlite"), data).unwrap();
+    let manifest = serde_json::json!({
+        "format": 1, "id": "withsearch", "name": "With search", "bbox": [11.74, 47.70, 11.80, 47.74],
+        "version": "1", "attribution": [], "size": data.len(),
+        "template": "wandern", "group": "Alpen",
+        "search": { "format": 1, "places": 1, "streets": 2, "pois": 3, "named_pois": 4 },
+        "files": [{ "name": "search.sqlite", "size": data.len(), "sha256": sha256_hex(data) }],
+    });
+    std::fs::write(package.join("manifest.json"), manifest.to_string()).unwrap();
+    let store = RegionStore::open(&temp_dir("search-store")).unwrap();
+
+    let region = store.install_local(&package).unwrap();
+
+    assert_eq!(region.manifest.template.as_deref(), Some("wandern"));
+    assert_eq!(region.manifest.group.as_deref(), Some("Alpen"));
+    assert_eq!(region.manifest.search.unwrap().named_pois, 4);
+    let (path, len) = store.package_file("withsearch", "search.sqlite").unwrap();
+    assert_eq!(len, data.len() as u64);
+    assert_eq!(std::fs::read(&path).unwrap(), data);
+    assert!(store.is_complete("withsearch"));
+    store.delete("withsearch").unwrap();
+    assert!(!path.exists());
+    assert!(store.package_file("withsearch", "search.sqlite").is_none());
+}
