@@ -222,3 +222,24 @@ fn tempfile_dir(name: &str) -> PathBuf {
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
+
+#[test]
+fn nearest_hit_survives_many_matches() {
+    let dir = tempfile_dir("many");
+    let mut entries: Vec<Entry> = (0..2500)
+        .map(|i| {
+            entry(
+                Kind::Street,
+                "Hauptstraße",
+                10.0 + f64::from(i) * 1e-4,
+                20.0,
+            )
+        })
+        .collect();
+    entries.push(entry(Kind::Street, "Hauptstraße", 47.0, 11.0));
+    let index = SearchIndex::open(&build(&dir, &entries)).unwrap();
+    let hits = index.search("Hauptstr", Some((47.0, 11.0)), 1).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].lat, 47.0);
+    assert!(hits[0].distance_m.unwrap() < 1.0);
+}

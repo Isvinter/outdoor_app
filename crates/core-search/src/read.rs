@@ -1,5 +1,7 @@
 //! Reading the index, read-only.
 
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags, Row, params};
@@ -48,19 +50,39 @@ impl SearchIndex {
         if query.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
+        let Some(near) = near else {
+            let mut stmt = self.conn.prepare_cached(
+                "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon
+                 FROM (SELECT rowid FROM name_terms WHERE name_terms MATCH ?1
+                       ORDER BY rank LIMIT ?2) f
+                 JOIN entry e ON e.id = f.rowid",
+            )?;
+            // Candidates arrive in rank order.
+            let rows = stmt.query_map(params![query, CANDIDATES], |row| hit(row, None))?;
+            let mut hits = rows.collect::<Result<Vec<_>, _>>()?;
+            hits.truncate(limit);
+            return hits.into_iter().map(finish_hit).collect();
+        };
+        // With a position every match is a candidate: no rank ordering and no
+        // cap, only the nearest `limit` are kept while the rows stream by.
         let mut stmt = self.conn.prepare_cached(
             "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon
-             FROM (SELECT rowid FROM name_terms WHERE name_terms MATCH ?1 ORDER BY rank LIMIT ?2) f
-             JOIN entry e ON e.id = f.rowid",
+             FROM name_terms f JOIN entry e ON e.id = f.rowid
+             WHERE name_terms MATCH ?1",
         )?;
-        let rows = stmt.query_map(params![query, CANDIDATES], |row| hit(row, near))?;
-        let mut hits = rows.collect::<Result<Vec<_>, _>>()?;
-        // Candidates arrive in rank order and the sort is stable.
-        if near.is_some() {
-            hits.sort_by(|a, b| a.distance_m.total_cmp(&b.distance_m));
+        let mut rows = stmt.query(params![query])?;
+        let mut nearest: BinaryHeap<ByDistance> = BinaryHeap::with_capacity(limit + 1);
+        while let Some(row) = rows.next()? {
+            nearest.push(ByDistance(hit(row, Some(near))?));
+            if nearest.len() > limit {
+                nearest.pop();
+            }
         }
-        hits.truncate(limit);
-        hits.into_iter().map(finish_hit).collect()
+        nearest
+            .into_sorted_vec()
+            .into_iter()
+            .map(|h| finish_hit(h.0))
+            .collect()
     }
 
     /// The `limit` nearest entries of a category, named or not.
@@ -111,6 +133,26 @@ struct RawHit {
     lon: f64,
     distance_m: f64,
     has_distance: bool,
+}
+
+/// Orders hits by distance so a heap can drop the farthest.
+struct ByDistance(RawHit);
+
+impl PartialEq for ByDistance {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+impl Eq for ByDistance {}
+impl PartialOrd for ByDistance {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for ByDistance {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.distance_m.total_cmp(&other.0.distance_m)
+    }
 }
 
 fn hit(row: &Row, near: Option<(f64, f64)>) -> rusqlite::Result<RawHit> {
