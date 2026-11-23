@@ -2,7 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use core_search::{Category, Entry, Hit, Kind, SearchIndex, SearchWriter, index_terms, normalize};
+use core_search::{
+    Category, Entry, Hit, Kind, SearchIndex, SearchWriter, category_for_word, index_terms,
+    normalize, query_words,
+};
 
 fn entry(kind: Kind, name: &str, lat: f64, lon: f64) -> Entry {
     Entry {
@@ -356,4 +359,165 @@ fn other_town_does_not_match() {
             .unwrap()
             .is_empty()
     );
+}
+
+fn place(name: &str, subtype: Option<&str>, lat: f64, lon: f64) -> Entry {
+    let mut e = entry(Kind::Place, name, lat, lon);
+    e.subtype = subtype.map(str::to_string);
+    e
+}
+
+const NEAR: (f64, f64) = (-13.5, -72.0);
+
+#[test]
+fn umlaut_query_finds_stored_ae_spelling() {
+    let dir = tempfile_dir("stored-ae");
+    let index = SearchIndex::open(&build(&dir, &[place("Muenchen", None, 48.1, 11.6)])).unwrap();
+    let hits = index.search("München", Some((48.0, 11.0)), 5).unwrap();
+    assert_eq!(names(&hits), ["Muenchen"]);
+}
+
+#[test]
+fn strasse_finds_separate_str() {
+    let dir = tempfile_dir("separate-str");
+    let street = entry(Kind::Street, "Haupt Str.", 48.0, 11.0);
+    let index = SearchIndex::open(&build(&dir, &[street])).unwrap();
+    for text in ["Haupt Straße", "Haupt Str.", "Haupt Strasse"] {
+        let hits = index.search(text, Some((48.0, 11.0)), 5).unwrap();
+        assert_eq!(names(&hits), ["Haupt Str."], "{text}");
+    }
+}
+
+#[test]
+fn punctuation_never_breaks_the_query() {
+    let dir = tempfile_dir("punctuation");
+    let index = SearchIndex::open(&build(&dir, &sample())).unwrap();
+    for text in [
+        "\"", "*", "-", "(", "a\"b", "NEAR(", "AND", "name:x", "   ", "ß",
+    ] {
+        assert!(index.search(text, Some((47.0, 11.0)), 10).is_ok(), "{text}");
+        assert!(index.search(text, None, 10).is_ok(), "{text}");
+    }
+}
+
+#[test]
+fn bigger_place_beats_nearer_street() {
+    let dir = tempfile_dir("place-before-street");
+    let entries = [
+        entry(Kind::Street, "Calle Cusco", -13.5, -72.001),
+        place("Cusco", Some("city"), -13.68, -72.0),
+    ];
+    let index = SearchIndex::open(&build(&dir, &entries)).unwrap();
+    let hits = index.search("Cusco", Some(NEAR), 5).unwrap();
+    assert_eq!(names(&hits), ["Cusco", "Calle Cusco"]);
+    assert_eq!(hits[0].match_rank, 0);
+    assert_eq!(hits[1].match_rank, 5);
+}
+
+#[test]
+fn city_beats_nearer_village_of_same_name() {
+    let dir = tempfile_dir("city-before-village");
+    let entries = [
+        place("Santa Ana", Some("village"), -13.5, -72.001),
+        place("Santa Ana", Some("city"), -14.5, -72.0),
+    ];
+    let index = SearchIndex::open(&build(&dir, &entries)).unwrap();
+    let hits = index.search("Santa Ana", Some(NEAR), 5).unwrap();
+    assert_eq!(hits[0].subtype.as_deref(), Some("city"));
+    assert_eq!(hits[1].subtype.as_deref(), Some("village"));
+}
+
+#[test]
+fn far_city_survives_the_limit() {
+    let dir = tempfile_dir("city-survives-limit");
+    let mut entries: Vec<Entry> = (0..20)
+        .map(|i| {
+            entry(
+                Kind::Street,
+                "Calle Cusco",
+                -13.5,
+                -72.0 + f64::from(i) * 0.001,
+            )
+        })
+        .collect();
+    entries.push(place("Cusco", Some("city"), -15.0, -72.0));
+    let index = SearchIndex::open(&build(&dir, &entries)).unwrap();
+    let hits = index.search("Cusco", Some(NEAR), 3).unwrap();
+    assert_eq!(hits[0].name, "Cusco");
+}
+
+#[test]
+fn alt_name_counts_as_whole_word() {
+    let dir = tempfile_dir("alt-whole-word");
+    let mut bozen = place("Bozen", Some("city"), 46.5, 11.35);
+    bozen.alt_names = vec!["Bolzano".into()];
+    let index = SearchIndex::open(&build(&dir, &[bozen])).unwrap();
+    let hits = index.search("Bolzano", Some((46.0, 11.0)), 5).unwrap();
+    assert_eq!(hits[0].match_rank, 0);
+}
+
+#[test]
+fn prefix_of_place_is_not_a_whole_word() {
+    let dir = tempfile_dir("prefix-not-word");
+    let entries = [place("Cusco", Some("city"), -13.5, -72.0)];
+    let index = SearchIndex::open(&build(&dir, &entries)).unwrap();
+    let hits = index.search("Cus", Some(NEAR), 5).unwrap();
+    assert_eq!(hits[0].match_rank, 5);
+}
+
+#[test]
+fn place_without_rank_stays_readable() {
+    let dir = tempfile_dir("place-no-rank");
+    let entries = [place("Cusco", None, -13.5, -72.0)];
+    let index = SearchIndex::open(&build(&dir, &entries)).unwrap();
+    let hits = index.search("Cusco", Some(NEAR), 5).unwrap();
+    assert_eq!(hits[0].match_rank, 4);
+}
+
+#[test]
+fn category_words() {
+    for w in ["Hostel", "hotel", "Unterkunft", "hostal"] {
+        assert_eq!(category_for_word(w), Some(Category::Lodging), "{w}");
+    }
+    for w in ["Apotheke", "Farmacia", "pharmacy"] {
+        assert_eq!(category_for_word(w), Some(Category::Pharmacy), "{w}");
+    }
+    for w in ["Tankstelle", "Grifo", "gasolinera"] {
+        assert_eq!(category_for_word(w), Some(Category::Fuel), "{w}");
+    }
+    assert_eq!(category_for_word("Supermarkt"), Some(Category::Groceries));
+    assert_eq!(
+        category_for_word("Sehenswürdigkeit"),
+        Some(Category::Sights)
+    );
+    assert_eq!(category_for_word("Hostel Cusco"), None);
+    assert_eq!(category_for_word("Host"), None);
+}
+
+#[test]
+fn category_names_round_trip() {
+    for c in [
+        Category::Fuel,
+        Category::Groceries,
+        Category::Food,
+        Category::Pharmacy,
+        Category::Lodging,
+        Category::Camping,
+        Category::Parking,
+        Category::Retail,
+        Category::Sights,
+    ] {
+        assert_eq!(Category::parse(c.as_str()), Some(c));
+    }
+    assert_eq!(Category::parse("nonsense"), None);
+    assert_eq!(Kind::Place.as_str(), "place");
+    assert_eq!(Kind::Street.as_str(), "street");
+    assert_eq!(Kind::Poi.as_str(), "poi");
+}
+
+#[test]
+fn query_words_list_spellings() {
+    assert_eq!(query_words("München"), [vec!["munchen", "muenchen"]]);
+    assert!(query_words("Straße")[0].contains(&"str".to_string()));
+    assert!(query_words("  -- ").is_empty());
 }

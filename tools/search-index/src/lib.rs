@@ -254,7 +254,7 @@ fn build_into(
         writer.add(&Entry {
             kind: Kind::Place,
             category: None,
-            subtype: None,
+            subtype: Some(place.rank.as_str().to_string()),
             name: place.name,
             alt_names: place.search_names,
             town: None,
