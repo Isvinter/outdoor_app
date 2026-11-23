@@ -67,12 +67,14 @@ impl SearchIndex {
             return Ok(Vec::new());
         }
         let Some(near) = near else {
+            // Places first: their many names in other languages would otherwise
+            // rank them below anything that merely has the word in its name.
             let mut stmt = self.conn.prepare_cached(
                 "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon
                  FROM (SELECT rowid, rank AS score FROM name_terms WHERE name_terms MATCH ?1
                        ORDER BY rank LIMIT ?2) f
                  JOIN entry e ON e.id = f.rowid
-                 ORDER BY f.score, e.id",
+                 ORDER BY e.kind = 0 DESC, f.score, e.id",
             )?;
             let rows = stmt.query_map(params![query, CANDIDATES], |row| hit(row, None))?;
             let mut hits = rows.collect::<Result<Vec<_>, _>>()?;

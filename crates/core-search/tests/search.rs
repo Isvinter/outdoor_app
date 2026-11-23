@@ -113,6 +113,23 @@ fn best_match_comes_first_whatever_the_order_of_the_rows() {
 }
 
 #[test]
+fn a_place_with_many_names_comes_before_other_matches() {
+    let dir = tempfile_dir("place-first");
+    let mut place = entry(Kind::Place, "Cuzco", -13.5, -72.0);
+    place.alt_names = [
+        "Cusco", "Qusqu", "Kusko", "Cuscum", "Kuzco", "Koskoo", "Cozco", "Qosqo",
+    ]
+    .map(String::from)
+    .to_vec();
+    let poi = entry(Kind::Poi, "Cusco", -13.5, -72.0);
+    let street = entry(Kind::Street, "Avenida Cusco", -13.6, -72.0);
+    let index = SearchIndex::open(&build(&dir, &[poi, street, place])).unwrap();
+    let hits = index.search("Cusco", None, 5).unwrap();
+    assert_eq!(hits[0].kind, Kind::Place, "{:?}", names(&hits));
+    assert_eq!(hits[0].name, "Cuzco");
+}
+
+#[test]
 fn name_prefix_is_found() {
     let dir = tempfile_dir("prefix");
     let index = SearchIndex::open(&build(&dir, &sample())).unwrap();
