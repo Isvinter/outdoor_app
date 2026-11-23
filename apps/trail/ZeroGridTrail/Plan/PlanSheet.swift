@@ -88,7 +88,7 @@ struct PlanSheet: View {
     @ViewBuilder private var details: some View {
         VStack(alignment: .leading, spacing: 14) {
             if plan.profile == "manual" {
-                Text("Manuell: gerade Linien zwischen den Wegpunkten, Höhen aus dem Geländemodell.")
+                Text("Manuell: gerade Linien zwischen den Wegpunkten.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
