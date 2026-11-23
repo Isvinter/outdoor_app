@@ -173,6 +173,18 @@ fn contours_stay_visible_without_relief() {
 }
 
 #[test]
+fn contours_are_drawn_alike_in_every_dark_style() {
+    for path in STYLES {
+        let style = dark(path);
+        for (id, opacity, width) in [("contour-minor", 0.45, 0.6), ("contour-major", 0.7, 1.1)] {
+            let paint = &layer(&style, id).unwrap()["paint"];
+            assert_eq!(paint["line-opacity"], opacity, "{path} {id}");
+            assert_eq!(paint["line-width"], width, "{path} {id}");
+        }
+    }
+}
+
+#[test]
 fn relief_without_contours() {
     for path in STYLES {
         let style = fill(

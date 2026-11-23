@@ -19,6 +19,12 @@ pub enum Appearance {
 /// so that it stays usable for finding the way off roads and trails.
 pub const RELIEF_LAYERS: [&str; 1] = ["hillshade"];
 
+/// How contour lines are drawn in the dark map: layer, line opacity, line width. The
+/// values of the hiking styles; the flying style draws them fainter, which on black
+/// leaves the minor lines barely visible.
+const DARK_CONTOURS: &[(&str, f64, f64)] =
+    &[("contour-minor", 0.45, 0.6), ("contour-major", 0.7, 1.1)];
+
 const BLACK: &str = "#000000";
 /// The lit side of the terrain, dimmed so that slopes do not outshine the trails.
 const HILLSHADE_LIGHT: &str = "#8a8a8a";
@@ -194,6 +200,10 @@ pub(crate) fn apply_dark(style: &mut Value) -> Result<(), MapsError> {
                     recolor(value, &id, property)?;
                 }
             }
+        }
+        if let Some((_, opacity, width)) = DARK_CONTOURS.iter().find(|(layer, ..)| *layer == id) {
+            layer["paint"]["line-opacity"] = json!(opacity);
+            layer["paint"]["line-width"] = json!(width);
         }
         if RELIEF_LAYERS.contains(&id.as_str()) {
             layer["layout"]["visibility"] = json!("none");
