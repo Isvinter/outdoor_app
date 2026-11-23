@@ -46,6 +46,9 @@ const TOPO_STYLE: &str = include_str!("../map-styles/topo-summer.json");
 /// File in the config folder holding the chosen offline style.
 const STYLE_FILE_NAME: &str = "offline-map-style.txt";
 
+/// File in the config folder holding light or dark and the relief.
+const LOOK_FILE_NAME: &str = "map-look.json";
+
 /// Which of the offline styles to show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,6 +91,35 @@ pub fn save_style(app: &AppHandle, style: OfflineStyle) -> Result<(), String> {
         crate::settings::config_file(app, STYLE_FILE_NAME)?,
         style.name(),
     )
+}
+
+/// Light or dark, and whether the dark map shows its relief.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MapLook {
+    pub dark: bool,
+    pub relief: bool,
+}
+
+impl MapLook {
+    /// Reads a saved look; anything unreadable counts as the default.
+    pub fn parse(text: &str) -> Self {
+        serde_json::from_str(text).unwrap_or_default()
+    }
+}
+
+/// The saved look; light without relief if none was saved.
+pub fn load_look(app: &AppHandle) -> MapLook {
+    let text = crate::settings::config_file(app, LOOK_FILE_NAME)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default();
+    MapLook::parse(&text)
+}
+
+pub fn save_look(app: &AppHandle, look: MapLook) -> Result<(), String> {
+    let text = serde_json::to_string(&look).map_err(|error| error.to_string())?;
+    crate::settings::write_file(crate::settings::config_file(app, LOOK_FILE_NAME)?, &text)
 }
 
 /// The installed regions. Read again whenever the map style is requested, so regions
@@ -216,7 +248,11 @@ pub fn reload(app: &AppHandle) -> Result<OfflineMaps, String> {
             bounds: Some(bounds),
             attribution: &attribution,
             contours: Contours::Tiles,
-            appearance: core_maps::Appearance::Light,
+            appearance: if load_look(app).dark {
+                core_maps::Appearance::Dark
+            } else {
+                core_maps::Appearance::Light
+            },
         };
         Some(
             core_maps::offline_style(variant.template(), &options)
@@ -291,5 +327,36 @@ pub fn respond(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>>
             eprintln!("map tile {path}: {error}");
             empty(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+#[cfg(test)]
+mod look_tests {
+    use super::MapLook;
+
+    #[test]
+    fn look_defaults_to_light_without_relief() {
+        for text in ["", "not json", "[1,2]"] {
+            assert_eq!(MapLook::parse(text), MapLook::default());
+        }
+        assert!(!MapLook::default().dark);
+        assert!(!MapLook::default().relief);
+    }
+
+    #[test]
+    fn look_survives_saving() {
+        let look = MapLook {
+            dark: true,
+            relief: true,
+        };
+        let text = serde_json::to_string(&look).unwrap();
+        assert_eq!(MapLook::parse(&text), look);
+    }
+
+    #[test]
+    fn missing_field_keeps_default() {
+        let look = MapLook::parse(r#"{"dark":true}"#);
+        assert!(look.dark);
+        assert!(!look.relief);
     }
 }

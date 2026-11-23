@@ -326,6 +326,18 @@ fn set_offline_map_style(app: AppHandle, style: maps::OfflineStyle) -> Result<()
     maps::save_style(&app, style)
 }
 
+/// Light or dark, and whether the dark map shows its relief.
+#[tauri::command]
+fn get_map_look(app: AppHandle) -> maps::MapLook {
+    maps::load_look(&app)
+}
+
+/// Saves light or dark and the relief.
+#[tauri::command]
+fn set_map_look(app: AppHandle, look: maps::MapLook) -> Result<(), String> {
+    maps::save_look(&app, look)
+}
+
 /// The address of the desktop's share; empty if none is set.
 #[tauri::command]
 fn get_map_source(app: AppHandle) -> String {
@@ -520,6 +532,8 @@ pub fn run() {
             interrupted_session,
             offline_maps,
             set_offline_map_style,
+            get_map_look,
+            set_map_look,
             airspaces,
             set_hidden_airspace,
             airspaces_at,
