@@ -9,6 +9,8 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   api,
+  type Fix,
+  type KnownPosition,
   type LatLon,
   type LegSpec,
   type Profile,
@@ -17,6 +19,7 @@ import {
   type RouteOptions,
   type RoutePlan,
   type RouteRecord,
+  type SourceStatus,
 } from "./api";
 import { distance, elevation, hours, renderRows } from "./format";
 import { t, type MessageKey } from "./i18n";
@@ -29,11 +32,25 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 /** Profiles in the order they are offered. */
 const ORDER: Profile[] = ["hike", "mtb", "trekking", "road_bike", "car", "manual"];
 const BIKES: Profile[] = ["mtb", "trekking", "road_bike"];
+/** The profile "Route hierher" uses: the last one chosen, never the manual one. */
+const LAST_PROFILE_KEY = "outdoor.last-route-profile";
+/** How long "Route hierher" waits for a first position. */
+const POSITION_WAIT_MS = 30_000;
+/** Errors of a leg that a straight line can stand in for, and what they tell the user. */
+const STRAIGHT_TEXTS: Record<string, MessageKey> = {
+  routing_unavailable: "route.straight.no_data",
+  route_not_found: "route.straight.no_route",
+};
 
 export interface RoutePanelHost {
   showMessage(text: string): void;
   showError(error: unknown): void;
+  /** A route to the search result is on the map. */
+  routeHereDone(): void;
 }
+
+/** Where "Route hierher" stands while it needs something from the user. */
+type RouteHereStep = "idle" | "choosing" | "waiting" | "tap";
 
 export class RoutePanel {
   private profiles: ProfileInfo[] = [];
@@ -48,6 +65,14 @@ export class RoutePanel {
   private plan: RoutePlan | null = null;
   /** Counts requests so that a slow answer cannot replace a newer one. */
   private request = 0;
+  /** The last position, and when it arrived: a replay has old time stamps. */
+  private position: { lat: number; lon: number; receivedMs: number } | null = null;
+  private source: SourceStatus | null = null;
+  private hereStep: RouteHereStep = "idle";
+  private hereTarget: LatLon | null = null;
+  /** Counts the runs of "Route hierher": an answer of an older one is dropped. */
+  private hereRun = 0;
+  private hereTimer: number | undefined;
 
   constructor(
     private readonly view: MapView,
@@ -72,10 +97,12 @@ export class RoutePanel {
     select.value = this.profiles.find((p) => p.profile === "hike")?.available ? "hike" : "manual";
     select.addEventListener("change", () => {
       this.options = {};
+      if (this.profile() !== "manual") localStorage.setItem(LAST_PROFILE_KEY, this.profile());
       this.updateLastLeg();
       this.renderOptions();
       this.renderControls();
     });
+    $("route-straight-button").addEventListener("click", () => this.connectStraight());
     $("route-edit").addEventListener("click", () => this.setPicking(!this.picking));
     $("route-undo").addEventListener("click", () => this.removeWaypoint(this.waypoints.length - 1));
     $("route-clear").addEventListener("click", () => {
@@ -91,12 +118,195 @@ export class RoutePanel {
     $("route-save-new").addEventListener("click", () => void this.save(true));
     $("route-export").addEventListener("click", () => void this.export());
     this.view.onClick((at) => {
-      if (this.picking) this.addWaypoint(at);
+      if (this.hereStep === "tap") this.tappedStart(at);
+      else if (this.picking) this.addWaypoint(at);
     });
     this.renderOptions();
     this.renderControls();
     this.renderPlan();
     await this.refreshList();
+  }
+
+  // --- "Route hierher" -------------------------------------------------------
+
+  /** A new position; "Route hierher" may be waiting for it. */
+  setPosition(fix: Fix): void {
+    this.position = { lat: fix.lat, lon: fix.lon, receivedMs: Date.now() };
+    if (this.hereStep === "waiting") void this.startFromPosition(this.hereRun);
+  }
+
+  /** The position source changed; without one there is nothing to wait for. */
+  setSourceStatus(status: SourceStatus | null): void {
+    this.source = status;
+    if (this.hereStep === "waiting" && !this.sourceRunning()) this.askForStart(false);
+  }
+
+  private sourceRunning(): boolean {
+    return this.source?.state === "connecting" || this.source?.state === "active";
+  }
+
+  private knownPosition(): KnownPosition | null {
+    if (!this.position) return null;
+    const { lat, lon, receivedMs } = this.position;
+    return { lat, lon, age_s: (Date.now() - receivedMs) / 1000 };
+  }
+
+  /** Starts a route to `target`, asking first if a route is open. */
+  async routeHere(target: LatLon): Promise<void> {
+    this.cancelRouteHere();
+    this.hereTarget = target;
+    const run = this.hereRun;
+    if (this.waypoints.length === 0) {
+      await this.startFromPosition(run);
+      return;
+    }
+    let unsaved = true;
+    try {
+      unsaved = await api.routeIsUnsaved({ waypoints: this.waypoints, legs: this.legs, stage_ends: this.stageEnds });
+    } catch (e) {
+      this.host.showError(e);
+    }
+    if (run !== this.hereRun) return;
+    this.hereStep = "choosing";
+    this.renderHere(unsaved ? t("route.here.unsaved") : t("route.here.title"), [
+      ["new", "route.here.new", true, () => void this.startFromPosition(run)],
+      ["append", "route.here.append", false, () => this.appendTarget()],
+      ["cancel", "route.here.cancel", false, () => this.cancelRouteHere()],
+    ]);
+  }
+
+  /** Ends "Route hierher" where it stands; later answers and positions do nothing. */
+  cancelRouteHere(): void {
+    this.hereRun++;
+    window.clearTimeout(this.hereTimer);
+    if (this.hereStep === "tap") this.view.setPicking(this.picking);
+    this.hereStep = "idle";
+    this.hereTarget = null;
+    $("route-here").hidden = true;
+  }
+
+  private async startFromPosition(run: number): Promise<void> {
+    const target = this.hereTarget;
+    if (!target) return;
+    const position = this.knownPosition();
+    let start;
+    try {
+      start = await api.routeStartCheck(position, target);
+    } catch (e) {
+      if (run === this.hereRun) this.host.showError(e);
+      return;
+    }
+    // The user chose the start meanwhile: a position no longer decides it.
+    if (run !== this.hereRun || this.hereStep === "tap") return;
+    if (start === "ready" && position) await this.replaceRoute({ lat: position.lat, lon: position.lon }, target);
+    else if (start === "other_map") this.askForStart(true);
+    else if (this.sourceRunning()) this.waitForPosition(run);
+    else this.askForStart(false);
+  }
+
+  private waitForPosition(run: number): void {
+    if (this.hereStep === "waiting") return;
+    this.hereStep = "waiting";
+    this.hereTimer = window.setTimeout(() => {
+      if (run === this.hereRun) this.askForStart(false);
+    }, POSITION_WAIT_MS);
+    this.renderHere(t("route.here.waiting"), [
+      ["choose-start", "route.here.choose_start", true, () => this.askForStart(false)],
+      ["cancel", "route.here.cancel", false, () => this.cancelRouteHere()],
+    ]);
+  }
+
+  private askForStart(otherMap: boolean): void {
+    window.clearTimeout(this.hereTimer);
+    this.setPicking(false);
+    this.hereStep = "tap";
+    this.view.setPicking(true);
+    this.renderHere(t(otherMap ? "route.here.other_map" : "route.here.tap"), [
+      ["cancel", "route.here.cancel", false, () => this.cancelRouteHere()],
+    ]);
+  }
+
+  private tappedStart(at: LatLon): void {
+    const target = this.hereTarget;
+    if (target) void this.replaceRoute(at, target);
+  }
+
+  private async replaceRoute(start: LatLon, target: LatLon): Promise<void> {
+    const run = this.hereRun;
+    this.useRouteHereProfile();
+    const leg = this.formLeg();
+    this.finishRouteHere();
+    this.setPicking(false);
+    delete $<HTMLInputElement>("route-name").dataset.auto;
+    this.waypoints = [start, target];
+    this.legs = [leg];
+    this.stageEnds = [];
+    // First, so that it cannot forget the plan computed below.
+    await api.routeNew().catch(this.host.showError);
+    // Another change came in while waiting; it is computed by itself.
+    if (run + 1 === this.hereRun) this.changed(true);
+  }
+
+  private appendTarget(): void {
+    const target = this.hereTarget;
+    if (!target) return;
+    this.useRouteHereProfile();
+    this.finishRouteHere();
+    this.legs = [...this.legs, this.formLeg()];
+    this.waypoints = [...this.waypoints, target];
+    this.changed(true);
+  }
+
+  private finishRouteHere(): void {
+    this.cancelRouteHere();
+    this.host.routeHereDone();
+  }
+
+  /** Shows the last profile in the form. No `change`: the open route stays as it is. */
+  private useRouteHereProfile(): void {
+    const available = (id: string | null) =>
+      id !== null && id !== "manual" && this.profiles.some((p) => p.profile === id && p.available);
+    const last = localStorage.getItem(LAST_PROFILE_KEY);
+    const profile = available(last) ? last : available("hike") ? "hike" : null;
+    if (profile === null || profile === this.profile()) return;
+    $<HTMLSelectElement>("route-profile").value = profile;
+    this.options = {};
+    this.renderOptions();
+    this.renderControls();
+  }
+
+  private renderHere(text: string, actions: [string, MessageKey, boolean, () => void][]): void {
+    $("route-here-text").textContent = text;
+    $("route-here-actions").replaceChildren(
+      ...actions.map(([action, label, primary, run]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.action = action;
+        button.className = primary ? "primary" : "";
+        button.textContent = t(label);
+        button.addEventListener("click", run);
+        return button;
+      }),
+    );
+    $("route-here").hidden = false;
+  }
+
+  /** The first leg that failed in a way a straight line can stand in for. */
+  private straightLeg(): number {
+    return this.plan?.legs.findIndex((leg) => leg.error !== null && leg.error.code in STRAIGHT_TEXTS) ?? -1;
+  }
+
+  private connectStraight(): void {
+    const index = this.straightLeg();
+    if (index < 0 || index >= this.legs.length) return;
+    this.legs = this.legs.map((leg, i) => (i === index ? { profile: "manual", options: {} } : leg));
+    this.changed();
+  }
+
+  private renderStraight(): void {
+    const code = this.plan?.legs[this.straightLeg()]?.error?.code;
+    $("route-straight").hidden = code === undefined;
+    if (code !== undefined) $("route-straight-text").textContent = t(STRAIGHT_TEXTS[code] as MessageKey);
   }
 
   private profile(): Profile {
@@ -154,12 +364,12 @@ export class RoutePanel {
     this.changed();
   }
 
-  private changed(): void {
+  private changed(fit = false): void {
     // Only inner waypoints can end a stage.
     this.stageEnds = this.stageEnds.filter((end) => end > 0 && end < this.waypoints.length - 1);
     this.renderWaypoints();
     this.renderControls();
-    void this.compute(false);
+    void this.compute(fit);
   }
 
   private renderWaypoints(): void {
@@ -235,7 +445,8 @@ export class RoutePanel {
       const plan = await api.routePlan({ waypoints: this.waypoints, legs: this.legs, stage_ends: this.stageEnds });
       if (request !== this.request) return;
       this.plan = plan;
-      const failed = plan.legs.findIndex((leg) => leg.error !== null);
+      // Legs a straight line can stand in for have their own message with the button.
+      const failed = plan.legs.findIndex((leg) => leg.error !== null && !(leg.error.code in STRAIGHT_TEXTS));
       const error = plan.legs[failed]?.error;
       if (error) {
         this.host.showError({ code: error.code, message: t("route.leg_failed", { n: failed + 1, reason: error.message }) });
@@ -259,6 +470,7 @@ export class RoutePanel {
       fit,
     );
     this.view.showProfileCursor(null);
+    this.renderStraight();
     $("route-result").hidden = plan === null;
     if (!plan) return;
     const { total } = plan;

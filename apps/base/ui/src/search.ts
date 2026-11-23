@@ -17,6 +17,8 @@ const CATEGORIES: SearchCategory[] = ["lodging", "food", "groceries", "pharmacy"
 
 export interface SearchPanelHost {
   routeHere(hit: SearchHit): void;
+  /** The chosen hit is gone: a route to it is no longer being set up. */
+  selectionCleared(): void;
   showError(error: unknown): void;
 }
 
@@ -135,7 +137,15 @@ export class SearchPanel {
     $("search-card").hidden = false;
   }
 
+  /** A route to the hit is on the map; its marker takes the place of the pin. */
+  routeDone(): void {
+    this.selected = null;
+    this.view.showSearchPin(null);
+    $("search-card").hidden = true;
+  }
+
   private clearSelection(): void {
+    this.host.selectionCleared();
     this.selected = null;
     this.view.showSearchPin(null);
     $("search-card").hidden = true;

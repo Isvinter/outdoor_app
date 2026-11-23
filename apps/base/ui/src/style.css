@@ -159,3 +159,7 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 #search-card { display: flex; flex-direction: column; gap: 4px; }
 #search-card[hidden] { display: none; }
 #search-notes[hidden] { display: none; }
+#route-here, #route-straight { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+#route-here[hidden], #route-straight[hidden] { display: none; }
+#route-here p, #route-straight p { margin: 0; }
+#route-here-actions { display: flex; flex-direction: column; gap: 4px; }
