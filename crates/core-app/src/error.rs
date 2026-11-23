@@ -31,6 +31,8 @@ pub enum AppError {
     NothingInterrupted,
     #[error("the file does not say which activity the track is; choose one")]
     ActivityRequired,
+    #[error("unknown search category: {0}")]
+    SearchCategory(String),
 }
 
 impl AppError {
@@ -57,6 +59,7 @@ impl AppError {
             AppError::RecordingActive => "recording_active",
             AppError::NothingInterrupted => "nothing_interrupted",
             AppError::ActivityRequired => "activity_required",
+            AppError::SearchCategory(_) => "search_category",
         }
     }
 }

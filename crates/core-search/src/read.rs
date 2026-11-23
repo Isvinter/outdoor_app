@@ -278,7 +278,9 @@ fn finish_hit(raw: RawHit) -> Result<Hit, SearchError> {
     })
 }
 
-fn haversine_m(a: (f64, f64), b: (f64, f64)) -> f64 {
+/// Metres between two `(lat, lon)` points on the earth.
+#[must_use]
+pub fn haversine_m(a: (f64, f64), b: (f64, f64)) -> f64 {
     let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
     let dlat = lat2 - lat1;
     let dlon = (b.1 - a.1).to_radians();

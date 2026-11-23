@@ -9,7 +9,7 @@ mod words;
 mod write;
 
 pub use normalize::{index_terms, normalize};
-pub use read::SearchIndex;
+pub use read::{SearchIndex, haversine_m};
 pub use words::{category_for_word, query_words};
 pub use write::SearchWriter;
 
