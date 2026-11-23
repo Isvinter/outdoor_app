@@ -190,6 +190,49 @@ Gemessen am 2026-11-15 mit `scripts/build-region.sh <id> --steps contours,manife
 - Neu gebaut nach der Korrektur doppelter Punkte (MVT 2.1 verbietet LineTo ohne Länge); die
   Größen änderten sich nur um wenige Kilobyte.
 
+## Kartenvorlagen und Suchindex
+
+Erste echte Builds der Vorlage `urlaub` (Schritte `osm,basemap,search,routing,manifest`, ohne
+`dem`, `slope`, `contours`, `outdoor`). Gebaut mit `scripts/build-region.sh <id> --package-dir
+data/template-test`; die installierte Region `alpenraum-ost` und `data/regions/catalog.json`
+blieben unverändert (SHA-256 vorher und nachher gleich).
+
+| Region | basemap.pmtiles | search.sqlite | routing.tar | Paket gesamt | Bauzeit gesamt |
+| --- | --- | --- | --- | --- | --- |
+| `alpenraum-ost-urlaub` (Alpenraum-Ost, 10 Auszüge) | 984,2 MB | 74,4 MB | 1415,7 MB | 2474,3 MB | 7 min 16 s |
+| `cusco-urlaub` (bbox -72.10,-13.65,-71.80,-13.40, Geofabrik Peru 258 MB) | 3,5 MB | 0,5 MB | 6,4 MB | 10,4 MB | 6 min 37 s |
+
+- Grenzen: Paket höchstens 2,6 GB (2474,3 MB), `search.sqlite` höchstens 100 MB (74,4 MB). Beide
+  eingehalten.
+- Schritt `search` (Laufzeit laut Skript-Log): Alpenraum 66,4 s, Cusco 0,1 s.
+- Zählung im Suchindex: Alpenraum 45 974 Orte, 291 167 Straßen, 434 142 POIs (davon 244 406 mit
+  Namen); Cusco 217 Orte, 1185 Straßen, 2840 POIs (davon 2252 mit Namen).
+- Spitzenspeicher: 11,9 GB für den ganzen Alpenraum-Lauf (`/usr/bin/time -v` um das Skript, also
+  größter Prozess, nicht `search-index` einzeln); Cusco 3,4 GB. Der Speicher von `search-index`
+  allein wurde nicht gemessen.
+- Die Cusco-Zeit besteht fast nur aus dem Routing-Schritt (Docker, Höhenabruf); die Karte selbst
+  brauchte rund 25 s.
+
+Suchabfragen gegen die echten Indizes (`SearchIndex::search`, Release-Build, Limit 5, Zeit je
+Abfrage):
+
+| Abfrage | Ergebnis | Zeit |
+| --- | --- | --- |
+| `Hostel Bergblick` | Hostel Bergblick, Kochel am See | 0,2 ms |
+| `Erlerstraße`, nah bei Innsbruck (47.2654, 11.3933) | Erlerstraße Innsbruck 227 m; Hall in Tirol 8603 m; Ottobeuren 110 908 m | 0,1 ms |
+| `Erlerstraße Innsbruck` (Straße mit Ort in einer Abfrage) | keine Treffer: der Index sucht nur im Namen, nicht im Ort | 0,0 ms |
+| `Bozen` ohne Position | Bozenerstraße, Bozenau, Bozenhaldenstraße, dann Ort Bolzano - Bozen, Jugendherberge Bozen | 0,3 ms |
+| `Bolzano` ohne Position | Bolzano, Bolzano - Bozen, Bolzano Bellunese, dann zwei POIs | 0,3 ms |
+| `ha`, nah bei Innsbruck | daniel's haare 31 m, La Habana 75 m, Chaos Hairconcept 179 m, Buchhandlung Haymon 184 m, Schmuck Julius Hampl 191 m | 17,7 ms |
+| `ha` ohne Position | Halleinerhütte, Haldahüttli, Häldelistrasse, Hafenschänke, Haus Hämmerle | 14,0 ms |
+| nächste Apotheken bei Innsbruck (`by_category`) | Zentral-Apotheke 33 m, St.-Anna-Apotheke 111 m, Stadtapotheke 294 m | 0,2 ms |
+
+- Auffällig: Bei `Bozen` rangieren Straßen mit `Bozen` im Namen vor dem Ort; mit Position
+  (Innsbruck) kommen die nächsten Straßen vor dem 85 km entfernten Bozen. Ein Vorrang für Orte
+  ist nicht gebaut.
+- Cusco (Position 13.5170 S, 71.9785 W, Limit 5): `Plaza de Armas` 40 m, `hostal` 182 bis 321 m,
+  Apotheken 110 bis 141 m, jeweils unter 1 ms.
+
 ## Rohdaten
 
 ```
