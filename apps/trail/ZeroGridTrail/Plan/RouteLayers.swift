@@ -16,6 +16,9 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
 
     private static let source = "route"
 
+    /// The dark look: set before its style loads, which adds the layers anew.
+    var dark = false
+
     private let mapView: MLNMapView
     private var legs: [Leg] = []
     private var waypoints: [WaypointAnnotation] = []
@@ -55,10 +58,10 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
         let source = MLNShapeSource(identifier: Self.source, shape: shape(), options: nil)
         style.addSource(source)
         let drawn = NSPredicate(format: "failed == FALSE")
-        // A white casing sets the route apart from trails drawn in similar colours.
+        // A casing in the colour of the ground sets the route apart from similar trails.
         let casing = MLNLineStyleLayer(identifier: "route-casing", source: source)
         casing.predicate = drawn
-        casing.lineColor = NSExpression(forConstantValue: UIColor.white)
+        casing.lineColor = NSExpression(forConstantValue: dark ? UIColor.black : UIColor.white)
         casing.lineWidth = NSExpression(forConstantValue: 8)
         casing.lineOpacity = NSExpression(forConstantValue: 0.95)
         let line = MLNLineStyleLayer(identifier: "route", source: source)
@@ -84,10 +87,36 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
         (mapView.style?.source(withIdentifier: Self.source) as? MLNShapeSource)?.shape = shape()
     }
 
+    /// WCAG contrast of "#rrggbb" against black.
+    static func contrastOnBlack(_ hex: String) -> Double {
+        let value = UInt32(hex.dropFirst(), radix: 16) ?? 0
+        let linear = [16, 8, 0].map { shift -> Double in
+            let channel = Double((value >> UInt32(shift)) & 0xff) / 255
+            return channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+        }
+        return (0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2] + 0.05) / 0.05
+    }
+
+    /// The colour, mixed with white only as far as it takes to read at 4.5:1 on black,
+    /// so that the hue that tells the legs apart stays.
+    static func readableOnBlack(_ hex: String) -> String {
+        guard contrastOnBlack(hex) < 4.5, let value = UInt32(hex.dropFirst(), radix: 16) else { return hex }
+        let channels = [16, 8, 0].map { Double((value >> UInt32($0)) & 0xff) }
+        for step in 1...20 {
+            let mix = Double(step) / 20
+            let mixed = channels.map { Int(($0 + (255 - $0) * mix).rounded()) }
+            let candidate = String(format: "#%02x%02x%02x", mixed[0], mixed[1], mixed[2])
+            if contrastOnBlack(candidate) >= 4.5 { return candidate }
+        }
+        return "#ffffff"
+    }
+
     private func shape() -> MLNShape {
         MLNShapeCollectionFeature(shapes: legs.filter { $0.line.count >= 2 }.map { leg in
             let feature = MLNPolylineFeature(coordinates: leg.line, count: UInt(leg.line.count))
-            feature.attributes = ["color": leg.color, "failed": leg.failed]
+            feature.attributes = [
+                "color": dark ? Self.readableOnBlack(leg.color) : leg.color, "failed": leg.failed,
+            ]
             return feature
         })
     }

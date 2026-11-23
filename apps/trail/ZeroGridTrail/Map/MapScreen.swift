@@ -56,7 +56,9 @@ struct MapScreen: View {
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
                 .interactiveDismissDisabled()
+                .preferredColorScheme(controller.dark ? .dark : .light)
         }
+        .preferredColorScheme(controller.dark ? .dark : .light)
     }
 }
 
@@ -75,7 +77,7 @@ private struct NoRegionHint: View {
         }
         .padding(12)
         .frame(maxWidth: 480)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .panelBackground(in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -83,16 +85,22 @@ private struct NoRegionHint: View {
 struct Notice: View {
     let text: String
     var warning = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Text(text)
+        let label = Text(text)
             .font(.callout)
             .foregroundStyle(warning ? Color.white : Color.primary)
             .padding(12)
             .frame(maxWidth: 480)
-            .background(
-                warning ? AnyShapeStyle(Color.red.opacity(0.85)) : AnyShapeStyle(.regularMaterial),
+        if warning {
+            // A deeper red in the dark look keeps white text at 7:1.
+            label.background(
+                colorScheme == .dark ? Color(red: 0.66, green: 0.06, blue: 0.07) : Color.red.opacity(0.85),
                 in: RoundedRectangle(cornerRadius: 12))
+        } else {
+            label.panelBackground(in: RoundedRectangle(cornerRadius: 12))
+        }
     }
 }
 
@@ -133,6 +141,8 @@ private struct SelfTestStatus: View {
             "empty=\(stats.empty)",
             "failed=\(stats.failed + controller.loadFailures)",
             "base=\(controller.base.rawValue)",
+            "dark=\(controller.dark ? 1 : 0)",
+            "relief=\(controller.reliefVisibleOnMap ? 1 : 0)",
             "bounds=\(controller.bounds == nil ? 0 : 1)",
         ]
         parts += regions.status

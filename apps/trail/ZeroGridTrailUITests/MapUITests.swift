@@ -123,6 +123,59 @@ final class MapUITests: XCTestCase {
         return app.waitForStatus("\(base) map rendered") { $0.values["base"] == "topo-\(base)" && $0.rendered }
     }
 
+    func testLightStaysDefault() {
+        let app = XCUIApplication.selftest(withMini: true)
+        let status = app.waitForStatus("map rendered") { $0.rendered }
+        XCTAssertEqual(status.values["dark"], "0")
+        XCTAssertFalse(app.sliders["relief-strength"].exists)
+    }
+
+    func testReliefSliderHidesAndShows() {
+        let app = XCUIApplication.selftest(withMini: true, fixture: "mini-contours", zoom: 13)
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.buttons["look-dark"].tap()
+        app.waitForStatus("dark map rendered") { $0.values["dark"] == "1" && $0.rendered && $0.values["relief"] == "0" }
+
+        let slider = app.sliders["relief-strength"]
+        slider.adjust(toNormalizedSliderPosition: 0.7)
+        app.waitForStatus("relief shown", timeout: 5) { $0.values["relief"] == "1" }
+        slider.adjust(toNormalizedSliderPosition: 0)
+        app.waitForStatus("relief hidden", timeout: 5) { $0.values["relief"] == "0" }
+    }
+
+    func testReliefWithoutContours() {
+        let app = XCUIApplication.selftest(withMini: true, zoom: 13)
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.buttons["look-dark"].tap()
+        app.waitForStatus("dark map rendered") { $0.values["dark"] == "1" && $0.rendered }
+        app.sliders["relief-strength"].adjust(toNormalizedSliderPosition: 0.7)
+        let status = app.waitForStatus("relief shown", timeout: 5) { $0.values["relief"] == "1" }
+        XCTAssertEqual(status.int("failed"), 0)
+    }
+
+    func testDarkMapSurvivesReload() throws {
+        let app = XCUIApplication.selftest(withMini: true)
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.buttons["look-dark"].tap()
+        app.waitForStatus("dark map rendered") { $0.values["dark"] == "1" && $0.rendered }
+        app.sliders["relief-strength"].adjust(toNormalizedSliderPosition: 0.7)
+        app.waitForStatus("relief shown", timeout: 5) { $0.values["relief"] == "1" }
+
+        let winter = switchTo("winter", in: app)
+        XCTAssertEqual(winter.values["dark"], "1")
+        XCTAssertEqual(winter.values["relief"], "1")
+        app.sliders["slope-opacity"].adjust(toNormalizedSliderPosition: 0.3)
+        let position = Double(app.sliders["slope-opacity"].normalizedSliderPosition)
+        let dragged = app.waitForStatus("slope follows", timeout: 5) { abs(($0.double("slope") ?? -1) - position) <= 0.02 }
+
+        _ = switchTo("summer", in: app)
+        let back = switchTo("winter", in: app)
+        XCTAssertEqual(back.values["dark"], "1")
+        XCTAssertEqual(back.values["relief"], "1")
+        XCTAssertEqual(try XCTUnwrap(back.double("slope")), try XCTUnwrap(dragged.double("slope")), accuracy: 0.001)
+        XCTAssertEqual(back.int("failed"), 0)
+    }
+
     func testSwitchToWinterShowsSlopeSlider() {
         let app = XCUIApplication.selftest(withMini: true)
         app.waitForStatus("map rendered") { $0.rendered }

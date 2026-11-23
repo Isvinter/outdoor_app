@@ -70,6 +70,7 @@ enum AppStart {
         let data = try CoreHost.dataDirectory()
         let documents = try CoreHost.documentsDirectory()
         if options.resetData {
+            MapController.resetLook()
             try? files.removeItem(at: data)
             try? files.removeItem(at: documents.appendingPathComponent("Import"))
         }
