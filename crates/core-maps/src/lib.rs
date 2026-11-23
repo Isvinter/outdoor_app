@@ -1,5 +1,6 @@
 //! Offline map regions: catalog, download, storage and tile access.
 
+mod dark;
 mod dem;
 mod error;
 mod fetch;
@@ -9,6 +10,7 @@ mod store;
 mod style;
 mod writer;
 
+pub use dark::{Appearance, RELIEF_LAYERS};
 pub use dem::{DemTile, ProfilePoint, decode_dem_tile, decode_terrarium};
 pub use error::MapsError;
 pub use fetch::{DefaultFetcher, Fetched, Fetcher};

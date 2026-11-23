@@ -172,17 +172,23 @@ impl CoreApp {
 
     /// A style of `styles/` filled for the installed regions, with tile and
     /// font URLs under `tiles_base`. Contour lines come from the packages;
-    /// without any, the style has none.
+    /// without any, the style has none. `dark` gives the black OLED variant.
     pub fn offline_style(
         &self,
         style_json: String,
         tiles_base: String,
+        dark: bool,
     ) -> Result<String, CoreError> {
         let overview = self.app.map_overview();
         let options = StyleOptions {
             tiles_base: &tiles_base,
             bounds: overview.installed_bounds,
             attribution: &overview.attribution,
+            appearance: if dark {
+                core_maps::Appearance::Dark
+            } else {
+                core_maps::Appearance::Light
+            },
             contours: if self.app.map_has_layer(Layer::Contours) {
                 Contours::Tiles
             } else {

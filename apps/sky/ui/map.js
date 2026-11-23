@@ -9,11 +9,13 @@
 const FlightMap = (() => {
   // Shown when the configured style cannot be loaded (e.g. no network): a plain
   // background, so that track and position are still visible.
-  const EMPTY_STYLE = {
+  const emptyStyle = () => ({
     version: 8,
     sources: {},
-    layers: [{ id: "background", type: "background", paint: { "background-color": "#e8e8e8" } }],
-  };
+    layers: [
+      { id: "background", type: "background", paint: { "background-color": themeColors().fallback } },
+    ],
+  });
   const TRACK_SOURCE = "track";
   const SAVED_SOURCE = "saved-flight";
   const AIRSPACE_SOURCE = "airspace";
@@ -34,7 +36,55 @@ const FlightMap = (() => {
     reserved: "#1d8a3a",
     other: "#808080",
   };
-  const AIRSPACE_COLOR = ["match", ["get", "category"], ...Object.entries(AIRSPACE_COLORS).flat(), "#808080"];
+  // The same hue per category, bright enough to read on a black map.
+  const AIRSPACE_COLORS_DARK = {
+    ctr: "#ff5c9a",
+    controlled: "#6f9bff",
+    classE: "#8fb0e8",
+    restricted: "#ff6b6b",
+    danger: "#ff9a33",
+    prohibited: "#e04a4a",
+    tmz: "#b58cf0",
+    rmz: "#4fc4d4",
+    gliderSector: "#e6c200",
+    reserved: "#4fd873",
+    other: "#a0a0a0",
+  };
+  // What the map draws itself, for the light and the dark look.
+  const OWN_COLORS = {
+    light: {
+      airspace: AIRSPACE_COLORS,
+      fallback: "#e8e8e8",
+      halo: "#fff",
+      casing: "#fff",
+      track: "#c2185b",
+      saved: "#1a4fd6",
+      alarm: "#d7191c",
+      near: "#f28e1c",
+    },
+    dark: {
+      airspace: AIRSPACE_COLORS_DARK,
+      fallback: "#000000",
+      halo: "#000",
+      casing: "#000",
+      track: "#ff5ca8",
+      saved: "#6f9bff",
+      alarm: "#ff6b6b",
+      near: "#ffb04d",
+    },
+  };
+  // The layers of the relief, as in `RELIEF_LAYERS` of core-maps.
+  const RELIEF_LAYERS = ["hillshade"];
+  const themeColors = () => OWN_COLORS[look.dark ? "dark" : "light"];
+  // An online style stays light in the dark look, so what lies on it keeps the light colours.
+  const isBlackMap = () => look.dark && (usingFallback || typeof styleUrl === "object");
+  const colors = () => OWN_COLORS[isBlackMap() ? "dark" : "light"];
+  const airspaceColor = () => [
+    "match",
+    ["get", "category"],
+    ...Object.entries(colors().airspace).flat(),
+    colors().airspace.other,
+  ];
   // These are filled lightly; all others only get a band along the inside of the border,
   // so that large airspaces do not cover the map.
   const FILLED_AIRSPACE = ["ctr", "restricted", "danger", "prohibited"];
@@ -50,6 +100,7 @@ const FlightMap = (() => {
     "airspace-label": null,
   };
 
+  let look = { dark: false, relief: false };
   let map = null;
   let marker = null;
   let styleUrl = null;
@@ -165,7 +216,7 @@ const FlightMap = (() => {
     // Arrow pointing up; rotated to the course over ground.
     element.innerHTML =
       '<svg viewBox="0 0 26 26" width="26" height="26">' +
-      '<path d="M13 1 L23 24 L13 19 L3 24 Z" fill="#000" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M13 1 L23 24 L13 19 L3 24 Z" style="fill:var(--ink);stroke:var(--paper)" stroke-width="2" stroke-linejoin="round"/>' +
       "</svg>";
     return element;
   }
@@ -176,6 +227,37 @@ const FlightMap = (() => {
     // Airspaces first: the track goes on top of them.
     addAirspaceLayers();
     addTrackLayers();
+    applyRelief();
+  }
+
+  /** Shows or hides the relief of a dark offline style; the light one keeps its own. */
+  function applyRelief() {
+    if (!map || !look.dark) return;
+    for (const layer of RELIEF_LAYERS) {
+      if (map.getLayer(layer)) {
+        map.setLayoutProperty(layer, "visibility", look.relief ? "visible" : "none");
+      }
+    }
+  }
+
+  /** Recolours what the map draws itself, for a style that stays (an online one). */
+  function applyOwnColors() {
+    if (!map || !map.getStyle()) return;
+    const paint = (layer, property, value) => {
+      if (map.getLayer(layer)) map.setPaintProperty(layer, property, value);
+    };
+    for (const layer of ["airspace-band", "airspace-line", "airspace-line-dashed"]) {
+      paint(layer, "line-color", airspaceColor());
+    }
+    paint("airspace-fill", "fill-color", airspaceColor());
+    paint("airspace-warning", "line-color", warningColor());
+    paint("airspace-label", "text-color", airspaceColor());
+    paint("airspace-label", "text-halo-color", colors().halo);
+    paint(SAVED_SOURCE + "-casing", "line-color", colors().casing);
+    paint(SAVED_SOURCE + "-line", "line-color", colors().saved);
+    paint(TRACK_SOURCE + "-casing", "line-color", colors().casing);
+    paint(TRACK_SOURCE + "-line", "line-color", colors().track);
+    if (usingFallback) paint("background", "background-color", colors().fallback);
   }
 
   /** Filter expression for the visible airspaces drawn by a layer. */
@@ -192,7 +274,7 @@ const FlightMap = (() => {
 
   function warningColor() {
     const alarms = warned.filter((w) => w.level === "alarm").map((w) => w.index);
-    return ["case", ["in", ["get", "index"], ["literal", alarms]], "#d7191c", "#f28e1c"];
+    return ["case", ["in", ["get", "index"], ["literal", alarms]], colors().alarm, colors().near];
   }
 
   function addAirspaceLayers() {
@@ -207,7 +289,7 @@ const FlightMap = (() => {
       type: "fill",
       source: AIRSPACE_SOURCE,
       filter: airspaceFilter("airspace-fill"),
-      paint: { "fill-color": AIRSPACE_COLOR, "fill-opacity": 0.1 },
+      paint: { "fill-color": airspaceColor(), "fill-opacity": 0.1 },
     });
     // The rings come counterclockwise (Rust makes sure of it); on the screen, with y
     // pointing down, that is clockwise, so a positive offset lies inside.
@@ -218,7 +300,7 @@ const FlightMap = (() => {
       filter: airspaceFilter("airspace-band"),
       layout: { "line-join": "round" },
       paint: {
-        "line-color": AIRSPACE_COLOR,
+        "line-color": airspaceColor(),
         "line-opacity": 0.25,
         "line-width": ["interpolate", ["linear"], ["zoom"], 7, 3, 12, 8],
         "line-offset": ["interpolate", ["linear"], ["zoom"], 7, 1.5, 12, 4],
@@ -230,14 +312,14 @@ const FlightMap = (() => {
       source: AIRSPACE_SOURCE,
       filter: airspaceFilter("airspace-line"),
       layout: { "line-join": "round" },
-      paint: { "line-color": AIRSPACE_COLOR, "line-width": 1.4 },
+      paint: { "line-color": airspaceColor(), "line-width": 1.4 },
     });
     map.addLayer({
       id: "airspace-line-dashed",
       type: "line",
       source: AIRSPACE_SOURCE,
       filter: airspaceFilter("airspace-line-dashed"),
-      paint: { "line-color": AIRSPACE_COLOR, "line-width": 1.4, "line-dasharray": [4, 2] },
+      paint: { "line-color": airspaceColor(), "line-width": 1.4, "line-dasharray": [4, 2] },
     });
     // Airspaces that warn: a thick border, also for categories the map hides.
     map.addLayer({
@@ -266,8 +348,8 @@ const FlightMap = (() => {
         "text-keep-upright": true,
       },
       paint: {
-        "text-color": AIRSPACE_COLOR,
-        "text-halo-color": "#fff",
+        "text-color": airspaceColor(),
+        "text-halo-color": colors().halo,
         "text-halo-width": 1.5,
       },
     });
@@ -276,19 +358,19 @@ const FlightMap = (() => {
   function addTrackLayers() {
     if (map.getSource(TRACK_SOURCE)) return;
     // The recorded flight being viewed goes below the live track.
-    addLine(SAVED_SOURCE, savedCoordinates, "#1a4fd6");
-    addLine(TRACK_SOURCE, coordinates, "#c2185b");
+    addLine(SAVED_SOURCE, savedCoordinates, colors().saved);
+    addLine(TRACK_SOURCE, coordinates, colors().track);
   }
 
   function addLine(source, points, color) {
     map.addSource(source, { type: "geojson", data: lineData(points) });
-    // White casing under a dark line: visible on light and dark map areas.
+    // A casing in the colour of the ground sets the line apart from what lies below.
     map.addLayer({
       id: source + "-casing",
       type: "line",
       source,
       layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": "#fff", "line-width": 7 },
+      paint: { "line-color": colors().casing, "line-width": 7 },
     });
     map.addLayer({
       id: source + "-line",
@@ -360,7 +442,7 @@ const FlightMap = (() => {
       // If the style itself cannot be loaded there is no map at all: fall back once.
       if (!map.isStyleLoaded() && !usingFallback && !map.getSource(TRACK_SOURCE)) {
         usingFallback = true;
-        map.setStyle(EMPTY_STYLE);
+        map.setStyle(emptyStyle(), { diff: false });
         onMessage("Karte nicht ladbar (keine Verbindung?). Track und Position werden trotzdem gezeigt.");
       } else {
         console.warn("map error", event.error);
@@ -399,14 +481,45 @@ const FlightMap = (() => {
       tapMarker.setLngLat([longitude, latitude]).addTo(map);
     },
 
-    airspaceColor: (category) => AIRSPACE_COLORS[category] ?? AIRSPACE_COLORS.other,
+    airspaceColor: (category) => themeColors().airspace[category] ?? themeColors().airspace.other,
+
+    /** Light or dark and the relief: `{ dark, relief }`. Changes nothing about the flight. */
+    setLook(next) {
+      look = { dark: next.dark, relief: next.relief };
+      applyOwnColors();
+      applyRelief();
+    },
+
+    /** What the map shows of the look; for the smoke test. */
+    lookState() {
+      const present = map ? RELIEF_LAYERS.filter((layer) => map.getLayer(layer)) : [];
+      return {
+        fallbackBackground: themeColors().fallback,
+        relief: present.length
+          ? present.some((layer) => map.getLayoutProperty(layer, "visibility") !== "none")
+          : null,
+        // Whether the contour lines show; `null` if the style has none.
+        contours: map && map.getLayer("contour-major")
+          ? map.getLayoutProperty("contour-major", "visibility") !== "none"
+          : null,
+        blackMap: isBlackMap(),
+        trackColor: map && map.getLayer(TRACK_SOURCE + "-line")
+          ? map.getPaintProperty(TRACK_SOURCE + "-line", "line-color")
+          : null,
+        ownLayers: Boolean(
+          map && map.getLayer("airspace-line") && map.getLayer(TRACK_SOURCE + "-line"),
+        ),
+      };
+    },
 
     /** Sets the style (URL or style object); reloads the map if it already exists. */
     setStyle(url) {
       styleUrl = url;
       usingFallback = false;
       onMessage("");
-      if (map) map.setStyle(url);
+      // Without `diff: false` the map would only compare the two styles and remove the
+      // layers it does not find in the new one, without the event that adds them again.
+      if (map) map.setStyle(url, { diff: false });
     },
 
     /** Call when the map page becomes visible: WebGL needs a visible container. */

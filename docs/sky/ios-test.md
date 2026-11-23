@@ -355,6 +355,25 @@ Im Simulator geprüft (Download, Anzeige auf der Karte); auf dem iPhone zu prüf
 - Noch nicht ausdrücklich bestätigt: „Aktualisieren“ gegen Base (Schritt 5), Sperren
   während des Ladens (Schritt 4) und „Löschen“ (Schritt 6).
 
+### Dunkelmodus (OLED)
+
+In Sky unter Einstellungen → Karte, in Trail in der Leiste über der Karte:
+
+1. Zwischen Hell und Dunkel umschalten. Kartenausschnitt, Route, Flugspur und Lufträume
+   bleiben erhalten, und die Wahl übersteht einen Neustart.
+2. Relief ein- und ausschalten, in Trail den Regler ziehen. Die Karte folgt ohne Neuladen.
+   Die Höhenlinien bleiben dabei sichtbar, auch ganz ohne Relief.
+3. Ablesbarkeit draußen prüfen, auch bei voller Sonne.
+4. Winterkarte: Die Hangneigungsklassen bleiben klar unterscheidbar.
+5. Sky: Lufträume und beide Warnstufen sind auf Schwarz gut zu erkennen.
+6. Sky: Während einer laufenden Aufzeichnung umschalten. Die Aufzeichnung läuft lückenlos
+   weiter.
+7. Zoomen und Verschieben bleiben mit Relief an und aus flüssig.
+
+Ergebnis am 23.11.2026 (iPhone 13 Pro Max, Sky und Trail): Alles funktioniert und ist gut
+lesbar. Einziger Wunsch: Höhenlinien auch ohne Relief. Umgesetzt (Relief ist nur noch die
+Schattierung); die Höhenlinien ohne Relief sind auf dem iPhone noch zu prüfen.
+
 ## 6. Bewertung
 
 | Ergebnis | Folge |

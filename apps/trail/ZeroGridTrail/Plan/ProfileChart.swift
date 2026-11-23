@@ -5,6 +5,7 @@ import SwiftUI
 /// line where a stage ends. A finger on it sets the cursor on the map; the
 /// cursor stays where the finger left, so that the place can be looked at.
 struct ProfileChart: View {
+    @Environment(\.colorScheme) private var colorScheme
     let plan: PlanResult
     let cursor: ElevationSample?
     let onCursor: (ElevationSample) -> Void
@@ -38,7 +39,8 @@ struct ProfileChart: View {
             } else {
                 let hex = Int(sample.leg) < plan.legs.count ? plan.legs[Int(sample.leg)].color : "#6a1b9a"
                 let previous = runs.last?.points.last
-                runs.append(Run(id: runs.count, color: Color(UIColor(hex: hex)), points: (previous.map { [$0] } ?? []) + [point]))
+                let shown = colorScheme == .dark ? RouteOverlay.readableOnBlack(hex) : hex
+                runs.append(Run(id: runs.count, color: Color(UIColor(hex: shown)), points: (previous.map { [$0] } ?? []) + [point]))
                 legOfRun = sample.leg
             }
         }

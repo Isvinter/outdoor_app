@@ -19,14 +19,14 @@ enum MapStyleError: LocalizedError {
 enum MapStyle {
     /// The bundled style of `base`, filled by the core for the installed
     /// regions and written to the caches, because the map loads styles by URL.
-    static func url(for base: MapBase, core: CoreApp) throws -> URL {
+    static func url(for base: MapBase, dark: Bool, core: CoreApp) throws -> URL {
         guard let source = Bundle.main.url(forResource: base.rawValue, withExtension: "json", subdirectory: "styles")
         else { throw MapStyleError.missing(base.rawValue) }
         let template = try String(contentsOf: source, encoding: .utf8)
-        let style = try core.offlineStyle(styleJson: template, tilesBase: TileURLProtocol.base)
+        let style = try core.offlineStyle(styleJson: template, tilesBase: TileURLProtocol.base, dark: dark)
         let caches = try FileManager.default.url(
             for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let target = caches.appendingPathComponent("style-\(base.rawValue).json")
+        let target = caches.appendingPathComponent("style-\(base.rawValue)-\(dark ? "dark" : "light").json")
         try Data(style.utf8).write(to: target, options: .atomic)
         return target
     }

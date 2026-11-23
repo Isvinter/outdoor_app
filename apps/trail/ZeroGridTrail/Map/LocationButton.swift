@@ -13,7 +13,7 @@ struct LocationButton: View {
                     .font(.footnote.monospacedDigit())
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(.regularMaterial, in: Capsule())
+                    .panelBackground(in: Capsule())
                     .accessibilityIdentifier("location-accuracy")
                     .accessibilityLabel("Genauigkeit der Position: \(Self.text(accuracy: accuracy))")
             }
@@ -34,7 +34,7 @@ struct LocationButton: View {
             Image(systemName: "location.fill")
                 .font(.title3)
                 .frame(width: 48, height: 48)
-                .background(.regularMaterial, in: Circle())
+                .panelBackground(in: Circle())
         }
         .accessibilityIdentifier("center-location")
         .accessibilityLabel("Position zentrieren")

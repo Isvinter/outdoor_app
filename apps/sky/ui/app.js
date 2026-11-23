@@ -635,6 +635,50 @@ for (const button of document.querySelectorAll("#offline-style button")) {
   });
 }
 
+// ---- Light or dark ----
+
+let mapLook = { dark: false, relief: false };
+
+function showMapLook() {
+  document.documentElement.dataset.theme = mapLook.dark ? "dark" : "light";
+  for (const button of document.querySelectorAll("#map-look button")) {
+    button.classList.toggle("on", (button.dataset.look === "dark") === mapLook.dark);
+  }
+  for (const button of document.querySelectorAll("#map-relief button")) {
+    button.classList.toggle("on", (button.dataset.relief === "on") === mapLook.relief);
+  }
+  $("map-relief").hidden = !mapLook.dark;
+  FlightMap.setLook(mapLook);
+}
+
+async function saveMapLook(next) {
+  const previous = mapLook;
+  try {
+    await invoke("set_map_look", { look: next });
+    mapLook = next;
+    showMapLook();
+    $("settings-message").textContent = "";
+    if (next.dark !== previous.dark) {
+      await updateMapStyle();
+      // The airspace list shows the colours of the current look.
+      loadAirspaces();
+    }
+  } catch (error) {
+    $("settings-message").textContent = "Nicht übernommen: " + error;
+  }
+}
+
+for (const button of document.querySelectorAll("#map-look button")) {
+  button.addEventListener("click", () => {
+    saveMapLook({ ...mapLook, dark: button.dataset.look === "dark" });
+  });
+}
+for (const button of document.querySelectorAll("#map-relief button")) {
+  button.addEventListener("click", () => {
+    saveMapLook({ ...mapLook, relief: button.dataset.relief === "on" });
+  });
+}
+
 async function updateMapStyle() {
   let style = onlineStyleUrl;
   try {
@@ -1180,6 +1224,8 @@ async function init() {
   onlineStyleUrl = await invoke("get_map_style");
   $("set-map-style").value = onlineStyleUrl;
   $("set-map-source").value = await invoke("get_map_source");
+  mapLook = await invoke("get_map_look");
+  showMapLook();
   showQrScanner();
   // The desktop is asked only when the settings are opened: on iOS the first
   // connection asks for the local network permission.

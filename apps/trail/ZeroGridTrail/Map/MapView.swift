@@ -20,6 +20,16 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     @Published var slopeOpacity = 0.6 {
         didSet { applySlopeOpacity() }
     }
+    /// The black OLED look of map and controls; remembered across starts.
+    @Published private(set) var dark: Bool
+    /// How strongly the dark map shades the terrain, 0…1; at 0 it is not drawn at all.
+    /// Contour lines do not depend on it.
+    @Published var reliefStrength: Double {
+        didSet {
+            UserDefaults.standard.set(reliefStrength, forKey: Self.reliefKey)
+            applyRelief()
+        }
+    }
     /// Seconds from the start of the app until the first map was drawn completely.
     private(set) var firstRenderedAfter: TimeInterval?
     /// A failure worth telling the user, in German.
@@ -40,6 +50,18 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     /// Counts the waits for a position, so that an old wait cannot end a newer one.
     private var fixRequest = 0
 
+    nonisolated private static let darkKey = "map.dark"
+    nonisolated private static let reliefKey = "map.reliefStrength"
+    /// The layers of the relief, as `RELIEF_LAYERS` in core-maps. Contour lines stay
+    /// visible in the dark map whatever the slider says.
+    private static let reliefLayers = ["hillshade"]
+
+    /// Back to the look of a first start; for the UI tests.
+    nonisolated static func resetLook() {
+        UserDefaults.standard.removeObject(forKey: darkKey)
+        UserDefaults.standard.removeObject(forKey: reliefKey)
+    }
+
     static let noPermissionHint = "Position nicht verfügbar – Standortzugriff in den Einstellungen erlauben."
     static let noFixHint = "Position noch nicht verfügbar."
 
@@ -50,7 +72,10 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         self.core = core
         mapView = MLNMapView(frame: .zero)
         route = RouteOverlay(mapView: mapView)
+        dark = UserDefaults.standard.bool(forKey: Self.darkKey)
+        reliefStrength = UserDefaults.standard.double(forKey: Self.reliefKey)
         super.init()
+        route.dark = dark
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.maximumZoomLevel = 19
         mapView.delegate = self
@@ -165,10 +190,36 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         rendered = false
         styleLoaded = false
         do {
-            mapView.styleURL = try MapStyle.url(for: base, core: core)
+            mapView.styleURL = try MapStyle.url(for: base, dark: dark, core: core)
         } catch {
             fail(error)
         }
+    }
+
+    /// Switches between light and dark. The camera and the route stay.
+    func setDark(_ dark: Bool) {
+        guard dark != self.dark else { return }
+        self.dark = dark
+        UserDefaults.standard.set(dark, forKey: Self.darkKey)
+        route.dark = dark
+        show(base)
+    }
+
+    /// Follows the slider live, without loading the style again.
+    private func applyRelief() {
+        guard dark, let style = mapView.style else { return }
+        let visible = reliefStrength > 0
+        for id in Self.reliefLayers {
+            style.layer(withIdentifier: id)?.isVisible = visible
+        }
+        guard visible else { return }
+        let hillshade = style.layer(withIdentifier: "hillshade") as? MLNHillshadeStyleLayer
+        hillshade?.hillshadeExaggeration = NSExpression(forConstantValue: 0.15 + 0.65 * reliefStrength)
+    }
+
+    /// Whether the map draws the relief at the moment; for the self-test.
+    var reliefVisibleOnMap: Bool {
+        mapView.style?.layer(withIdentifier: "hillshade")?.isVisible ?? false
     }
 
     private var slopeLayer: MLNRasterStyleLayer? {
@@ -210,6 +261,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
         styleLoaded = true
         applySlopeOpacity()
+        applyRelief()
         route.styleLoaded(style)
     }
 

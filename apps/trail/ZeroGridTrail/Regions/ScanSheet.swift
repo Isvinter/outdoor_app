@@ -41,7 +41,7 @@ struct ScanSheet: View {
                             : "Halte die Kamera auf den QR-Code am Desktop.")
                             .font(.callout)
                             .padding(12)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .panelBackground(in: RoundedRectangle(cornerRadius: 12))
                             .padding()
                     }
                 case .unavailable(let reason):

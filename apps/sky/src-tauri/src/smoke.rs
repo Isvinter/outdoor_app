@@ -20,6 +20,8 @@ const RUN_TIME: Duration = Duration::from_secs(14);
 /// writes into the app's real `maps` folder, so run it with `HOME` set to an empty
 /// temporary folder.
 const SHARE_ENV_VAR: &str = "VARIO_SMOKE_SHARE";
+/// If set, the smoke test also switches the app to dark and checks the relief.
+const DARK_ENV_VAR: &str = "VARIO_SMOKE_DARK";
 /// How long the region download may take.
 const DOWNLOAD_TIME: Duration = Duration::from_secs(120);
 
@@ -85,6 +87,9 @@ pub fn maybe_run(app: &AppHandle) {
         if let Some(address) = share_address() {
             download_from_share(&window, &address);
         }
+        if std::env::var_os(DARK_ENV_VAR).is_some() {
+            check_look(&window);
+        }
         if std::env::var_os("VARIO_SMOKE_OPENAIP").is_some() {
             update_from_openaip(&window);
         }
@@ -128,6 +133,71 @@ fn update_from_openaip(window: &tauri::WebviewWindow) {
         }
         println!("(round {round} finished)");
     }
+}
+
+/// Switches to dark and the relief on and off through the real buttons, during the
+/// running simulated flight, and prints what the page and the map then show.
+fn check_look(window: &tauri::WebviewWindow) {
+    NOTED.store(false, Ordering::Relaxed);
+    let _ = window.eval(
+        r#"(async () => {
+          const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+          const press = (selector) => document.querySelector(selector).click();
+          const trackBefore = FlightMap.trackLength();
+          press("[data-page=settings]");
+          await wait(300);
+          press("[data-look=dark]");
+          await wait(2500);
+          const relief = [FlightMap.lookState().relief];
+          const contours = [FlightMap.lookState().contours];
+          press("[data-relief=on]");
+          await wait(400);
+          relief.push(FlightMap.lookState().relief);
+          contours.push(FlightMap.lookState().contours);
+          press("[data-relief=off]");
+          await wait(400);
+          relief.push(FlightMap.lookState().relief);
+          contours.push(FlightMap.lookState().contours);
+          const state = FlightMap.lookState();
+          const banner = document.getElementById("warning");
+          const before = [banner.hidden, banner.className];
+          banner.hidden = false;
+          const shown = (name) => {
+            banner.className = name;
+            const style = getComputedStyle(banner);
+            return style.color + " on " + style.backgroundColor;
+          };
+          const warningColors = {
+            near: shown(""),
+            alarm: shown("alarm"),
+            acknowledged: shown("acknowledged"),
+            alarmAcknowledged: shown("alarm acknowledged"),
+          };
+          [banner.hidden, banner.className] = before;
+          window.__TAURI__.core.invoke("smoke_note", { text: "look report: " + JSON.stringify({
+            theme: document.documentElement.dataset.theme,
+            background: getComputedStyle(document.body).backgroundColor,
+            fallbackBackground: state.fallbackBackground,
+            relief,
+            contours,
+            ownLayers: state.ownLayers,
+            trackKept: FlightMap.trackLength() >= trackBefore,
+            blackMap: state.blackMap,
+            trackColor: state.trackColor,
+            listColor: FlightMap.airspaceColor("ctr"),
+            warningColors,
+            scriptErrors: window.scriptErrors,
+          }) });
+        })().catch((error) => window.__TAURI__.core.invoke("smoke_note",
+          { text: "look report failed: " + error }));"#,
+    );
+    for _ in 0..30 {
+        std::thread::sleep(Duration::from_millis(500));
+        if NOTED.swap(false, Ordering::Relaxed) {
+            return;
+        }
+    }
+    eprintln!("smoke test: the look report did not arrive");
 }
 
 /// Set by `smoke_note`.

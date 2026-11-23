@@ -38,6 +38,7 @@ Phasen strikt nacheinander, nach jeder Phase auf Freigabe warten.
 | 6 | Offline-Karten: Regionspakete von ZeroGrid Base (`core-maps`), Kachel-Schema `tiles://`, Topo-Stil | freigegeben (Anzeige offline und Flugkarte auf dem iPhone geprüft; Stromleitungen, Seilbahnen und Start-/Landeplätze mit Phase 6b) |
 | 6b | Fertiger Flugstil mit dem neuen Flug-Layer des Region-Builders (Stromleitungen dünn gestrichelt, Seilbahnen dicker und durchgehend, Start-/Landeplätze); Regionen per WLAN von der outdoor_app (Linux-Desktop, `core-share`) auf ZeroGrid Sky (iOS) übertragen | freigegeben (Flugstil und WLAN-Übertragung auf dem iPhone geprüft: Aktualisieren, Abbrechen und Fortsetzen gegen `share-serve` am Mac; am 23.11.2026 gegen die echte Freigabe von ZeroGrid Base auf Linux: Verbinden per QR-Code, Laden, Abbrechen, Fortsetzen, Offline-Anzeige und Seilbahnen; Aktualisieren gegen Base noch nicht ausdrücklich bestätigt; Regionen ohne `flying` zeigen keine Seilbahnen mehr, also neu bauen) |
 | 7 | Lufträume: OpenAir einlesen (`flight-core`), Anzeige auf der Karte, später Warnungen; Daten zuerst von openAIP (Deutschland, Österreich; später Schweiz, Norditalien), nicht im Repository | freigegeben (OpenAir-Parser fertig, liest die openAIP-Dateien (OpenAir 2) für Deutschland und Österreich ohne Meldung; Anzeige auf der Karte, Dateiliste und Filter in den Einstellungen auf macOS und dem iPhone geprüft (flüssig auch mit ganz Deutschland und Österreich im Bild); Antippen der Karte listet die Lufträume an der Stelle, auf macOS und dem iPhone geprüft (Scrollen einer langen Liste nicht); Warnungen (Vorwarnung/Alarm, Ton, Banner, Hervorhebung, Quittieren, Einstellungen, Gelände aus `dem.pmtiles` für AGL) gebaut, mit Tests und im Desktop-Simulator geprüft, auf dem iPhone draußen mit erfundenen Testlufträumen vom Nutzer geprüft; danach: Warnungen enden nach 30 s ohne GPS, Testknöpfe für den Warnton, beides nur mit Tests und auf macOS geprüft) |
+| – | OLED-Dunkelmodus: Hell/Dunkel und Relief (Schattierung) an/aus in den Einstellungen; Höhenlinien bleiben im Dunkelmodus immer sichtbar | freigegeben (Linux- und macOS-Selbsttest; am 23.11.2026 auf dem iPhone mit Sky und Trail geprüft, auch die Höhenlinien ohne Relief; Ergebnisse: `docs/sky/ios-test.md`) |
 
 Den Status hier nach jeder Freigabe aktualisieren.
 
@@ -188,7 +189,7 @@ App „Dateien“ sichtbar; Desktop: Datenordner der App), Sensorlogs daneben in
 Lauf von Start bis Stopp ist ein Flug; die Datei wird alle 10 s vollständig neu geschrieben.
 Der Selbsttest schreibt seine Flüge in einen temporären Ordner.
 
-Einstellungen liegen als Textdatei (`settings.txt`, Kartenstil in `map-style.txt`) im
+Einstellungen liegen als Textdatei (`settings.txt`, Kartenstil in `map-style.txt`, Hell/Dunkel und Relief in `map-look.json`) im
 Konfigurationsordner der App; das Format definiert `flight-core`.
 
 Prüfen auf dem iPhone am Kabel: Gerätelog live mit `idevicesyslog` (Meldungen aus Swift

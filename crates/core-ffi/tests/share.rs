@@ -84,6 +84,7 @@ fn overview_returns_quickly_with_dead_source() {
     core.offline_style(
         r#"{"version":8,"sources":{},"layers":[]}"#.into(),
         "http://x".into(),
+        false,
     )
     .ok();
     assert!(started.elapsed() < Duration::from_secs(1));
