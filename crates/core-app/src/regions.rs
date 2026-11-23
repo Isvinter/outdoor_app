@@ -129,8 +129,9 @@ pub struct MapOverview {
     pub attribution: Vec<String>,
     /// Smallest box around all enabled regions (west, south, east, north).
     pub installed_bounds: Option<[f64; 4]>,
-    /// An enabled region has elevation tiles.
-    pub has_dem: bool,
+    /// The elevation data in use: `<id>:<sha256>` of each enabled region that
+    /// has any, sorted. Changes whenever a view of the elevation may be stale.
+    pub dem_regions: Vec<String>,
 }
 
 /// Everything the region list needs.
@@ -146,8 +147,9 @@ pub struct RegionsOverview {
     /// Smallest box around all enabled regions (west, south, east, north);
     /// there are no offline tiles outside of it.
     pub installed_bounds: Option<[f64; 4]>,
-    /// An enabled region has elevation tiles.
-    pub has_dem: bool,
+    /// The elevation data in use: `<id>:<sha256>` of each enabled region that
+    /// has any, sorted. Changes whenever a view of the elevation may be stale.
+    pub dem_regions: Vec<String>,
 }
 
 impl App {
@@ -206,7 +208,7 @@ impl App {
             regions: installed,
             attribution,
             installed_bounds,
-            has_dem,
+            dem_regions,
         } = self.map_overview();
         let mut regions: BTreeMap<String, RegionInfo> = installed
             .into_iter()
@@ -265,7 +267,7 @@ impl App {
             regions: regions.into_values().collect(),
             attribution,
             installed_bounds,
-            has_dem,
+            dem_regions,
         })
     }
 
@@ -299,6 +301,22 @@ impl App {
                 ]
             });
 
+        let dem_file = Layer::Dem.file_name();
+        let mut dem_regions: Vec<String> = installed
+            .iter()
+            .filter(|region| region.enabled)
+            .flat_map(|region| {
+                let id = &region.manifest.id;
+                region
+                    .manifest
+                    .files
+                    .iter()
+                    .filter(|file| file.name == dem_file)
+                    .map(move |file| format!("{id}:{}", file.sha256))
+            })
+            .collect();
+        dem_regions.sort();
+
         let mut regions: Vec<RegionInfo> = installed
             .into_iter()
             .map(
@@ -328,7 +346,7 @@ impl App {
             regions,
             attribution,
             installed_bounds,
-            has_dem: maps.store.has_layer(Layer::Dem),
+            dem_regions,
         }
     }
 
