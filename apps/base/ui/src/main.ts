@@ -16,6 +16,7 @@ import { t, translateDocument, type MessageKey } from "./i18n";
 import { MapView, type BaseStyle } from "./map";
 import { RegionsPanel } from "./regions";
 import { RoutePanel } from "./route";
+import { SearchPanel } from "./search";
 import { SharePanel } from "./share";
 import { renderLegend } from "./legend";
 import { runDiagnostics } from "./diagnostics";
@@ -266,6 +267,7 @@ const regions = new RegionsPanel(view, {
 });
 
 const route = new RoutePanel(view, { showMessage: (text) => showMessage(text), showError });
+const search = new SearchPanel(view, { routeHere: () => undefined, showError });
 const share = new SharePanel({ showMessage: (text) => showMessage(text), showError });
 
 // --- wiring -----------------------------------------------------------------
@@ -437,6 +439,7 @@ async function start(): Promise<void> {
   const initial = await regions.refresh();
   if (initial?.installed_bounds) view.showBounds(initial.installed_bounds);
   await route.start();
+  search.start();
   await share.refresh();
   await loadRecordingState();
   await refreshTracks();

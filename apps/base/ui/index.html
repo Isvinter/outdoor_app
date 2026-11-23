@@ -9,6 +9,18 @@
     <aside id="sidebar">
       <header><h1>ZeroGrid Base</h1></header>
 
+      <section id="search">
+        <input id="search-input" type="text" role="searchbox" spellcheck="false" autocomplete="off" aria-label="Suche" />
+        <div id="search-categories" class="search-chips"></div>
+        <ul id="search-results" hidden></ul>
+        <p id="search-notes" class="hint" hidden></p>
+        <div id="search-card" hidden>
+          <strong id="search-card-title"></strong>
+          <p id="search-card-details" class="hint"></p>
+          <button id="search-route" class="primary" data-i18n="search.route"></button>
+        </div>
+      </section>
+
       <section id="recovery" hidden>
         <h2 data-i18n="recovery.title"></h2>
         <p id="recovery-text"></p>

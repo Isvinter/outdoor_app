@@ -241,6 +241,7 @@ export class MapView {
   private waypointMenu: Popup | null = null;
   private routeLegs: RouteLeg[] = [];
   private readonly cursor: Marker;
+  private readonly searchPin = new Marker({ color: "#b3261e" });
   /** Counts style changes so that a slow style load cannot overwrite a newer choice. */
   private styleRequest = 0;
   /** The elevation data the contour cache was filled from. */
@@ -499,6 +500,23 @@ export class MapView {
   /** Cross-hair cursor while clicks set waypoints. */
   setPicking(picking: boolean): void {
     this.map.getCanvas().style.cursor = picking ? "crosshair" : "";
+  }
+
+  /** Marks the chosen search result; `null` takes the mark away. */
+  showSearchPin(at: LatLon | null): void {
+    if (at) this.searchPin.setLngLat([at.lon, at.lat]).addTo(this.map);
+    else this.searchPin.remove();
+  }
+
+  /** The middle of what the map shows. */
+  centre(): LatLon {
+    const { lat, lng } = this.map.getCenter();
+    return { lat, lon: lng };
+  }
+
+  /** Moves the map to a search result, close enough to see the streets around it. */
+  flyToResult(at: LatLon): void {
+    this.map.easeTo({ center: [at.lon, at.lat], zoom: Math.max(this.map.getZoom(), 15), duration: 600 });
   }
 
   /** Marks the place the pointer is at in the elevation profile; `null` hides the mark. */
