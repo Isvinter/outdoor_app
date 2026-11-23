@@ -97,11 +97,6 @@ struct PlanSheet: View {
                 if hasElevation(result) {
                     ProfileChart(plan: result, cursor: plan.cursor) { plan.showCursor($0) }
                         .frame(height: detent == .large ? 280 : 140)
-                } else {
-                    Text("Keine Höhendaten für diese Route.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("plan-no-elevation")
                 }
                 legend(result)
                 stats(result.total)

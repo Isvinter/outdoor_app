@@ -128,8 +128,8 @@ fn ramp_region_with(name: &str, routing: bool, valhalla: Option<&str>) -> PathBu
     dir
 }
 
-/// An app whose only region has a basemap but no elevation data, covering
-/// the same ground as [`app_with_ramp`].
+/// An app whose only region (`flat`) has a basemap and a (dummy) routing file
+/// but no elevation data, covering the same ground as [`app_with_ramp`].
 pub fn app_with_basemap_only(name: &str) -> App {
     let dir = temp_dir(name);
     let region = dir.join("regions/flat");
@@ -150,9 +150,14 @@ pub fn app_with_basemap_only(name: &str) -> App {
         },
     )
     .unwrap();
+    std::fs::write(region.join("routing.tar"), b"dummy").unwrap();
     let manifest = serde_json::json!({
         "format": 1, "id": "flat", "name": "Flat", "bbox": bounds, "version": "1", "attribution": [],
-        "files": [{ "name": "basemap.pmtiles", "size": size, "sha256": "0".repeat(64) }], "size": size,
+        "files": [
+            { "name": "basemap.pmtiles", "size": size, "sha256": "0".repeat(64) },
+            { "name": "routing.tar", "size": 5, "sha256": "0".repeat(64) },
+        ],
+        "size": size,
     });
     std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
     open(&dir)
