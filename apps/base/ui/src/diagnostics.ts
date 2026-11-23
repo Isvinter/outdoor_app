@@ -828,6 +828,83 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
     report.straight_makes_manual_leg = true;
     await clearRoute();
 
+    // A slow answer leaves a map the user has dragged in the meantime alone.
+    const realSearchCategory = api.searchCategory;
+    const lodgingButton = () => document.querySelector<HTMLElement>('#search-categories [data-category="lodging"]') as HTMLElement;
+    const dragMap = async () => {
+      const canvas = view.map.getCanvas();
+      const box = canvas.getBoundingClientRect();
+      const [x, y] = [box.left + box.width / 2, box.top + box.height / 2];
+      const mouse = (type: string, dx: number) =>
+        canvas.dispatchEvent(new MouseEvent(type, { clientX: x + dx, clientY: y, bubbles: true, button: 0, buttons: type === "mouseup" ? 0 : 1 }));
+      mouse("mousedown", 0);
+      for (let i = 1; i <= 6; i++) {
+        mouse("mousemove", i * 20);
+        await sleep(30);
+      }
+      await sleep(200);
+      mouse("mouseup", 120);
+      await sleep(300);
+      await until("drag at rest", () => !view.map.isMoving());
+    };
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await sleep(100);
+    api.searchCategory = async (...args) => {
+      await sleep(1500);
+      return realSearchCategory(...args);
+    };
+    clickElement(lodgingButton());
+    await sleep(50);
+    const cameraBeforeDrag = view.camera();
+    await dragMap();
+    const afterDrag = view.camera();
+    await until("slow answer", () => hits().length > 0);
+    await sleep(900);
+    api.searchCategory = realSearchCategory;
+    report.drag_moved_map = !sameCamera(afterDrag, cameraBeforeDrag);
+    report.slow_answer_keeps_drag = sameCamera(view.camera(), afterDrag);
+
+    // A move made by the app, like following the position, starts a new search area.
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await sleep(100);
+    clickElement(lodgingButton());
+    await until("category hits", () => hits().length > 0);
+    await settled();
+    const movedTo = { lat: lat + 0.05, lon };
+    let searchedAt: { lat: number; lon: number } | null = null;
+    api.searchCategory = (category, around, radiusM, limit) => {
+      searchedAt = around;
+      return realSearchCategory(category, around, radiusM, limit);
+    };
+    view.map.jumpTo({ center: [movedTo.lon, movedTo.lat] });
+    await sleep(200);
+    clickElement(lodgingButton());
+    await until("search after the move", () => searchedAt !== null);
+    api.searchCategory = realSearchCategory;
+    report.app_move_starts_new_area = near(searchedAt ?? centre, movedTo);
+    await settled();
+
+    // After a route from a category the quick choices are there again.
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await sleep(100);
+    clickElement(lodgingButton());
+    await until("category hits", () => hits().length > 0);
+    Date.now = () => realNow() + 200_000;
+    clickElement(hits()[0] as HTMLElement);
+    await until("card", () => !el("search-card").hidden);
+    await sleep(100);
+    clickElement(el("search-route"));
+    await until("asked for start", () => text("route-here-text") === t("route.here.tap"));
+    Date.now = realNow;
+    await clickMap(nearby);
+    await until("route of two points", () => waypoints().length === 2);
+    await until("card closed", () => el("search-card").hidden === true);
+    report.categories_back_after_route = !el("search-categories").hidden && lodgingButton().getAttribute("aria-pressed") === "false";
+    await clearRoute();
+
     report.layout_problems = layoutProblems();
     report.ok = [
       "found", "category_word_found", "new_route_without_prompt", "no_position_asks_for_tap", "tap_is_start",
@@ -837,7 +914,8 @@ async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): P
       "dots_match_list", "dots_fit_in_view", "typing_keeps_anchor", "dot_click_opens_hit",
       "dots_survive_style_change", "picking_ignores_dot", "dots_gone_after_route",
       "back_restores_list", "back_restores_camera", "back_keeps_query", "back_after_two_hits",
-      "back_during_fit", "back_cancels_route_here",
+      "back_during_fit", "back_cancels_route_here", "drag_moved_map", "slow_answer_keeps_drag",
+      "app_move_starts_new_area", "categories_back_after_route",
     ].every((key) => report[key] === true);
   } catch (e) {
     report.ok = false;

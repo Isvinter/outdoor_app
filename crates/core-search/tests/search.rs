@@ -224,6 +224,35 @@ fn category_finds_unnamed_places() {
 }
 
 #[test]
+fn search_around_keeps_places_and_others_apart() {
+    let dir = tempfile_dir("search-around");
+    let mut entries: Vec<Entry> = (0..5)
+        .map(|i| Entry {
+            kind: Kind::Street,
+            category: None,
+            subtype: None,
+            name: "Berliner Strasse".to_string(),
+            alt_names: Vec::new(),
+            town: None,
+            town_names: Vec::new(),
+            lat: 47.0 + f64::from(i) * 0.01,
+            lon: 11.0,
+        })
+        .collect();
+    entries.push(Entry {
+        kind: Kind::Place,
+        name: "Berlin".to_string(),
+        lat: 52.5,
+        lon: 13.4,
+        ..entries[0].clone()
+    });
+    let index = SearchIndex::open(&build(&dir, &entries)).unwrap();
+    let hits = index.search_around("Berl", (47.0, 11.0), 2).unwrap();
+    assert_eq!(hits.len(), 3);
+    assert!(hits.iter().any(|h| h.name == "Berlin"));
+}
+
+#[test]
 fn category_within_stops_at_the_radius() {
     let dir = tempfile_dir("category-within");
     let index = SearchIndex::open(&build(&dir, &sample())).unwrap();

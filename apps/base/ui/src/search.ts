@@ -45,6 +45,8 @@ export class SearchPanel {
   private overview: MapCamera | null = null;
   /** Where "Zurück" takes the map: the view before the first hit was opened. */
   private returnTo: MapCamera | null = null;
+  /** Counts map moves not made by the search, so that a late answer leaves them alone. */
+  private otherMoves = 0;
 
   constructor(
     private readonly view: MapView,
@@ -78,7 +80,8 @@ export class SearchPanel {
       const hit = this.results?.hits[index];
       if (hit) this.select(hit);
     });
-    this.view.onUserMove(() => {
+    this.view.onOtherMove(() => {
+      this.otherMoves++;
       window.clearTimeout(this.fitTimer);
       this.anchor = null;
       this.overview = null;
@@ -115,11 +118,13 @@ export class SearchPanel {
   private async run(search: (at: Anchor) => Promise<SearchResults>, fitDelayMs: number): Promise<void> {
     const request = ++this.request;
     this.anchor ??= { centre: this.view.centre(), radiusM: this.view.searchRadiusM() };
+    const movesBefore = this.otherMoves;
     try {
       const results = await search(this.anchor);
       if (request !== this.request) return;
       this.renderResults(results);
       this.overview = null;
+      if (this.otherMoves !== movesBefore) return;
       if (fitDelayMs === 0) this.fit(results);
       else this.fitTimer = window.setTimeout(() => this.fit(results), fitDelayMs);
     } catch (e) {
@@ -203,7 +208,7 @@ export class SearchPanel {
     const camera = this.returnTo;
     this.clearSelection();
     this.renderResults(this.results);
-    $("search-categories").hidden = $<HTMLInputElement>("search-input").value.trim().length > 0;
+    this.showCategoriesIfEmpty();
     if (camera) {
       this.overview = camera;
       this.view.moveTo(camera);
@@ -219,8 +224,14 @@ export class SearchPanel {
     this.overview = null;
     this.returnTo = null;
     this.view.showSearchPin(null);
+    this.markCategory(null);
     this.renderResults(null);
+    this.showCategoriesIfEmpty();
     $("search-card").hidden = true;
+  }
+
+  private showCategoriesIfEmpty(): void {
+    $("search-categories").hidden = $<HTMLInputElement>("search-input").value.trim().length > 0;
   }
 
   private clearSelection(): void {

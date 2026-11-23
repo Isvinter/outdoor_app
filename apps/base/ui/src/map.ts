@@ -577,10 +577,10 @@ export class MapView {
     return typeof index === "number" ? index : null;
   }
 
-  /** Calls `handler` when the user starts moving the map, not when the app does. */
-  onUserMove(handler: () => void): void {
+  /** Calls `handler` when the map starts moving for any reason but the search itself. */
+  onOtherMove(handler: () => void): void {
     this.map.on("movestart", (e) => {
-      if (e.originalEvent) handler();
+      if (!(e as { searchMove?: boolean }).searchMove) handler();
     });
   }
 
@@ -610,7 +610,7 @@ export class MapView {
   }
 
   moveTo(camera: MapCamera): void {
-    this.map.easeTo({ ...camera, duration: 600 });
+    this.map.easeTo({ ...camera, duration: 600 }, { searchMove: true });
   }
 
   /** Marks the chosen search result; `null` takes the mark away. */
@@ -647,7 +647,7 @@ export class MapView {
 
   /** Moves the map to a search result, close enough to see the streets around it. */
   flyToResult(at: LatLon): void {
-    this.map.easeTo({ center: [at.lon, at.lat], zoom: Math.max(this.map.getZoom(), 15), duration: 600 });
+    this.moveTo({ center: [at.lon, at.lat], zoom: Math.max(this.map.getZoom(), 15) });
   }
 
   /** Marks the place the pointer is at in the elevation profile; `null` hides the mark. */

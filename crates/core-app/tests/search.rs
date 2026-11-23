@@ -363,3 +363,82 @@ fn radius_is_held_between_2_and_50_km() {
         assert_eq!(app.search("Hostel", NEAR, invalid, 30).radius_m, 50_000.0);
     }
 }
+
+fn far_places(name: &str, count: u32) -> Vec<Entry> {
+    (0..count)
+        .map(|i| place(name, -13.9 - f64::from(i) * 0.01, -72.0))
+        .collect()
+}
+
+#[test]
+fn many_far_places_do_not_push_out_a_near_hit() {
+    let dir = common::temp_dir("search-many-places");
+    let mut entries = far_places("Neustadt", 35);
+    entries.push(lodging("Neustadt Hostel", -13.51, -72.0));
+    region(&dir, "a", "A", Some(&entries));
+    let results = common::open(&dir).search("Neustadt", NEAR, 10_000.0, 30);
+    assert!(results.hits.iter().any(|h| h.name == "Neustadt Hostel"));
+    assert_eq!(results.hits.len(), 30);
+}
+
+#[test]
+fn far_places_of_two_regions_do_not_push_out_a_near_hit() {
+    let dir = common::temp_dir("search-many-places-regions");
+    let mut first = far_places("Neustadt", 20);
+    first.push(lodging("Neustadt Hostel", -13.51, -72.0));
+    let second: Vec<Entry> = (0..20)
+        .map(|i| place("Neustadt", -13.2 + f64::from(i) * 0.01, -72.0))
+        .collect();
+    region(&dir, "a", "A", Some(&first));
+    region(&dir, "b", "B", Some(&second));
+    let results = common::open(&dir).search("Neustadt", NEAR, 10_000.0, 30);
+    assert!(results.hits.iter().any(|h| h.name == "Neustadt Hostel"));
+}
+
+#[test]
+fn many_far_places_do_not_push_out_a_category_hit() {
+    let dir = common::temp_dir("search-many-camping");
+    let mut entries = far_places("Camping", 35);
+    entries.push(entry(
+        Kind::Poi,
+        Some(Category::Camping),
+        "Zeltplatz",
+        -13.51,
+        -72.0,
+    ));
+    region(&dir, "a", "A", Some(&entries));
+    let results = common::open(&dir).search("camping", NEAR, 10_000.0, 30);
+    assert!(results.hits.iter().any(|h| h.name == "Zeltplatz"));
+}
+
+#[test]
+fn partly_typed_place_survives_many_streets() {
+    let dir = common::temp_dir("search-partial-place");
+    let mut entries = vec![entry(Kind::Street, None, "Berliner Strasse", -13.51, -72.0)];
+    entries.extend((0..35).map(|i| {
+        entry(
+            Kind::Street,
+            None,
+            "Berliner Strasse",
+            -13.7 - f64::from(i) * 0.001,
+            -72.0,
+        )
+    }));
+    entries.push(place("Berlin", -13.95, -72.0));
+    region(&dir, "a", "A", Some(&entries));
+    let results = common::open(&dir).search("Berl", NEAR, 10_000.0, 30);
+    assert!(results.hits.iter().any(|h| h.name == "Berlin"));
+}
+
+#[test]
+fn a_far_place_keeps_a_share_among_many_near_hits() {
+    let dir = common::temp_dir("search-place-share");
+    let mut entries: Vec<Entry> = (0..40)
+        .map(|i| lodging("Neustadt Hostel", -13.5, -72.0 + f64::from(i) * 0.001))
+        .collect();
+    entries.push(place("Neustadt", -13.95, -72.0));
+    region(&dir, "a", "A", Some(&entries));
+    let results = common::open(&dir).search("Neustadt", NEAR, 10_000.0, 30);
+    assert_eq!(results.hits.len(), 30);
+    assert_eq!(results.hits[0].name, "Neustadt");
+}

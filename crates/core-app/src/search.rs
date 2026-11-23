@@ -1,5 +1,7 @@
 //! Offline search over all enabled regions.
 
+use std::cmp::Ordering;
+
 use core_maps::SearchSource;
 use core_routing::LatLon;
 use core_search::{Category, Hit, Kind, SearchError, SearchIndex, category_for_word, normalize};
@@ -15,6 +17,8 @@ const MAX_LIMIT: usize = 100;
 const SAME_PLACE_M: f64 = 30.0;
 const MIN_RADIUS_M: f64 = 2_000.0;
 const MAX_RADIUS_M: f64 = 50_000.0;
+/// One in this many result slots is kept for places outside the radius.
+const FAR_PLACE_SHARE: usize = 3;
 
 /// One thing found, as the apps show it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -58,7 +62,7 @@ impl App {
         let radius_m = usable_radius(radius_m);
         let category = category_for_word(text);
         let (hits, unsearchable) = self.search_regions(near, |index, at| {
-            let mut hits = index.search(text, Some(at), limit)?;
+            let mut hits = index.search_around(text, at, limit)?;
             if let Some(category) = category {
                 hits.extend(index.by_category(category, at, limit)?);
             }
@@ -67,14 +71,18 @@ impl App {
         let inside = |hit: &Hit| hit.distance_m.is_some_and(|d| d <= radius_m);
         let any_inside = hits.iter().any(inside);
         let widened = !any_inside && !hits.is_empty() && !hits.iter().any(Hit::is_whole_word_place);
-        let kept = hits
+        let (main, far_places): (Vec<Hit>, Vec<Hit>) = hits
             .into_iter()
             .filter(|hit| !any_inside || hit.kind == Kind::Place || inside(hit))
-            .take(limit)
-            .map(shown)
-            .collect();
+            .partition(|hit| {
+                if any_inside {
+                    inside(hit)
+                } else {
+                    hit.kind != Kind::Place
+                }
+            });
         SearchResults {
-            hits: kept,
+            hits: share_limit(main, far_places, limit),
             unsearchable,
             widened,
             radius_m,
@@ -126,13 +134,7 @@ impl App {
                 None => unsearchable.push(name),
             }
         }
-        hits.sort_by(|a, b| {
-            a.match_rank.cmp(&b.match_rank).then(
-                a.distance_m
-                    .unwrap_or(0.0)
-                    .total_cmp(&b.distance_m.unwrap_or(0.0)),
-            )
-        });
+        hits.sort_by(best_first);
         let mut kept: Vec<Hit> = Vec::new();
         for hit in hits {
             if !kept.iter().any(|other| same_thing(other, &hit)) {
@@ -152,11 +154,30 @@ fn usable_radius(radius_m: f64) -> f64 {
     }
 }
 
+fn best_first(a: &Hit, b: &Hit) -> Ordering {
+    a.match_rank.cmp(&b.match_rank).then(
+        a.distance_m
+            .unwrap_or(0.0)
+            .total_cmp(&b.distance_m.unwrap_or(0.0)),
+    )
+}
+
+/// Fills `limit` so that neither group can push the other out: far places get
+/// up to a third, and whatever one group leaves free goes to the other.
+fn share_limit(mut main: Vec<Hit>, mut far_places: Vec<Hit>, limit: usize) -> Vec<SearchHit> {
+    let reserved = far_places.len().min(limit / FAR_PLACE_SHARE);
+    main.truncate(limit - reserved);
+    far_places.truncate(limit - main.len());
+    main.append(&mut far_places);
+    main.sort_by(best_first);
+    main.into_iter().map(shown).collect()
+}
+
 fn same_thing(a: &Hit, b: &Hit) -> bool {
     a.kind == b.kind
         && a.category == b.category
-        && normalize(&a.name) == normalize(&b.name)
         && core_search::haversine_m((a.lat, a.lon), (b.lat, b.lon)) <= SAME_PLACE_M
+        && normalize(&a.name) == normalize(&b.name)
 }
 
 fn shown(hit: Hit) -> SearchHit {
