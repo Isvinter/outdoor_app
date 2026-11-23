@@ -3874,6 +3874,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-index"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "core-maps",
+ "core-search",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "selectors"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
