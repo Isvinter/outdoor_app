@@ -163,6 +163,11 @@ pub struct Guide {
     deviation: u32,
     way_back: Option<ActiveWayBack>,
     failed: Option<Attempt>,
+    /// When the user left the route, while they are off it.
+    left_ms: Option<i64>,
+    /// Where ways back lead until the user has been on the route once:
+    /// the waypoint the guide was placed at.
+    start_target: Option<usize>,
 }
 
 impl Guide {
@@ -192,6 +197,8 @@ impl Guide {
             deviation: 0,
             way_back: None,
             failed: None,
+            left_ms: None,
+            start_target: None,
         }
     }
 
@@ -209,6 +216,8 @@ impl Guide {
         self.off = None;
         self.way_back = None;
         self.failed = None;
+        self.left_ms = None;
+        self.start_target = Some(index);
     }
 
     /// Takes in the next fix; asks `router` for a way back on a deviation.
@@ -232,7 +241,7 @@ impl Guide {
             )
         });
         let (window, hint_m) = if self.placed {
-            (Some(self.window(dt_s)), self.along_m + moved_m)
+            (Some(self.window(dt_s, fix.time_ms)), self.along_m + moved_m)
         } else {
             // On a loop, start and end are equally near: take the start.
             (None, 0.0)
@@ -243,6 +252,15 @@ impl Guide {
         // The first fix sets the progress, also at a waypoint chosen before.
         let first = self.last_fix.is_none();
         self.last_fix = Some((p, fix.time_ms));
+        if !self.placed {
+            // Placed on the whole route: lead to the waypoint at or after
+            // it, so from far away to the start.
+            self.start_target = self
+                .line
+                .waypoint_m
+                .iter()
+                .position(|&w| w >= on_plan.along_m);
+        }
         self.placed = true;
         if self.phase == GuidePhase::Waiting {
             self.phase = GuidePhase::OnRoute;
@@ -261,6 +279,8 @@ impl Guide {
                 self.way_back = None;
                 self.failed = None;
                 self.off = None;
+                self.left_ms = None;
+                self.start_target = None;
                 self.along_m = on_plan.along_m;
                 self.offset_m = Some(on_plan.offset_m);
             }
@@ -294,8 +314,12 @@ impl Guide {
                 if first || near || free {
                     self.along_m = on_plan.along_m;
                 }
+                if near {
+                    self.start_target = None;
+                }
                 if self.count_off(!near && !free, fix.time_ms) {
                     self.deviation += 1;
+                    self.left_ms = Some(fix.time_ms);
                     self.route_back(p, fix, router);
                 }
             }
@@ -315,7 +339,7 @@ impl Guide {
     pub fn status(&self) -> GuideStatus {
         let next_waypoint = match &self.way_back {
             Some(wb) => Some(wb.target),
-            None if self.placed => self.target_rule.target(&self.line, self.along_m),
+            None if self.placed => self.target(),
             None => None,
         };
         let (from_m, back) = match &self.way_back {
@@ -364,9 +388,9 @@ impl Guide {
         }
     }
 
-    /// The part of the planned line searched for the next fix, `dt_s` after
-    /// the last one.
-    fn window(&self, dt_s: f64) -> (f64, f64) {
+    /// The part of the planned line searched for the fix at `now_ms`, `dt_s`
+    /// after the last one.
+    fn window(&self, dt_s: f64, now_ms: i64) -> (f64, f64) {
         let mut hi_m = self.along_m + WINDOW_AHEAD_M.max(3.0 * dt_s * MAX_SPEED_MPS);
         // Across a straight or missing leg the user may be far from its
         // line; let them come back anywhere on it and just after it.
@@ -376,15 +400,20 @@ impl Guide {
             hi_m = hi_m.max(self.line.legs[leg].to_m + WINDOW_AHEAD_M);
         }
         // Off the route, the user may come back anywhere up to the waypoint
-        // the way back leads to.
+        // the way back leads to, or as far as they could have gone since
+        // leaving the route.
         if matches!(self.phase, GuidePhase::OffRoute | GuidePhase::NoWayBack) {
             let target = self
                 .way_back
                 .as_ref()
                 .map(|wb| wb.target)
-                .or_else(|| self.target_rule.target(&self.line, self.along_m));
+                .or_else(|| self.target());
             if let Some(target) = target {
                 hi_m = hi_m.max(self.waypoint_at(target) + WINDOW_AHEAD_M);
+            }
+            if let Some(left_ms) = self.left_ms {
+                let off_s = ((now_ms - left_ms) as f64 / 1000.0).max(0.0);
+                hi_m = hi_m.max(self.along_m + 3.0 * off_s * MAX_SPEED_MPS);
             }
         }
         (self.along_m - WINDOW_BACK_M, hi_m)
@@ -418,7 +447,7 @@ impl Guide {
             time_ms: fix.time_ms,
         });
         self.phase = GuidePhase::NoWayBack;
-        let Some(target) = self.target_rule.target(&self.line, self.along_m) else {
+        let Some(target) = self.target() else {
             return;
         };
         let Some(spec) = self.way_back_spec() else {
@@ -442,6 +471,12 @@ impl Guide {
         });
         self.failed = None;
         self.phase = GuidePhase::OffRoute;
+    }
+
+    /// The waypoint a way back leads to now.
+    fn target(&self) -> Option<usize> {
+        self.start_target
+            .or_else(|| self.target_rule.target(&self.line, self.along_m))
     }
 
     /// The profile of the leg at the progress if routed, else of the last
@@ -934,7 +969,8 @@ mod tests {
         assert!((guide.status().along_m - 1100.0).abs() < 2.0);
         let status = guide.update(&p, &router);
         assert!((status.along_m - 1400.0).abs() < 2.0, "{status:?}");
-        assert_eq!(status.next_waypoint, Some(3));
+        // 70 m off: not yet on the route, so still led to the chosen waypoint.
+        assert_eq!(status.next_waypoint, Some(2));
     }
 
     #[test]
@@ -967,6 +1003,68 @@ mod tests {
         }
         assert!(last_m > turn_m, "{last_m} {turn_m}");
         assert_eq!(router.count(), 0);
+    }
+
+    #[test]
+    fn rejoining_past_the_target_waypoint_recovers() {
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        deviate(&mut guide, &router);
+        // A second apart, so only the time since leaving widens the window.
+        let rejoin = [(1550.0, 60.0, 59.0), (1600.0, 0.0, 60.0)];
+        let status = walk(&mut guide, &router, rejoin);
+        assert_eq!(status.phase, GuidePhase::OnRoute);
+        assert_eq!(status.way_back, None);
+        assert_eq!(status.deviation, 1);
+        assert_eq!(status.next_waypoint, Some(2));
+        assert!((status.along_m - 1600.0).abs() < 2.0, "{status:?}");
+
+        // Also without a way back.
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        router.fail.set(true);
+        assert_eq!(deviate(&mut guide, &router).phase, GuidePhase::NoWayBack);
+        let status = walk(&mut guide, &router, rejoin);
+        assert_eq!(status.phase, GuidePhase::OnRoute);
+        assert_eq!(status.deviation, 1);
+        assert_eq!(status.next_waypoint, Some(2));
+    }
+
+    #[test]
+    fn starting_far_from_the_start_routes_to_the_start() {
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        let status = walk(
+            &mut guide,
+            &router,
+            [(0.0, 2000.0, 0.0), (0.0, 2000.0, 5.0), (0.0, 2000.0, 10.0)],
+        );
+        assert_eq!(status.deviation, 1);
+        assert_eq!(status.next_waypoint, Some(0));
+        assert_eq!(router.count(), 1);
+        assert!(router.calls.borrow()[0].to.distance_m(&A) < 1.0);
+    }
+
+    #[test]
+    fn start_from_waypoint_targets_that_waypoint() {
+        let line = two_legs();
+        let wp1 = line.point_at(line.waypoint_m[1]);
+        let mut guide = Guide::new(line, GuideParams::default());
+        let router = FakeRouter::default();
+        guide.start_from_waypoint(1);
+        let status = walk(
+            &mut guide,
+            &router,
+            [
+                (1100.0, 300.0, 0.0),
+                (1100.0, 300.0, 5.0),
+                (1100.0, 300.0, 10.0),
+            ],
+        );
+        assert_eq!(status.deviation, 1);
+        assert_eq!(status.next_waypoint, Some(1));
+        assert_eq!(router.count(), 1);
+        assert!(router.calls.borrow()[0].to.distance_m(&wp1) < 1.0);
     }
 
     #[test]
