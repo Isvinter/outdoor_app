@@ -1,5 +1,6 @@
 //! Guidance in the app: the guide follows the planned route with the app's
-//! fixes, starts with a recording and is set anew when the route changes.
+//! fixes, is set anew when the route changes and is independent of the
+//! recording: it starts and ends only when asked to (or on arrival).
 //!
 //! Locking: the guide has its own mutex (`Shared::guide`), taken before
 //! `inner` or the planned route where both are needed, never after them.
@@ -21,17 +22,12 @@ use std::sync::{MutexGuard, PoisonError};
 
 use core_location::Fix;
 use core_routing::{LatLon, Profile, RoutingError};
-use uuid::Uuid;
 
 use super::guide::{Guide, GuideParams, GuidePhase, GuideStatus, WayBack, WayBackRouter};
 use super::line::RouteLine;
 use crate::AppError;
 use crate::app::{App, Shared, now_ms};
 use crate::plan::{LegSpec, MAX_POSITION_AGE_S};
-
-/// Setting that names the recording during which the user switched the
-/// guidance off; it stays off for that recording, also after a restart.
-const OFF_TRACK_KEY: &str = "guide_off_track";
 
 /// The guide running.
 pub(crate) struct ActiveGuide {
@@ -156,42 +152,16 @@ impl Shared {
         vec![Some(status)]
     }
 
-    /// Whether the user switched the guidance off during recording `track`.
-    fn switched_off(&self, track: Uuid) -> bool {
-        let value = self.inner().storage.setting(OFF_TRACK_KEY);
-        matches!(value, Ok(Some(id)) if id == track.to_string())
-    }
-
     /// The planned route changed: a running guide is set anew on it, or ends
-    /// with it. During a recording a new route starts the guidance, unless
-    /// the user switched it off for this recording.
+    /// with it. The guidance never starts by itself.
     pub(crate) fn plan_changed(&self) {
         let told = {
             let mut slot = self.guide_slot();
-            let recording = self.inner().recording_track();
-            let start = slot.is_some() || recording.is_some_and(|track| !self.switched_off(track));
-            let told = if start {
+            let told = if slot.is_some() {
                 let guide = self.new_guide(None);
                 Self::put_guide(&mut slot, guide)
             } else {
                 Vec::new()
-            };
-            (told, self.tell_turn())
-        };
-        self.tell(told);
-    }
-
-    /// Recording `track` began or goes on: guidance starts along the planned
-    /// route, unless it runs already or the user switched it off for `track`.
-    pub(crate) fn guide_recording(&self, track: Uuid) {
-        let told = {
-            let mut slot = self.guide_slot();
-            if slot.is_some() || self.switched_off(track) {
-                return;
-            }
-            let told = match self.new_guide(None) {
-                Some(guide) => Self::put_guide(&mut slot, Some(guide)),
-                None => Vec::new(),
             };
             (told, self.tell_turn())
         };
@@ -260,10 +230,6 @@ impl App {
         let (status, told) = {
             let mut slot = shared.guide_slot();
             let guide = shared.new_guide(waypoint).ok_or(AppError::NoRoutePlanned)?;
-            shared
-                .inner()
-                .storage
-                .set_setting(OFF_TRACK_KEY, "", now_ms())?;
             let status = guide.status.clone();
             let told = Shared::put_guide(&mut slot, Some(guide));
             (status, (told, shared.tell_turn()))
@@ -272,28 +238,15 @@ impl App {
         Ok(status)
     }
 
-    /// Ends the guidance. During a recording it stays off for that recording.
+    /// Ends the guidance; a recording goes on.
     pub fn stop_guidance(&self) {
         let shared = &self.shared;
-        let (told, error) = {
+        let told = {
             let mut slot = shared.guide_slot();
-            let mut inner = shared.inner();
-            let error = match inner.recording_track() {
-                Some(track) => inner
-                    .storage
-                    .set_setting(OFF_TRACK_KEY, &track.to_string(), now_ms())
-                    .err(),
-                None => None,
-            };
             let told = Shared::put_guide(&mut slot, None);
-            ((told, shared.tell_turn()), error)
+            (told, shared.tell_turn())
         };
         shared.tell(told);
-        if let Some(error) = error {
-            shared
-                .listener
-                .on_error(&format!("could not keep the guidance off: {error}"));
-        }
     }
 
     /// Where the guidance stands, if it runs.

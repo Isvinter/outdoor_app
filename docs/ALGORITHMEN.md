@@ -166,6 +166,17 @@ Beurteilung im Gelände.
 - Kacheln liest ein eigener PMTiles-v3-Leser; die Karte holt sie über das Schema `tiles://`
   direkt aus dem Rust-Kern.
 
+## 6b. Aufzeichnung in Trail (`core-app`, `Inner::record`)
+
+- **Ohne Sportart:** Trail startet jede Aufnahme als `other` („Keine Angabe“); die Sportart kommt
+  beim Speichern (`set_track_activity`), danach wird die Statistik mit deren Werten neu gerechnet.
+  `other` speichert einen Punkt je Sekunde wie Rad und MTB, denn es kann alles sein. Die
+  Statistik nimmt ab 1 km/h Bewegung an und hält bis 110 km/h für plausibel.
+- **GPS-Lücke:** Liegt ein Fix mehr als 120 s hinter dem letzten gespeicherten, beginnt ein neues
+  Teilstück. Die Lücke zählt weder als Strecke noch als Bewegungszeit; ein Tunnel fehlt dadurch
+  in der Strecke, dafür zählt keine Autofahrt mit ausgeschaltetem GPS. Importierte Tracks mit
+  langen Pausen ohne Punkte werden beim Abspielen genauso geteilt.
+
 ## 7. Live-Routing (`core-app`, Modul `guide`)
 
 Der Guide folgt der geplanten Route Fix für Fix: Fortschritt entlang der Linie, Abweichung,
@@ -193,10 +204,9 @@ echten Tracks nachgestellt werden.
   verrauscht. Schlägt es fehl (`no_way_back`), wird nach 60 s oder 200 m Bewegung neu versucht.
 - **Rest:** Strecke und Zeit bis zum Etappenende und zum Ziel, mit dem Rest des Wegs zurück
   eingerechnet. Die Zeit ist `None`, sobald ein Abschnitt voraus keine Zeit hat.
-- **Aufzeichnung:** Eine Aufzeichnung startet die Führung, wenn eine Route geplant ist. Wer sie
-  während einer Aufzeichnung ausschaltet, schaltet sie für diese Aufzeichnung aus (Einstellung
-  `guide_off_track` nennt den Track, auch nach einem Neustart). Eine neue Route setzt eine
-  laufende Führung neu auf.
+- **Aufzeichnung:** Führung und Aufzeichnung sind unabhängig (Entscheidung des Nutzers nach dem
+  ersten Test): Keine startet oder beendet die andere. Eine neue Route setzt eine laufende
+  Führung neu auf, startet aber keine.
 - **Meldungen an die App:** Der Listener erfährt die Änderungen der Führung in der Reihenfolge,
   in der sie geschehen; das Ende kommt nie vor einem Status, der davor entstand. Aus
   `on_guidance` heraus darf er die Führung weder starten noch stoppen und keinen Fix einspeisen.

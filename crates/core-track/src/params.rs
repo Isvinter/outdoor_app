@@ -73,6 +73,15 @@ impl StatsParams {
                 ele_smooth_m: 30.0,
                 ..base
             },
+            // May be walking as well as riding: slow movement counts, fast is
+            // still plausible.
+            Activity::Other => Self {
+                v_move_mps: 1.0 * KMH,
+                stop_delay_s: 10.0,
+                move_window_s: 15.0,
+                ele_smooth_m: 40.0,
+                ..base
+            },
         }
     }
 }

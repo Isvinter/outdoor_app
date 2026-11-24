@@ -4,6 +4,7 @@ export const de = {
   "activity.mtb": "MTB",
   "activity.hike": "Wandern",
   "activity.ski_tour": "Skitour",
+  "activity.other": "Keine Angabe",
 
   "recording.title": "Aufzeichnung",
   "recording.activity": "Aktivität",

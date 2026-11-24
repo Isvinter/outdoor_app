@@ -234,6 +234,19 @@ impl CoreApp {
         })
     }
 
+    /// Sets the activity of a finished track ("bike", "mtb", "hike",
+    /// "ski_tour" or "other") and computes its statistics anew.
+    pub fn set_track_activity(
+        &self,
+        id: String,
+        activity: String,
+    ) -> Result<TrackSummary, CoreError> {
+        let record = self
+            .app
+            .set_track_activity(track_id(&id)?, parse_activity(&activity)?)?;
+        Ok(summary(&record, record.stats.as_ref()))
+    }
+
     pub fn rename_track(&self, id: String, name: String) -> Result<(), CoreError> {
         Ok(self.app.rename_track(track_id(&id)?, &name)?)
     }

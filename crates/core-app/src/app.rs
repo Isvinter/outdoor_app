@@ -20,6 +20,9 @@ const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 /// A fix is recorded if it follows the previous one after at least this share of
 /// the activity's interval; receivers do not tick with millisecond precision.
 const INTERVAL_TOLERANCE: f64 = 0.8;
+/// After this long without a fix kept, the recording goes on in a new
+/// segment: the gap counts neither as distance nor as time moving.
+const GAP_MS: i64 = 120_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -224,6 +227,12 @@ impl Inner {
         {
             return Ok(None);
         }
+        if rec
+            .last_recorded_ms
+            .is_some_and(|last| fix.time_ms - last > GAP_MS)
+        {
+            rec.recorder.break_segment();
+        }
         let point = fix.to_track_point();
         if !rec.recorder.add_point(point) {
             return Ok(None);
@@ -372,9 +381,6 @@ impl App {
             rec.status()
         };
         self.shared.listener.on_recording(&status);
-        if let Some(track) = status.track_id {
-            self.shared.guide_recording(track);
-        }
         Ok(status)
     }
 
@@ -484,9 +490,6 @@ impl App {
             rec.status()
         };
         self.shared.listener.on_recording(&status);
-        if let Some(track) = status.track_id {
-            self.shared.guide_recording(track);
-        }
         Ok(status)
     }
 
@@ -545,6 +548,25 @@ impl App {
             ..base
         };
         Ok(Some(compute_stats(&corrected, &params)))
+    }
+
+    /// Sets the activity of a finished track, such as the one chosen after
+    /// recording, and computes its statistics anew with that activity's values.
+    pub fn set_track_activity(
+        &self,
+        id: Uuid,
+        activity: Activity,
+    ) -> Result<TrackRecord, AppError> {
+        let mut inner = self.shared.inner();
+        if inner.recording_track() == Some(id) {
+            return Err(AppError::RecordingActive);
+        }
+        let track = inner.storage.load_track(id)?;
+        let stats = compute_stats(&track, &StatsParams::for_activity(activity));
+        inner
+            .storage
+            .set_track_activity(id, activity, &stats, now_ms())?;
+        Ok(inner.storage.track(id)?)
     }
 
     pub fn rename_track(&self, id: Uuid, name: &str) -> Result<(), AppError> {

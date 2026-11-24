@@ -8,7 +8,8 @@ use core_app::{App, AppError, AppListener, RecordingPhase, RecordingStatus};
 use core_gpx::parse_gpx;
 use core_location::{Fix, GpxReplaySource, SourceStatus};
 use core_storage::TrackState;
-use core_track::{Activity, StatsParams, compute_stats};
+use core_track::{Activity, Segment, StatsParams, compute_stats};
+use uuid::Uuid;
 
 const REAL_TRACK: &str = include_str!("../../../fixtures/gpx/real/tour_sylvensteinsee.gpx");
 const T0: i64 = 1_800_000_000_000;
@@ -371,8 +372,13 @@ fn replayed_real_track_is_recorded_and_exported_faithfully() {
         .unwrap()
         .tracks
         .remove(0);
-    let recorded = &exported.segments[0].points;
-    assert_eq!(exported.segments.len(), 1);
+    // The tour has a break of 16 minutes without fixes: a second segment.
+    assert_eq!(exported.segments.len(), 2);
+    let recorded: Vec<_> = exported
+        .segments
+        .iter()
+        .flat_map(|s| s.points.clone())
+        .collect();
     assert_eq!(recorded.len(), points.len());
     let shift = recorded[0].time_ms.unwrap() - points[0].time_ms.unwrap();
     for (r, o) in recorded.iter().zip(&points) {
@@ -385,7 +391,22 @@ fn replayed_real_track_is_recorded_and_exported_faithfully() {
         );
     }
 
-    let expected = compute_stats(&original, &StatsParams::for_activity(Activity::Bike));
+    let split = points
+        .windows(2)
+        .position(|w| w[1].time_ms.unwrap() - w[0].time_ms.unwrap() > 120_000)
+        .unwrap()
+        + 1;
+    let mut parts = original.clone();
+    parts.segments = vec![
+        Segment {
+            points: points[..split].to_vec(),
+        },
+        Segment {
+            points: points[split..].to_vec(),
+        },
+    ];
+    assert_eq!(exported.segments[0].points.len(), split);
+    let expected = compute_stats(&parts, &StatsParams::for_activity(Activity::Bike));
     let stats = record.stats.unwrap();
     assert!((stats.distance_m - expected.distance_m).abs() < 1.0);
     assert!((stats.moving_time_s - expected.moving_time_s).abs() < 1.0);
@@ -420,4 +441,58 @@ fn unfinished_tracks_are_not_listed_and_the_running_one_not_deleted() {
     }
     let record = app.stop_recording().unwrap().unwrap();
     assert_eq!(app.list_tracks().unwrap(), std::slice::from_ref(&record));
+}
+
+/// Recorded without an activity, the track gets one afterwards, with the
+/// statistics of that activity.
+#[test]
+fn activity_is_set_after_recording() {
+    let (app, _, _) = open("activity-after");
+    let status = app.start_recording(Activity::Other).unwrap();
+    // 36 km/h: plausible without an activity, too fast on foot.
+    for i in 0..=20 {
+        let mut fast = fix(2 * i);
+        fast.time_ms = T0 + i * 1000;
+        app.handle_fix(fast);
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(record.activity, Activity::Other);
+    let other_m = record.stats.unwrap().distance_m;
+    assert!((other_m - 200.0).abs() < 1.0, "{other_m}");
+    assert!(app.set_track_activity(Uuid::nil(), Activity::Hike).is_err());
+
+    let hike = app.set_track_activity(record.id, Activity::Hike).unwrap();
+    assert_eq!(Some(hike.id), status.track_id);
+    assert_eq!(hike.activity, Activity::Hike);
+    let hike_m = hike.stats.unwrap().distance_m;
+    assert!(hike_m < other_m - 10.0, "{hike_m}: the jumps count no more");
+    assert_eq!(app.list_tracks().unwrap()[0].activity, Activity::Hike);
+}
+
+/// After more than two minutes without a fix the recording goes on in a new
+/// segment; the jump across the gap is no distance.
+#[test]
+fn long_gap_starts_a_new_segment() {
+    let (app, _, _) = open("gap");
+    app.start_recording(Activity::Other).unwrap();
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    // Five minutes later, a kilometre further.
+    for i in 0..=10 {
+        let mut late = fix(i + 200);
+        late.time_ms += 300_000;
+        app.handle_fix(late);
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    let lens: Vec<usize> = app
+        .track_detail(record.id)
+        .unwrap()
+        .line
+        .iter()
+        .map(Vec::len)
+        .collect();
+    assert_eq!(lens, [11, 11]);
+    let distance = record.stats.unwrap().distance_m;
+    assert!((distance - 100.0).abs() < 1.0, "{distance}");
 }

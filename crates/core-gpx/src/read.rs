@@ -242,6 +242,8 @@ fn activity_from_type(text: &str) -> Option<Activity> {
         "skitour" | "skitouring" | "backcountryski" | "backcountryskiing" => {
             Some(Activity::SkiTour)
         }
+        // What this app writes for a track without an activity.
+        "other" => Some(Activity::Other),
         _ => None,
     }
 }

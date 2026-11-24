@@ -282,6 +282,9 @@ fn listener_gets_recording_and_guidance() {
         core.handle_fix(fix(i));
     }
     assert!(*listener.recording.lock().unwrap() > 0);
+    // A recording does not start the guidance; it is started on its own.
+    assert!(core.guidance_status().is_none());
+    core.start_guidance().unwrap();
     assert!(core.guidance_status().is_some());
     assert!(
         listener
@@ -292,7 +295,6 @@ fn listener_gets_recording_and_guidance() {
             .any(Option::is_some)
     );
 
-    core.start_guidance().unwrap();
     core.stop_guidance();
     assert_eq!(core.guidance_status(), None);
     assert_eq!(listener.guidance.lock().unwrap().last(), Some(&None));

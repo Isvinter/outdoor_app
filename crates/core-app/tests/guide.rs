@@ -177,92 +177,39 @@ fn starts_on_first_usable_fix() {
     assert_eq!(status.next_waypoint, Some(2));
 }
 
+/// Recording and guidance are independent: a recording never starts the
+/// guidance, also not when a route is loaded during it.
 #[test]
-fn recording_starts_guidance_with_route() {
+fn recording_does_not_start_guidance() {
     let (app, _) = app("record-route");
     app.plan_route(&route_east()).unwrap();
-
-    app.start_recording(Activity::Hike).unwrap();
-
-    assert_eq!(phase(&app), Some(GuidePhase::Waiting));
-}
-
-#[test]
-fn recording_without_route_has_no_guidance() {
-    let (app, _) = app("record-no-route");
-
-    app.start_recording(Activity::Hike).unwrap();
-
-    assert_eq!(app.guidance_status(), None);
-}
-
-#[test]
-fn switched_off_survives_restart() {
-    let dir = ramp_routing_dir("restart");
-    let router = Arc::new(StraightRouter::default());
-    let route = {
-        let app = app_on(&dir, &router, Arc::new(Listener));
-        app.plan_route(&route_east()).unwrap();
-        let route = app.save_planned_route("Ost").unwrap();
-        app.start_recording(Activity::Hike).unwrap();
-        app.stop_guidance();
-        route
-    };
-
-    let app = app_on(&dir, &router, Arc::new(Listener));
-    app.saved_route(route.id).unwrap();
-    app.continue_interrupted().unwrap();
-
-    assert_eq!(app.guidance_status(), None);
-}
-
-#[test]
-fn switched_on_again_survives_restart() {
-    let dir = ramp_routing_dir("continue");
-    let router = Arc::new(StraightRouter::default());
-    let route = {
-        let app = app_on(&dir, &router, Arc::new(Listener));
-        app.plan_route(&route_east()).unwrap();
-        let route = app.save_planned_route("Ost").unwrap();
-        app.start_recording(Activity::Hike).unwrap();
-        app.stop_guidance();
-        app.start_guidance().unwrap();
-        route
-    };
-
-    let app = app_on(&dir, &router, Arc::new(Listener));
-    app.saved_route(route.id).unwrap();
-    app.continue_interrupted().unwrap();
-
-    assert_eq!(phase(&app), Some(GuidePhase::Waiting));
-}
-
-#[test]
-fn route_loaded_during_recording_starts_guidance() {
-    let (app, _) = app("load-during");
-    app.plan_route(&route_east()).unwrap();
     let route = app.save_planned_route("Ost").unwrap();
+
+    app.start_recording(Activity::Hike).unwrap();
+    assert_eq!(app.guidance_status(), None);
+
     app.start_new_route();
-    app.start_recording(Activity::Hike).unwrap();
-    assert_eq!(app.guidance_status(), None);
-
-    app.saved_route(route.id).unwrap();
-
-    assert_eq!(phase(&app), Some(GuidePhase::Waiting));
-}
-
-#[test]
-fn route_loaded_during_recording_starts_guidance_unless_switched_off() {
-    let (app, _) = app("load-switched-off");
-    app.plan_route(&route_east()).unwrap();
-    let route = app.save_planned_route("Ost").unwrap();
-    app.start_recording(Activity::Hike).unwrap();
-    app.stop_guidance();
-
     app.saved_route(route.id).unwrap();
     assert_eq!(app.guidance_status(), None, "loaded");
     app.plan_route(&route_east()).unwrap();
     assert_eq!(app.guidance_status(), None, "planned");
+}
+
+/// Ending one leaves the other running.
+#[test]
+fn recording_and_guidance_end_independently() {
+    let (app, _) = app("independent");
+    app.plan_route(&route_east()).unwrap();
+    app.start_recording(Activity::Hike).unwrap();
+    app.start_guidance().unwrap();
+
+    app.stop_guidance();
+    assert_eq!(app.guidance_status(), None);
+    assert!(app.recording_status().track_id.is_some());
+
+    app.start_guidance().unwrap();
+    app.stop_recording().unwrap();
+    assert_eq!(phase(&app), Some(GuidePhase::Waiting));
 }
 
 #[test]

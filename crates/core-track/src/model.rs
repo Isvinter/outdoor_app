@@ -13,14 +13,17 @@ pub enum Activity {
     Mtb,
     Hike,
     SkiTour,
+    /// No activity given, or several in one track.
+    Other,
 }
 
 impl Activity {
-    pub const ALL: [Activity; 4] = [
+    pub const ALL: [Activity; 5] = [
         Activity::Bike,
         Activity::Mtb,
         Activity::Hike,
         Activity::SkiTour,
+        Activity::Other,
     ];
 
     /// Stable identifier used in storage, GPX `<type>` and on the command line.
@@ -30,14 +33,16 @@ impl Activity {
             Activity::Mtb => "mtb",
             Activity::Hike => "hike",
             Activity::SkiTour => "ski_tour",
+            Activity::Other => "other",
         }
     }
 
     /// Default spacing of recorded fixes. Slower activities need fewer fixes,
-    /// which saves storage and, on mobile devices, battery.
+    /// which saves storage and, on mobile devices, battery. Without an
+    /// activity every second, since it may be anything.
     pub fn location_interval_ms(self) -> u32 {
         match self {
-            Activity::Bike | Activity::Mtb => 1000,
+            Activity::Bike | Activity::Mtb | Activity::Other => 1000,
             Activity::Hike | Activity::SkiTour => 3000,
         }
     }
