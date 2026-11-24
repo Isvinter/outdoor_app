@@ -489,6 +489,7 @@ impl App {
                     waypoints: vec![from, to],
                     profile: spec.profile,
                     options: spec.options,
+                    heading_deg: None,
                 })?
             }
         };

@@ -14,6 +14,7 @@ fn request(profile: Profile) -> RouteRequest {
         waypoints: vec![ll(47.7128, 11.758), ll(47.7294, 11.7797)],
         profile,
         options: RouteOptions::default(),
+        heading_deg: None,
     }
 }
 
@@ -341,4 +342,24 @@ fn colors_match_desktop() {
         "FAILED_COLOR = \"{}\"",
         core_routing::FAILED_LEG_COLOR
     )));
+}
+
+// --- direction of travel ---------------------------------------------------------
+
+#[test]
+fn heading_goes_to_the_first_location_only() {
+    let mut req = request(Profile::Trekking);
+    req.heading_deg = Some(87.4);
+    let json = costing(&req);
+    assert_eq!(json["locations"][0]["heading"], 87);
+    assert_eq!(json["locations"][0]["heading_tolerance"], 60);
+    assert!(json["locations"][1].get("heading").is_none());
+    assert!(json["locations"][1].get("heading_tolerance").is_none());
+}
+
+#[test]
+fn no_heading_leaves_locations_as_before() {
+    let json = costing(&request(Profile::Trekking));
+    assert!(json["locations"][0].get("heading").is_none());
+    assert!(json["locations"][0].get("heading_tolerance").is_none());
 }

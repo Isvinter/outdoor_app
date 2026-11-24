@@ -174,6 +174,10 @@ pub struct RouteRequest {
     pub profile: Profile,
     #[serde(default)]
     pub options: RouteOptions,
+    /// Direction of travel at the first point, in degrees clockwise from
+    /// north. Only the first point is given a heading.
+    #[serde(default)]
+    pub heading_deg: Option<f32>,
 }
 
 /// A planned route.

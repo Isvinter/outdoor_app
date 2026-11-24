@@ -86,7 +86,15 @@ pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
     let locations: Vec<Value> = request
         .waypoints
         .iter()
-        .map(|point| json!({ "lat": point.lat, "lon": point.lon }))
+        .enumerate()
+        .map(|(index, point)| {
+            let mut location = json!({ "lat": point.lat, "lon": point.lon });
+            if let (0, Some(heading)) = (index, request.heading_deg) {
+                location["heading"] = json!(heading.round() as i64);
+                location["heading_tolerance"] = json!(60);
+            }
+            location
+        })
         .collect();
     let mut costing_options = Map::new();
     costing_options.insert(costing.into(), Value::Object(options));

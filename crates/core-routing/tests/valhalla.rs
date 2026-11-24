@@ -41,6 +41,7 @@ fn request(profile: Profile, from: LatLon, to: LatLon) -> RouteRequest {
         waypoints: vec![from, to],
         profile,
         options: RouteOptions::default(),
+        heading_deg: None,
     }
 }
 
