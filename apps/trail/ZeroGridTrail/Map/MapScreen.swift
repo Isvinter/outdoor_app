@@ -59,7 +59,7 @@ struct MapScreen: View {
                 }
             }
             .padding()
-            LocationButton(accuracy: controller.locationAccuracy) { controller.centreOnLocation() }
+            LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) { controller.toggleLocation() }
                 .padding(.trailing, 12)
                 // Above the collapsed sheet.
                 .padding(.bottom, 108)

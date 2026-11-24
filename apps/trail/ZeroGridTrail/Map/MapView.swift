@@ -40,6 +40,9 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     @Published var locationHint: String?
     /// How uncertain the own position is, in metres; nil while it is unknown.
     @Published private(set) var locationAccuracy: Double?
+    /// The own position is shown and the GPS runs. Only the location button
+    /// switches it on and off, so the GPS costs no battery unless asked for.
+    @Published private(set) var locating = false
     /// Styles that could not be loaded; for the self-test.
     private(set) var loadFailures = 0
     private var styleLoaded = false
@@ -90,7 +93,6 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         mapView.setCenter(centre, zoomLevel: zoom, animated: false)
         show(.summer)
         locationManager.delegate = self
-        showLocationIfAllowed()
     }
 
     // MARK: Own position
@@ -100,27 +102,45 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         return status == .authorizedWhenInUse || status == .authorizedAlways
     }
 
-    /// The map draws the dot itself. Without the permission it would ask for it
-    /// at once, so it is only switched on when the permission is there.
-    private func showLocationIfAllowed() {
-        if mayLocate { mapView.showsUserLocation = true }
+    /// The location button: switches the own position on and centres on it,
+    /// or switches it off again.
+    func toggleLocation() {
+        if locating {
+            stopLocating()
+        } else {
+            startLocating()
+        }
     }
 
-    /// Centres on the last known position, at zoom 14 or closer. Asks for the
-    /// permission the first time; says so if there is no permission or no position.
-    func centreOnLocation() {
+    /// Shows the own position and centres on it, at zoom 14 or closer. Asks for
+    /// the permission the first time; says so if there is no permission or no position.
+    /// The map draws the dot itself; without the permission it would ask at once,
+    /// so it is only switched on when the permission is there.
+    private func startLocating() {
         locationHint = nil
         if locationManager.authorizationStatus == .notDetermined {
             centreWhenLocated = true
             locationManager.requestWhenInUseAuthorization()
         } else if !mayLocate {
             locationHint = Self.noPermissionHint
-        } else if let location = mapView.userLocation?.location {
-            centre(on: location)
         } else {
+            locating = true
             mapView.showsUserLocation = true
-            waitForFix()
+            if let location = mapView.userLocation?.location {
+                centre(on: location)
+            } else {
+                waitForFix()
+            }
         }
+    }
+
+    /// Switches the GPS of the map off; the dot goes away.
+    private func stopLocating() {
+        locating = false
+        centreWhenLocated = false
+        fixRequest += 1
+        mapView.showsUserLocation = false
+        locationAccuracy = nil
     }
 
     /// Centres as soon as a position arrives; says so if none comes within 10 s.
@@ -144,12 +164,16 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        showLocationIfAllowed()
-        if centreWhenLocated && mayLocate {
+        if centreWhenLocated && mayLocate && !locating {
+            locating = true
+            mapView.showsUserLocation = true
             waitForFix()
-        } else if centreWhenLocated && manager.authorizationStatus != .notDetermined {
+        } else if centreWhenLocated && manager.authorizationStatus != .notDetermined && !mayLocate {
             centreWhenLocated = false
             locationHint = Self.noPermissionHint
+        } else if locating && !mayLocate && manager.authorizationStatus != .notDetermined {
+            // Taken away in the settings while shown.
+            stopLocating()
         }
     }
 

@@ -48,6 +48,32 @@ final class LocationUITests: XCTestCase {
         let accuracy = app.staticTexts["location-accuracy"]
         XCTAssertTrue(accuracy.waitForExistence(timeout: 5))
         XCTAssertTrue(accuracy.label.contains("±"), accuracy.label)
+        let button = app.buttons["center-location"]
+        XCTAssertEqual(button.value as? String, "an")
+
+        // The button switches the GPS off again, and on without asking.
+        button.tap()
+        XCTAssertTrue(accuracy.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(button.value as? String, "aus")
+        button.tap()
+        XCTAssertTrue(accuracy.waitForExistence(timeout: 10))
+        XCTAssertEqual(button.value as? String, "an")
+    }
+
+    /// With the permission given, the GPS stays off until the button is tapped.
+    func testLocationStaysOffUntilAsked() {
+        XCUIDevice.shared.location = XCUILocation(location: place)
+        let app = launch()
+        app.buttons["center-location"].tap()
+        answerPermission(allow: true)
+        XCTAssertTrue(app.staticTexts["location-accuracy"].waitForExistence(timeout: 10))
+        app.terminate()
+
+        let again = XCUIApplication.selftest(withMini: false)
+        again.waitForStatus("map rendered") { $0.rendered }
+        let button = again.buttons["center-location"]
+        XCTAssertEqual(button.value as? String, "aus")
+        XCTAssertFalse(again.staticTexts["location-accuracy"].waitForExistence(timeout: 5))
     }
 
     func testCenterWithoutPermissionShowsHint() {
