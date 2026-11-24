@@ -11,6 +11,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     let route: RouteOverlay
     /// The search hits on this map.
     let searchOverlay: SearchOverlay
+    /// The recording that runs and a stored track being looked at.
+    let tracks: TrackOverlay
     private let core: CoreApp
 
     @Published private(set) var base: MapBase = .summer
@@ -81,10 +83,12 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         mapView = MLNMapView(frame: .zero)
         route = RouteOverlay(mapView: mapView)
         searchOverlay = SearchOverlay(mapView: mapView)
+        tracks = TrackOverlay(mapView: mapView)
         dark = UserDefaults.standard.bool(forKey: Self.darkKey)
         reliefStrength = UserDefaults.standard.double(forKey: Self.reliefKey)
         super.init()
         route.dark = dark
+        tracks.dark = dark
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.maximumZoomLevel = 19
         mapView.delegate = self
@@ -244,6 +248,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         self.dark = dark
         UserDefaults.standard.set(dark, forKey: Self.darkKey)
         route.dark = dark
+        tracks.dark = dark
         show(base)
     }
 
@@ -304,6 +309,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         styleLoaded = true
         applySlopeOpacity()
         applyRelief()
+        tracks.styleLoaded(style)
         route.styleLoaded(style)
         searchOverlay.styleLoaded(style)
     }

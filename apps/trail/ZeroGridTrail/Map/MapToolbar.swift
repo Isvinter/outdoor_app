@@ -4,6 +4,8 @@ import SwiftUI
 /// shading and the relief show.
 struct MapToolbar: View {
     @ObservedObject var controller: MapController
+    /// Starts a recording; nil while one runs.
+    var record: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -18,6 +20,17 @@ struct MapToolbar: View {
                     lookButton("Dunkel", dark: true, identifier: "look-dark")
                 }
                 .panelBackground(in: RoundedRectangle(cornerRadius: 10))
+                if let record {
+                    Button(action: record) {
+                        Image(systemName: "record.circle")
+                            .font(.title3)
+                            .foregroundStyle(Color(TrackOverlay.recordingColor))
+                            .frame(width: 40, height: 36)
+                            .panelBackground(in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .accessibilityIdentifier("record")
+                    .accessibilityLabel("Aufzeichnen")
+                }
             }
             if controller.base == .winter {
                 HStack {

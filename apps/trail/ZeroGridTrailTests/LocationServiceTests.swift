@@ -30,17 +30,17 @@ final class FakeLocationManager: LocationManaging {
         sink?.authorizationChanged()
     }
 
-    /// `count` positions one second apart, about 11 m to the north each,
-    /// ending now.
-    static func walk(count: Int, from start: CLLocationCoordinate2D = .init(latitude: 47.575, longitude: 11.55))
-        -> [CLLocation]
-    {
+    /// `count` positions one second apart, `step` degrees (0.0001: about 11 m)
+    /// to the north each, ending now.
+    static func walk(
+        count: Int, step: Double = 0.0001, from start: CLLocationCoordinate2D = .init(latitude: 47.575, longitude: 11.55)
+    ) -> [CLLocation] {
         let now = Date()
         return (0..<count).map { index in
             CLLocation(
                 coordinate: CLLocationCoordinate2D(
-                    latitude: start.latitude + Double(index) * 0.0001, longitude: start.longitude),
-                altitude: 800 + Double(index), horizontalAccuracy: 5, verticalAccuracy: 5, course: 0, speed: 1.2,
+                    latitude: start.latitude + Double(index) * step, longitude: start.longitude),
+                altitude: 800 + Double(index), horizontalAccuracy: 5, verticalAccuracy: 5, course: 0, speed: step * 111_000,
                 timestamp: now.addingTimeInterval(Double(index - count)))
         }
     }

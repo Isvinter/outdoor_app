@@ -20,7 +20,9 @@ struct ZeroGridTrailApp: App {
 private struct RootView: View {
     private enum Phase {
         case starting
-        case ready(AppStart.Ready, MapController, PlanController, RegionsController, SearchController, RouteHereFlow)
+        case ready(
+            AppStart.Ready, MapController, PlanController, RegionsController, SearchController, RouteHereFlow,
+            RecordingController)
         case failed(String)
     }
 
@@ -31,10 +33,10 @@ private struct RootView: View {
         case .starting:
             ProgressView("Karte wird vorbereitet …")
                 .task { await start() }
-        case .ready(let start, let controller, let plan, let regions, let search, let routeHere):
+        case .ready(let start, let controller, let plan, let regions, let search, let routeHere, let recording):
             MapScreen(
                 controller: controller, plan: plan, regions: regions, search: search, routeHere: routeHere,
-                start: start)
+                recording: recording, start: start)
         case .failed(let message):
             Text("Die App kann nicht starten: \(message)")
                 .padding()
@@ -73,7 +75,9 @@ private struct RootView: View {
             plan.onFreeTap = { [weak search, weak map] at in
                 if let index = map?.searchOverlay.dot(at: at) { search?.tappedDot(index) }
             }
-            phase = .ready(start, map, plan, regions, search, routeHere)
+            let recording = RecordingController(
+                core: start.host.core, location: location, changes: start.host.recordingChanges, overlay: map.tracks)
+            phase = .ready(start, map, plan, regions, search, routeHere, recording)
         case .failure(let error):
             phase = .failed(describe(error))
         }

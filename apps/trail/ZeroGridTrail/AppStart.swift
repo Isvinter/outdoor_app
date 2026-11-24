@@ -76,6 +76,7 @@ enum AppStart {
         let documents = try CoreHost.documentsDirectory()
         if options.resetData {
             MapController.resetLook()
+            UserDefaults.standard.removeObject(forKey: RecordingController.lastActivityKey)
             try? files.removeItem(at: data)
             try? files.removeItem(at: documents.appendingPathComponent("Import"))
         }

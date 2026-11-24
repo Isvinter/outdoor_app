@@ -94,6 +94,9 @@ targets:
       - path: ../../fixtures/regions/mini-contours
         type: folder
         buildPhase: resources
+      - path: ../../fixtures/gpx/replay
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ZeroGridTrail
     settings:

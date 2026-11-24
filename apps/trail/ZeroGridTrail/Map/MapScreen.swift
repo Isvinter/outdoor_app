@@ -7,8 +7,10 @@ struct MapScreen: View {
     @ObservedObject var regions: RegionsController
     @ObservedObject var search: SearchController
     @ObservedObject var routeHere: RouteHereFlow
+    @ObservedObject var recording: RecordingController
     let start: AppStart.Ready
     @State private var detent = PlanSheet.collapsed
+    @State private var choosingActivity = false
 
     /// The search takes the room of the toolbar while it shows more than its field.
     private var searchIsOpen: Bool {
@@ -28,7 +30,23 @@ struct MapScreen: View {
                             .onChange(of: bottom) { search.topInset = Double($0) }
                     })
                 if !searchIsOpen {
-                    MapToolbar(controller: controller)
+                    MapToolbar(controller: controller, record: recording.active ? nil : { choosingActivity = true })
+                }
+                if recording.active {
+                    RecordingBar(recording: recording)
+                } else if choosingActivity {
+                    ActivityPicker(preselected: recording.lastActivity) { activity in
+                        choosingActivity = false
+                        recording.start(activity: activity)
+                    } cancel: {
+                        choosingActivity = false
+                    }
+                } else if recording.interrupted != nil {
+                    InterruptedRecordingPrompt(recording: recording)
+                }
+                if let message = recording.message {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { recording.message = nil }
                 }
                 if let leg = plan.straightLineLeg {
                     StraightLineOffer(plan: plan, leg: leg)
