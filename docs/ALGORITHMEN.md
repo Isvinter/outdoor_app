@@ -197,3 +197,13 @@ echten Tracks nachgestellt werden.
   während einer Aufzeichnung ausschaltet, schaltet sie für diese Aufzeichnung aus (Einstellung
   `guide_off_track` nennt den Track, auch nach einem Neustart). Eine neue Route setzt eine
   laufende Führung neu auf.
+- **Meldungen an die App:** Der Listener erfährt die Änderungen der Führung in der Reihenfolge,
+  in der sie geschehen; das Ende kommt nie vor einem Status, der davor entstand. Aus
+  `on_guidance` heraus darf er die Führung weder starten noch stoppen und keinen Fix einspeisen.
+- **Hinweis in Trail:** Je Abweichung (wenn `deviation` wächst) eine Vibration, im Hintergrund dazu
+  eine Mitteilung „Abseits der Route“ mit „Weg zurück zu Wegpunkt {n}: {Distanz}.“ bzw. „Weg zurück
+  zum Ziel: {Distanz}.“. Scheitert der Weg zurück schon bei der Abweichung, lautet der Text „Kein
+  Weg zurück gefunden.“: Auch dann soll der Nutzer merken, dass er abseits ist. Die Distanz ist die
+  ganze Länge des Wegs zurück im Moment der Abweichung; die Leiste zeigt sie unverändert, bis die
+  Abweichung endet. Den gefahrenen Teil der Route misst Trail wie der Kern (Haversine,
+  `EARTH_RADIUS_M`).

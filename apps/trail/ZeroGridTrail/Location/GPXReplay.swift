@@ -3,8 +3,9 @@ import Foundation
 
 /// Plays the points of a GPX file in place of the GPS, ten times as fast as
 /// they were recorded; for the UI tests (start argument `-replayGPX <path>`).
-/// The times of the positions run ten times as fast as well, starting now,
-/// so the core keeps the points as it would outdoors.
+/// The positions keep the time spans of the file, counted from now, so the
+/// core sees the speed of the file and keeps the points as it would outdoors;
+/// their times therefore run ahead of the clock.
 @MainActor
 final class GPXReplay: LocationManaging {
     struct Point: Equatable {

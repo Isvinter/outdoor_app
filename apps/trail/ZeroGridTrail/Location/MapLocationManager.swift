@@ -21,8 +21,11 @@ final class MapLocationManager: NSObject, @preconcurrency MLNLocationManager {
             self.delegate?.locationManager(self, didUpdate: [location])
         }
         permission = service.$authorization.dropFirst().sink { [weak self] _ in
-            guard let self else { return }
-            self.delegate?.locationManagerDidChangeAuthorization(self)
+            // Published before the value changes; tell once it has.
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.delegate?.locationManagerDidChangeAuthorization(self)
+            }
         }
     }
 

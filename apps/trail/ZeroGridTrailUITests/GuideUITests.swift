@@ -38,7 +38,8 @@ final class GuideUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "an")
 
         let off = app.waitForStatus("off the route", timeout: 60) { $0.values["guide"] == "off_route" }
-        XCTAssertEqual(off.int("deviation"), 1)
+        // The walk goes on straight away; a second deviation may follow quickly.
+        XCTAssertGreaterThanOrEqual(off.int("deviation"), 1)
         XCTAssertTrue(app.staticTexts["guide-way-back"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["guide-way-back"].label.hasPrefix("Weg zurück zum Ziel: "))
         app.waitForStatus("way back drawn") { $0.int("way_back") == 1 }

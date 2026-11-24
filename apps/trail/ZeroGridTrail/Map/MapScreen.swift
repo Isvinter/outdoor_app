@@ -34,6 +34,7 @@ struct MapScreen: View {
                 if !searchIsOpen {
                     MapToolbar(controller: controller)
                 }
+                LocationBlockedNotice(location: controller.location)
                 GuideBar(guide: guide)
                 if let message = guide.message {
                     Notice(text: message, warning: true)
@@ -158,6 +159,18 @@ private struct NoRegionHint: View {
         .padding(12)
         .frame(maxWidth: 480)
         .panelBackground(in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// Recording or guiding without the permission to locate: nothing would come in.
+private struct LocationBlockedNotice: View {
+    @ObservedObject var location: LocationService
+
+    var body: some View {
+        if location.blocked {
+            Notice(text: LocationService.blockedHint, warning: true)
+                .accessibilityIdentifier("location-blocked")
+        }
     }
 }
 

@@ -84,6 +84,7 @@ private struct RootView: View {
             let guide = GuideController(
                 core: start.host.core, location: location, changes: start.host.guidanceChanges, overlay: map.guide,
                 camera: map)
+            tracks.onOpen = { [weak guide] in guide?.following = false }
             let alert = DeviationAlert(center: UNUserNotificationCenter.current(), haptics: SystemHaptics())
             guide.onFirstStart = { alert.requestPermission() }
             guide.alert = alert

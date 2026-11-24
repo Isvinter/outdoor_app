@@ -117,6 +117,27 @@ final class LocationServiceTests: XCTestCase {
         XCTAssertTrue(manager.updating)
     }
 
+    /// Recording or guiding without the permission says so; the map alone does not.
+    func testBlockedWithoutPermission() {
+        manager.authorizationStatus = .denied
+        service = LocationService(core: sandbox.host.core, manager: manager)
+        service.require(.map)
+        XCTAssertFalse(service.blocked)
+        service.require(.recording)
+        XCTAssertTrue(service.blocked)
+        XCTAssertFalse(manager.updating)
+        service.release(.recording)
+        XCTAssertFalse(service.blocked)
+
+        // Refused at the first question during a recording.
+        manager.authorizationStatus = .notDetermined
+        service = LocationService(core: sandbox.host.core, manager: manager)
+        service.require(.guidance)
+        XCTAssertFalse(service.blocked)
+        manager.setAuthorization(.denied)
+        XCTAssertTrue(service.blocked)
+    }
+
     func testFixesReachTheCore() throws {
         let core = sandbox.host.core
         _ = try core.startRecording(activity: "bike")

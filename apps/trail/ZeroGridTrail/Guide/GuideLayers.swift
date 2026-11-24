@@ -56,20 +56,19 @@ final class GuideOverlay {
 
     /// The planned route, after each computation.
     func setRoute(_ legs: [[CLLocationCoordinate2D]]) {
+        // As the core's `RouteLine`: a point equal to the one before is left out
+        // (the legs meet at their waypoints), distances on the same sphere.
         route = []
-        for leg in legs {
-            // The legs meet at their waypoints.
-            if let last = route.last, let first = leg.first, Self.same(first, last) {
-                route += leg.dropFirst()
-            } else {
-                route += leg
+        cumulative = []
+        for point in legs.joined() {
+            guard let last = route.last else {
+                route.append(point)
+                cumulative.append(0)
+                continue
             }
-        }
-        cumulative = [0]
-        for index in route.indices.dropFirst() {
-            let a = CLLocation(latitude: route[index - 1].latitude, longitude: route[index - 1].longitude)
-            let b = CLLocation(latitude: route[index].latitude, longitude: route[index].longitude)
-            cumulative.append(cumulative[index - 1] + a.distance(from: b))
+            if Self.same(point, last) { continue }
+            cumulative.append(cumulative[cumulative.count - 1] + Self.haversine(last, point))
+            route.append(point)
         }
         redraw()
     }
@@ -87,7 +86,20 @@ final class GuideOverlay {
     }
 
     private static func same(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Bool {
-        abs(a.latitude - b.latitude) < 1e-9 && abs(a.longitude - b.longitude) < 1e-9
+        a.latitude == b.latitude && a.longitude == b.longitude
+    }
+
+    /// `EARTH_RADIUS_M` of core-track.
+    static let earthRadius = 6_371_008.8
+
+    /// Great-circle distance in metres, the formula of `core_track::geo::haversine_m`.
+    nonisolated static func haversine(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+        let phi1 = a.latitude * .pi / 180
+        let phi2 = b.latitude * .pi / 180
+        let dPhi = phi2 - phi1
+        let dLambda = (b.longitude - a.longitude) * .pi / 180
+        let h = pow(sin(dPhi / 2), 2) + cos(phi1) * cos(phi2) * pow(sin(dLambda / 2), 2)
+        return 2 * earthRadius * asin(min(sqrt(h), 1))
     }
 
     /// The route from its start to `along` metres.

@@ -39,8 +39,9 @@ private final class Listener: CoreListener, @unchecked Sendable {
         DispatchQueue.main.async { self.recording.send(status) }
     }
 
-    /// Called while the core holds the lock of the guide: asynchronous on
-    /// purpose, so that nothing feeds a fix back from inside it.
+    /// Comes in the order of the changes, while the core holds a lock that
+    /// keeps that order: asynchronous on purpose, so that nothing starts or
+    /// stops the guidance or feeds a fix back from inside it.
     func onGuidance(status: GuidanceInfo?) {
         DispatchQueue.main.async { self.guidance.send(status) }
     }

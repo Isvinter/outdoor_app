@@ -58,7 +58,11 @@ struct PlanSheet: View {
             RemoteRoutesList(plan: plan)
         }
         .onAppear {
-            plan.onLoaded = { detent = Self.collapsed }
+            plan.onLoaded = {
+                detent = Self.collapsed
+                // The map shows the loaded route; following would take it away again.
+                guide.following = false
+            }
         }
         .onChange(of: plan.request) { _ in plan.notice = nil }
         // The map shows the track above the sheet at its middle step; then back to the list.

@@ -68,6 +68,24 @@ final class RecordingControllerTests: XCTestCase {
         _ = recording.stop()
     }
 
+    /// News of an ended recording that arrives late changes nothing.
+    func testLateNewsOfAnEndedRecordingIsDropped() {
+        let changes = PassthroughSubject<RecordingInfo, Never>()
+        let overlay = TrackOverlay(mapView: .init(frame: .zero))
+        let location = LocationService(core: sandbox.host.core, manager: manager)
+        let recording = RecordingController(
+            core: sandbox.host.core, location: location, changes: changes.eraseToAnyPublisher(), overlay: overlay,
+            defaults: defaults)
+        recording.start(activity: "bike")
+        let id = recording.info.trackId
+        _ = recording.stop()
+        changes.send(RecordingInfo(
+            phase: "recording", trackId: id, activity: "bike", distanceM: 10, movingS: 1, elapsedS: 1, ascentM: nil,
+            appended: [LineVertex(segment: 0, lat: 47.5, lon: 11.5), LineVertex(segment: 0, lat: 47.6, lon: 11.5)]))
+        XCTAssertEqual(recording.info.phase, "idle")
+        XCTAssertTrue(overlay.recording.isEmpty)
+    }
+
     func testLastActivityIsPreselected() {
         XCTAssertEqual(controller().0.lastActivity, "bike")
         let (recording, _) = controller()

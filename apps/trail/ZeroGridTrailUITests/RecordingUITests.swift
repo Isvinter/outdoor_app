@@ -24,6 +24,8 @@ extension XCUIApplication {
         let distance = staticTexts["recording-distance"]
         XCTAssertTrue(distance.waitForExistence(timeout: 10), file: file, line: line)
         Thread.sleep(forTimeInterval: seconds)
+        // Without a point the core would discard the track on stopping.
+        XCTAssertNotEqual(distance.label, "0 m", "nothing recorded", file: file, line: line)
         buttons["recording-stop"].tap()
         buttons["recording-stop-confirm"].tap()
         XCTAssertTrue(distance.waitForNonExistence(timeout: 5), file: file, line: line)

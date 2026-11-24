@@ -11,6 +11,8 @@ final class TracksController: ObservableObject {
     @Published var message: String?
     /// The saved lists show the tracks rather than the routes.
     @Published var listShown = false
+    /// A track is opened; the map is fitted to it.
+    var onOpen: (() -> Void)?
 
     private let core: CoreApp
     private let overlay: TrackOverlay?
@@ -37,6 +39,7 @@ final class TracksController: ObservableObject {
         do {
             let view = try core.trackDetail(id: track.id)
             selected = view
+            onOpen?()
             overlay?.show(track: view.segments)
             shareFile = try writeGPX(view.summary)
         } catch {

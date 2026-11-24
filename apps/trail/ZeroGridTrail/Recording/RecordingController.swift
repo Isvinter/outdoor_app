@@ -61,6 +61,8 @@ final class RecordingController: ObservableObject {
 
     /// From the core's listener: the state, and the points since the last change.
     private func changed(_ status: RecordingInfo) {
+        // Late news of a recording that has ended, or of the time before this one began.
+        guard status.trackId == info.trackId else { return }
         // The last points come with the end, after the line was taken away.
         if status.phase != "idle" {
             overlay?.append(status.appended)
@@ -78,11 +80,16 @@ final class RecordingController: ObservableObject {
         info = status
     }
 
-    /// Holds the GPS and shows the whole line, for a recording that runs.
-    private func follow() {
+    /// Shows the whole line and holds the GPS, for a recording that runs.
+    /// The line first: points taken in after it come through the listener.
+    private func follow(fresh: Bool = false) {
+        if fresh {
+            overlay?.clearRecording()
+        } else {
+            overlay?.setRecording(core.recordingLine())
+        }
         location.activity = info.activity ?? ""
         location.require(.recording)
-        overlay?.setRecording(core.recordingLine())
     }
 
     func start(activity: String) {
@@ -91,8 +98,7 @@ final class RecordingController: ObservableObject {
             // Before the GPS: the first fixes already count.
             take(try core.startRecording(activity: activity))
             interrupted = nil
-            overlay?.clearRecording()
-            follow()
+            follow(fresh: true)
         } catch {
             message = "Die Aufzeichnung konnte nicht starten: \(describe(error))"
         }

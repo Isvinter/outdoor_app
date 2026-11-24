@@ -133,4 +133,22 @@ final class GuideControllerTests: XCTestCase {
         XCTAssertTrue(overlay.line(upTo: 0).isEmpty)
         XCTAssertEqual(overlay.line(upTo: 10_000).count, 3)
     }
+
+    /// The same distances as the core (`core_track::geo`): one degree of latitude.
+    func testHaversineAsTheCore() {
+        let d = GuideOverlay.haversine(.init(latitude: 47, longitude: 11), .init(latitude: 48, longitude: 11))
+        XCTAssertEqual(d, 111_195.08, accuracy: 0.01)
+    }
+
+    /// A failed leg is a straight line between its waypoints, measured like the others.
+    func testFailedLegCountsStraight() {
+        let overlay = GuideOverlay(mapView: .init(frame: .zero))
+        let a = CLLocationCoordinate2D(latitude: 47.0, longitude: 11.0)
+        let b = CLLocationCoordinate2D(latitude: 47.01, longitude: 11.0)
+        let c = CLLocationCoordinate2D(latitude: 47.02, longitude: 11.0)
+        overlay.setRoute([[a, b], [b, c]])
+        let leg = GuideOverlay.haversine(a, b)
+        let mid = overlay.line(upTo: leg * 1.5)
+        XCTAssertEqual(mid.last!.latitude, 47.015, accuracy: 1e-9)
+    }
 }

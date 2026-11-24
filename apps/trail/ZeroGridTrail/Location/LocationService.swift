@@ -107,6 +107,8 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
     @Published private(set) var running = false
     /// The last position could not be found (no fix, or the permission is gone).
     @Published private(set) var failure: Error?
+    /// A recording or the guidance needs the GPS, but the permission is refused.
+    @Published private(set) var blocked = false
 
     /// "bike", "mtb", "hike" or "ski_tour"; any other value means no activity.
     var activity: String = "" {
@@ -136,6 +138,9 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
         manager.allowsBackgroundLocationUpdates = false
     }
 
+    static let blockedHint =
+        "Ohne Standortzugriff zeichnet Trail nichts auf und kann nicht führen. Bitte in den Einstellungen erlauben."
+
     static func activityType(for activity: String) -> CLActivityType {
         ["bike", "mtb", "hike", "ski_tour"].contains(activity) ? .fitness : .other
     }
@@ -158,6 +163,8 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
 
     /// Starts or stops the GPS and sets the background mode after the demands.
     private func update() {
+        blocked = (demands.contains(.recording) || demands.contains(.guidance))
+            && (authorization == .denied || authorization == .restricted)
         let background = demands.contains(.recording) || demands.contains(.guidance)
         // Before starting: a recording begun in the foreground goes on when the screen locks.
         if manager.allowsBackgroundLocationUpdates != background {
