@@ -141,3 +141,17 @@ Mit Aufzeichnung oder Live-Routing läuft das GPS voll. Das ist die übliche Ein
 - **Kern:** Tests unter Linux mit abgespielten GPX-Tracks: auf der Route, Abweichung, Rückkehr vor dem Wegpunkt, Schleife und Hin- und Rückweg, gescheiterte Berechnung, Route nur mit Start und Ziel, GPS-Sprünge.
 - **Trail:** Unit- und UI-Tests im Simulator mit simulierter Bewegung (GPX im Simulator).
 - **Draußen** (der Nutzer): je eine Runde mit dem Rad bei eingeschaltetem und bei gesperrtem Bildschirm, dabei absichtlich abbiegen. Zu prüfen: Wird kein Punkt verloren, kommt die Mitteilung genau einmal, stimmt der Weg zurück? Akkuverbrauch pro Stunde grob notieren und in `docs/MESSPROTOKOLL.md` eintragen.
+
+## Nach dem ersten Test auf dem iPhone (2026-11-24, vom Nutzer entschieden)
+
+Der Nutzer fand nicht heraus, wie eine Aufnahme startet: Die Wahl der Aktivität startete sie, ohne dass das erkennbar war. Er will das Aufzeichnen einfacher und unabhängig von allem anderen. Das ersetzt die entsprechenden Punkte oben.
+
+- **Ein Knopf, eine Aufnahme.** Der Aufnahmeknopf auf der Karte startet sofort, ohne Frage. Die Leiste zeigt Zeit, Strecke und Höhenmeter, dazu „Pause“/„Weiter“ und „Beenden“.
+- **Beim Beenden:** „Track speichern?“ mit optionaler Sportart (Rad, MTB, Wandern, Skitour oder „Keine Angabe“, vorausgewählt), „Speichern“ und „Verwerfen“ (Verwerfen fragt nach). Bis zur Antwort ist der Track schon gespeichert, damit nichts verloren geht.
+- **Name:** systematisch, `2026-11-24 10:05 Rad` (Start, Sportart; ohne Angabe nur Datum und Uhrzeit). Umbenennen bleibt möglich.
+- **Punkte jede Sekunde** für alle Aufnahmen, weil die Sportart erst am Ende feststeht (Entscheidung von Claude). Die Statistik rechnet nach dem Speichern mit den Werten der gewählten Sportart neu.
+- **Unerwarteter Abbruch:** Beim nächsten Start speichert Trail das Teilstück von selbst als Track und sagt es („Eine Aufzeichnung wurde unterbrochen und als Track gespeichert.“). Kein „Fortsetzen“ mehr.
+- **GPS länger weg:** Die Aufnahme läuft weiter, nach einer Lücke von mehr als 2 Minuten beginnt ein neues Teilstück. Kommt die Position wieder, meldet Trail die Lücke („Kein GPS für 5 min. Die Aufzeichnung läuft weiter.“).
+- **Aufnahme und Live-Routing sind getrennt.** Eine Aufnahme startet keine Führung und eine Führung keine Aufnahme. Die Regel „bei laufender Aufzeichnung standardmäßig an“ und die Einstellung `guide_off_track` entfallen.
+- **Tipp auf die Karte:** Ist die eigene Position bekannt und der Modus „+ Punkt“ aus, bietet ein Tipp auf die Karte (abseits von Suchtreffern) „Route hierher“ und „Hierher führen“ an, wie bei einem Suchtreffer.
+- Die Bedienung insgesamt wird später überarbeitet.
