@@ -526,11 +526,8 @@ mod tests {
         assert!((near_out.along_m - out_m).abs() < 1.0, "{near_out:?}");
         // Without a hint, the nearest point still wins outright.
         let beside = north(p, 30.0);
-        assert_eq!(
-            line.project_near(beside, None, Some(back_m))
-                .unwrap()
-                .offset_m,
-            line.project(beside, None).unwrap().offset_m
-        );
+        // Equal up to rounding: the two take different ways to the same point.
+        let near = line.project_near(beside, None, Some(back_m)).unwrap();
+        assert!((near.offset_m - line.project(beside, None).unwrap().offset_m).abs() < 1e-9);
     }
 }

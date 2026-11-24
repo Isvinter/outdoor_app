@@ -79,7 +79,8 @@ pub trait AppListener: Send + Sync {
     /// Download progress of a map region.
     fn on_region_progress(&self, _progress: &core_maps::Progress) {}
     /// Guidance along the planned route: its status on start and whenever a
-    /// fix changes it; `None` when it ends.
+    /// fix changes it; `None` when it ends. Told in the order of the changes;
+    /// must not start or stop the guidance or take in a fix (see `guide/app.rs`).
     fn on_guidance(&self, _status: Option<&GuideStatus>) {}
 }
 
@@ -101,6 +102,9 @@ pub(crate) struct Shared {
     /// Held while a fix is taken in by the guide, so that fixes are taken in
     /// one after the other; `guide` stays free meanwhile.
     pub(crate) guide_turn: Mutex<()>,
+    /// Taken while `guide` is still held and kept until the listener was
+    /// told, so that it hears of the guides in the order `guide` saw them.
+    pub(crate) guide_told: Mutex<()>,
     /// Numbers the guides started; a fix taken in by an older one is dropped.
     pub(crate) guide_generation: AtomicU64,
 }
@@ -300,6 +304,7 @@ impl App {
                 listener,
                 guide: Mutex::new(None),
                 guide_turn: Mutex::new(()),
+                guide_told: Mutex::new(()),
                 guide_generation: AtomicU64::new(0),
             }),
         })
@@ -503,6 +508,7 @@ impl App {
 
     // --- tracks -----------------------------------------------------------
 
+    /// The finished tracks; the one being recorded and an interrupted one are not among them.
     pub fn list_tracks(&self) -> Result<Vec<TrackRecord>, AppError> {
         Ok(self.shared.inner().storage.list_tracks()?)
     }
@@ -549,8 +555,13 @@ impl App {
             .rename_track(id, name, now_ms())?)
     }
 
+    /// Deletes a track; not the one being recorded, which would be lost on stopping.
     pub fn delete_track(&self, id: Uuid) -> Result<(), AppError> {
-        Ok(self.shared.inner().storage.delete_track(id, now_ms())?)
+        let mut inner = self.shared.inner();
+        if inner.recording_track() == Some(id) {
+            return Err(AppError::RecordingActive);
+        }
+        Ok(inner.storage.delete_track(id, now_ms())?)
     }
 
     /// Imports every track of a GPX document. `activity` overrides the type named

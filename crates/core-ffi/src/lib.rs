@@ -40,8 +40,9 @@ pub trait CoreListener: Send + Sync {
     /// The recording changed: its state with the points added since the last call.
     fn on_recording(&self, status: RecordingInfo);
     /// The guidance changed: its status on start and whenever a fix changes
-    /// it; `None` when it ends. The core calls this while an internal guide
-    /// lock is held: do not call `handle_fix` synchronously from inside it.
+    /// it; `None` when it ends. Calls come in the order of the changes, under
+    /// an internal lock: do not start or stop the guidance or call
+    /// `handle_fix` synchronously from inside it (`guidance_status` is fine).
     fn on_guidance(&self, status: Option<GuidanceInfo>);
 }
 

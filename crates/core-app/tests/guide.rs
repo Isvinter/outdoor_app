@@ -333,3 +333,99 @@ fn guidance_never_changes_the_plan() {
     assert!(status.way_back.is_some());
     assert_eq!(app.planned_route(), before);
 }
+
+/// Records the guidance it is told about; when armed, it holds the next
+/// status inside `on_guidance` until told to go on, before recording it.
+#[derive(Default)]
+struct HoldingEvents {
+    told: Mutex<Vec<Option<GuidePhase>>>,
+    gate: Mutex<Option<(Sender<()>, Receiver<()>)>>,
+}
+
+impl AppListener for HoldingEvents {
+    fn on_position(&self, _: &Fix) {}
+    fn on_recording(&self, _: &RecordingStatus) {}
+    fn on_source_status(&self, _: &SourceStatus) {}
+    fn on_error(&self, _: &str) {}
+    fn on_guidance(&self, status: Option<&GuideStatus>) {
+        let gate = if status.is_some() {
+            self.gate.lock().unwrap().take()
+        } else {
+            None
+        };
+        if let Some((begun, go)) = gate {
+            begun.send(()).unwrap();
+            go.recv().unwrap();
+        }
+        self.told.lock().unwrap().push(status.map(|s| s.phase));
+    }
+}
+
+/// A status of a fix that is still being told when the guidance is stopped
+/// reaches the listener before the end, never after it.
+#[test]
+fn listener_hears_the_end_last() {
+    let router = Arc::new(StraightRouter::default());
+    let events = Arc::new(HoldingEvents::default());
+    let app = Arc::new(app_on(
+        &ramp_routing_dir("told-order"),
+        &router,
+        events.clone(),
+    ));
+    app.plan_route(&route_east()).unwrap();
+    app.start_guidance().unwrap();
+    let (begun_tx, begun_rx) = channel();
+    let (go_tx, go_rx) = channel();
+    *events.gate.lock().unwrap() = Some((begun_tx, go_rx));
+
+    let t0 = start_ms();
+    let fixing = {
+        let app = app.clone();
+        std::thread::spawn(move || app.handle_fix(fix(position(12.0, 32.0), t0, 0, 8.0)))
+    };
+    begun_rx.recv().unwrap();
+    // The fix's status is being told; the guide itself is free again.
+    let stopping = {
+        let app = app.clone();
+        std::thread::spawn(move || app.stop_guidance())
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    go_tx.send(()).unwrap();
+    fixing.join().unwrap();
+    stopping.join().unwrap();
+
+    assert_eq!(app.guidance_status(), None);
+    let told = events.told.lock().unwrap().clone();
+    assert_eq!(told.last(), Some(&None), "{told:?}");
+    assert_eq!(told[told.len() - 2], Some(GuidePhase::OnRoute), "{told:?}");
+}
+
+/// Asking for the status from inside the listener does not block.
+#[test]
+fn listener_may_ask_for_the_status() {
+    struct Asking(Mutex<Option<Arc<App>>>);
+    impl AppListener for Asking {
+        fn on_position(&self, _: &Fix) {}
+        fn on_recording(&self, _: &RecordingStatus) {}
+        fn on_source_status(&self, _: &SourceStatus) {}
+        fn on_error(&self, _: &str) {}
+        fn on_guidance(&self, _: Option<&GuideStatus>) {
+            if let Some(app) = self.0.lock().unwrap().as_ref() {
+                let _ = app.guidance_status();
+            }
+        }
+    }
+    let router = Arc::new(StraightRouter::default());
+    let listener = Arc::new(Asking(Mutex::new(None)));
+    let app = Arc::new(app_on(
+        &ramp_routing_dir("told-ask"),
+        &router,
+        listener.clone(),
+    ));
+    *listener.0.lock().unwrap() = Some(app.clone());
+    app.plan_route(&route_east()).unwrap();
+    app.start_guidance().unwrap();
+    app.handle_fix(fix(position(12.0, 32.0), start_ms(), 0, 8.0));
+    app.stop_guidance();
+    *listener.0.lock().unwrap() = None;
+}

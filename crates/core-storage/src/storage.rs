@@ -274,7 +274,7 @@ impl Storage {
     /// All tracks that are not deleted, newest first.
     pub fn list_tracks(&self) -> Result<Vec<TrackRecord>, StorageError> {
         let sql = format!(
-            "SELECT {TRACK_COLUMNS} FROM tracks t WHERE t.deleted_at IS NULL
+            "SELECT {TRACK_COLUMNS} FROM tracks t WHERE t.deleted_at IS NULL AND t.state = 'finished'
              ORDER BY t.created_at DESC, t.id DESC"
         );
         let mut stmt = self.conn.prepare(&sql)?;

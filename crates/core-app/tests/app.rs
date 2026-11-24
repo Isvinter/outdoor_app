@@ -276,12 +276,11 @@ fn starting_anew_finishes_the_interrupted_recording_first() {
 
     // The old recording is a finished track of its own, the new one is the only open one.
     assert!(app.interrupted_recording().unwrap().is_none());
+    // Only finished tracks are listed: the old one, not the one running.
     let tracks = app.list_tracks().unwrap();
-    assert_eq!(tracks.len(), 2);
-    let old = tracks
-        .iter()
-        .find(|t| Some(t.id) != status.track_id)
-        .unwrap();
+    assert_eq!(tracks.len(), 1);
+    let old = &tracks[0];
+    assert_ne!(Some(old.id), status.track_id);
     assert_eq!(old.state, TrackState::Finished);
     assert!((old.stats.as_ref().unwrap().distance_m - 100.0).abs() < 0.5);
 }
@@ -392,4 +391,33 @@ fn replayed_real_track_is_recorded_and_exported_faithfully() {
     assert!((stats.moving_time_s - expected.moving_time_s).abs() < 1.0);
     assert!((stats.ascent_m - expected.ascent_m).abs() < 1.0);
     assert_eq!(stats.points_total, expected.points_total);
+}
+
+/// The track being recorded, or one left open by a crash, is not in the list
+/// and cannot be deleted while it runs: it would be lost on stopping.
+#[test]
+fn unfinished_tracks_are_not_listed_and_the_running_one_not_deleted() {
+    let path = temp_db("unfinished");
+    {
+        let app = App::open(&path, Arc::new(Listener::default())).unwrap();
+        app.start_recording(Activity::Bike).unwrap();
+        for i in 0..=20 {
+            app.handle_fix(fix(i));
+        }
+        assert!(app.list_tracks().unwrap().is_empty());
+        let running = app.recording_status().track_id.unwrap();
+        assert!(matches!(
+            app.delete_track(running),
+            Err(AppError::RecordingActive)
+        ));
+    }
+    let app = App::open(&path, Arc::new(Listener::default())).unwrap();
+    assert!(app.interrupted_recording().unwrap().is_some());
+    assert!(app.list_tracks().unwrap().is_empty());
+    app.continue_interrupted().unwrap();
+    for i in 30..=40 {
+        app.handle_fix(fix(i));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(app.list_tracks().unwrap(), std::slice::from_ref(&record));
 }

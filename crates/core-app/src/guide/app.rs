@@ -9,6 +9,12 @@
 //! out of its slot, updated, and put back unless a newer guide took its place
 //! meanwhile (its generation tells). So a new plan, or a stop, never waits for
 //! a way back, and a way back to the old route is dropped.
+//!
+//! The listener is told after `guide` is released, but in the order `guide`
+//! saw the changes: `guide_told` is taken while `guide` is still held and kept
+//! until the listener returns. A listener must therefore not call into the
+//! guidance (start, stop, a fix) from inside `on_guidance`; asking for
+//! `guidance_status` is fine.
 
 use std::sync::atomic::Ordering;
 use std::sync::{MutexGuard, PoisonError};
@@ -40,6 +46,9 @@ pub(crate) struct ActiveGuide {
 /// What to tell the listener, after the locks are released: a status, or
 /// `None` for the end of the guidance.
 type Told = Vec<Option<GuideStatus>>;
+
+/// The turn to tell the listener, taken while the slot is held.
+type TellTurn<'a> = MutexGuard<'a, ()>;
 
 /// Places a new guide by a fix. A guide's first fix never makes a deviation
 /// (that takes several fixes), so it is never asked.
@@ -87,7 +96,14 @@ impl Shared {
         self.guide.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn tell(&self, told: Told) {
+    /// Take while the slot is held; hand to [`Shared::tell`] with what to tell.
+    fn tell_turn(&self) -> TellTurn<'_> {
+        self.guide_told
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn tell(&self, (told, _turn): (Told, TellTurn<'_>)) {
         for status in told {
             self.listener.on_guidance(status.as_ref());
         }
@@ -154,12 +170,13 @@ impl Shared {
             let mut slot = self.guide_slot();
             let recording = self.inner().recording_track();
             let start = slot.is_some() || recording.is_some_and(|track| !self.switched_off(track));
-            if start {
+            let told = if start {
                 let guide = self.new_guide(None);
                 Self::put_guide(&mut slot, guide)
             } else {
                 Vec::new()
-            }
+            };
+            (told, self.tell_turn())
         };
         self.tell(told);
     }
@@ -172,10 +189,11 @@ impl Shared {
             if slot.is_some() || self.switched_off(track) {
                 return;
             }
-            match self.new_guide(None) {
+            let told = match self.new_guide(None) {
                 Some(guide) => Self::put_guide(&mut slot, Some(guide)),
                 None => Vec::new(),
-            }
+            };
+            (told, self.tell_turn())
         };
         self.tell(told);
     }
@@ -205,7 +223,7 @@ impl Shared {
                 return;
             };
             let changed = active.status != status;
-            if status.phase == GuidePhase::Arrived {
+            let told = if status.phase == GuidePhase::Arrived {
                 *slot = None;
                 vec![Some(status), None]
             } else {
@@ -216,7 +234,8 @@ impl Shared {
                 } else {
                     Vec::new()
                 }
-            }
+            };
+            (told, self.tell_turn())
         };
         self.tell(told);
     }
@@ -246,7 +265,8 @@ impl App {
                 .storage
                 .set_setting(OFF_TRACK_KEY, "", now_ms())?;
             let status = guide.status.clone();
-            (status, Shared::put_guide(&mut slot, Some(guide)))
+            let told = Shared::put_guide(&mut slot, Some(guide));
+            (status, (told, shared.tell_turn()))
         };
         shared.tell(told);
         Ok(status)
@@ -265,7 +285,8 @@ impl App {
                     .err(),
                 None => None,
             };
-            (Shared::put_guide(&mut slot, None), error)
+            let told = Shared::put_guide(&mut slot, None);
+            ((told, shared.tell_turn()), error)
         };
         shared.tell(told);
         if let Some(error) = error {
