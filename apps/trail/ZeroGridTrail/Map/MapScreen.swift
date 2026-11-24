@@ -15,7 +15,7 @@ struct MapScreen: View {
 
     /// The search takes the room of the toolbar while it shows more than its field.
     private var searchIsOpen: Bool {
-        search.open || search.results != nil || search.selected != nil || routeHere.step != .idle
+        search.open || search.results != nil || search.selected != nil
     }
 
     var body: some View {
@@ -23,7 +23,7 @@ struct MapScreen: View {
             MapView(controller: controller)
                 .ignoresSafeArea()
             VStack(spacing: 8) {
-                SearchBar(search: search, flow: routeHere)
+                SearchBar(search: search, flow: routeHere, location: controller.location)
                     .background(GeometryReader { geometry in
                         let bottom = geometry.frame(in: .global).maxY
                         Color.clear
@@ -34,7 +34,7 @@ struct MapScreen: View {
                     MapToolbar(controller: controller)
                 }
                 if let point = routeHere.point {
-                    MapPointCard(flow: routeHere, at: point, from: controller.location.last)
+                    MapPointCard(flow: routeHere, location: controller.location, point: point)
                 }
                 LocationBlockedNotice(location: controller.location)
                 GuideBar(guide: guide)

@@ -6,58 +6,46 @@ import XCTest
 private final class FakeHost: RouteHereHost {
     var hasRoute = false
     var isReplacingRoute = false
-    var lastPosition: CLLocation?
+    var position: CLLocation?
     var unsaved = true
-    var start = RouteStart.noPosition
-    var deniedAtOnce = false
+    var start = RouteStart.ready
     var started: [(CLLocationCoordinate2D, CLLocationCoordinate2D)] = []
     var appended: [CLLocationCoordinate2D] = []
-    var requests = 0
-    var stops = 0
-    var pickingStopped = 0
+    var begun: [CLLocationCoordinate2D] = []
+    var picking = 0
     var acceptsRoute = true
-    /// As the planning does: a changed route tells the flow at once.
-    weak var flow: RouteHereFlow?
 
     func routeIsUnsaved() async -> Bool { unsaved }
 
-    func routeStart(position: KnownPosition?, target: CLLocationCoordinate2D) async -> RouteStart {
-        position == nil && start == .ready ? .noPosition : start
-    }
+    func routeStart(position: KnownPosition, target: CLLocationCoordinate2D) async -> RouteStart { start }
 
     func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool {
         guard acceptsRoute else { return false }
         started.append((from, to))
-        flow?.routeChanged()
         return true
     }
 
     func appendTarget(_ to: CLLocationCoordinate2D) -> Bool {
         guard acceptsRoute else { return false }
         appended.append(to)
-        flow?.routeChanged()
         return true
     }
 
-    func requestPosition(_ onUpdate: @escaping (CLLocation) -> Void, denied: @escaping () -> Void) {
-        requests += 1
-        if deniedAtOnce { denied() }
+    func beginRoute(at: CLLocationCoordinate2D) -> Bool {
+        guard acceptsRoute else { return false }
+        begun.append(at)
+        return true
     }
 
-    func stopRequestingPosition() {
-        stops += 1
-    }
-
-    func stopPicking() {
-        pickingStopped += 1
+    func keepPicking() {
+        picking += 1
     }
 }
 
 @MainActor
 final class RouteHereFlowTests: XCTestCase {
-    private let target = CLLocationCoordinate2D(latitude: -13.52, longitude: -71.98)
-    private let tap = CLLocationCoordinate2D(latitude: -13.51, longitude: -71.97)
-    private let fix = CLLocation(latitude: -13.5, longitude: -71.96)
+    private let target = CLLocationCoordinate2D(latitude: 47.52, longitude: 11.58)
+    private let fix = CLLocation(latitude: 47.5, longitude: 11.56)
 
     private func wait(_ what: String, _ condition: @MainActor () -> Bool) async {
         for _ in 0..<300 where !condition() {
@@ -66,314 +54,143 @@ final class RouteHereFlowTests: XCTestCase {
         XCTAssertTrue(condition(), what)
     }
 
-    private func settle() async {
-        try? await Task.sleep(nanoseconds: 40_000_000)
-    }
-
-    private let choice = RouteHereStep.pickStart(otherMap: false, offersPosition: true)
-
-    /// Starts the flow on an empty route and takes the own position as the start.
-    private func beginFromPosition(_ flow: RouteHereFlow) {
-        flow.begin(target: target)
-        XCTAssertEqual(flow.step, choice)
-        flow.chooseMyPosition()
-    }
-
-    func testEmptyRouteAsksForTheStartFirst() async {
-        let host = FakeHost()
-        host.start = .ready
-        host.lastPosition = fix
+    private func flow(_ host: FakeHost) -> (RouteHereFlow, Counts) {
         let flow = RouteHereFlow(host: host)
-        flow.begin(target: target)
-        await settle()
-        XCTAssertEqual(flow.step, choice)
-        XCTAssertTrue(host.started.isEmpty)
-        XCTAssertEqual(host.requests, 0)
+        let counts = Counts()
+        flow.onDone = { counts.done += 1 }
+        flow.onGuide = { counts.guided += 1 }
+        flow.onPoint = { counts.marks.append($0) }
+        return (flow, counts)
     }
 
-    func testKnownPositionStartsTheRoute() async {
-        let host = FakeHost()
-        host.start = .ready
-        host.lastPosition = fix
+    private final class Counts {
         var done = 0
-        let flow = RouteHereFlow(host: host)
-        flow.onDone = { done += 1 }
-        beginFromPosition(flow)
-        await wait("route") { host.started.count == 1 }
+        var guided = 0
+        var marks: [CLLocationCoordinate2D?] = []
+    }
+
+    func testTappedPointIsOfferedMarkedAndDismissed() {
+        let (flow, counts) = flow(FakeHost())
+        flow.offer(target)
+        XCTAssertEqual(flow.point, MapPoint(lat: target.latitude, lon: target.longitude, placed: false))
+        XCTAssertEqual(counts.marks.last??.latitude, target.latitude)
+        flow.dismiss()
+        XCTAssertNil(flow.point)
+        XCTAssertNil(counts.marks.last ?? nil)
+    }
+
+    /// A placed point is a waypoint already: no mark of its own.
+    func testPlacedPointIsNotMarked() {
+        let (flow, counts) = flow(FakeHost())
+        flow.offer(target, placed: true)
+        XCTAssertEqual(flow.point?.placed, true)
+        XCTAssertEqual(counts.marks.count, 1)
+        XCTAssertNil(counts.marks[0])
+    }
+
+    /// "Route hierher" plans from the position at once; then taps add points.
+    func testRouteHereStartsFromThePosition() async {
+        let host = FakeHost()
+        host.position = fix
+        let (flow, counts) = flow(host)
+        flow.offer(target)
+        flow.routeHere(to: target)
+        await wait("route started") { host.started.count == 1 }
         XCTAssertEqual(host.started[0].0.latitude, fix.coordinate.latitude)
-        XCTAssertEqual(flow.step, .idle)
-        XCTAssertEqual(done, 1)
-    }
-
-    func testNewRouteAsksForTheStart() async {
-        let host = FakeHost()
-        host.hasRoute = true
-        host.lastPosition = fix
-        host.start = .ready
-        let flow = RouteHereFlow(host: host)
-        flow.begin(target: target)
-        await wait("choice") { flow.step == .choosing(unsaved: true) }
-        flow.chooseNewRoute()
-        XCTAssertEqual(flow.step, choice)
-        XCTAssertTrue(host.started.isEmpty)
-    }
-
-    func testASearchHitSetsTheStart() {
-        let host = FakeHost()
-        var done = 0
-        let flow = RouteHereFlow(host: host)
-        flow.onDone = { done += 1 }
-        flow.hitChosen(target)
-        XCTAssertEqual(flow.step, choice)
-        // Searching for the start drops the chosen target hit; the flow goes on.
-        flow.selectionCleared()
-        XCTAssertEqual(flow.step, choice)
-        // The target itself is no start.
-        flow.hitChosen(target)
-        XCTAssertEqual(flow.step, choice)
-        flow.hitChosen(tap)
-        XCTAssertEqual(host.started.count, 1)
-        XCTAssertEqual(host.started[0].0.latitude, tap.latitude)
         XCTAssertEqual(host.started[0].1.latitude, target.latitude)
-        XCTAssertEqual(flow.step, .idle)
-        XCTAssertEqual(done, 1)
+        XCTAssertNil(flow.point)
+        XCTAssertFalse(flow.busy)
+        XCTAssertEqual(counts.done, 1)
+        XCTAssertEqual(counts.guided, 0)
+        XCTAssertEqual(host.picking, 1)
     }
 
-    func testClearedSelectionEndsTheFlowWhileWaiting() async {
+    /// "Hierher führen" plans from the position and asks for the guidance, not for more points.
+    func testGuideHereAsksForTheGuidance() async {
         let host = FakeHost()
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        await wait("waiting") { flow.step == .waiting }
-        flow.selectionCleared()
-        XCTAssertEqual(flow.step, .idle)
-        XCTAssertEqual(host.stops, 1)
-    }
-
-    func testATapBeforeThePositionIsCheckedWins() async {
-        let host = FakeHost()
-        host.start = .ready
-        host.lastPosition = fix
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        XCTAssertTrue(flow.tapped(tap))
-        await settle()
-        XCTAssertEqual(host.started.count, 1)
-        XCTAssertEqual(host.started[0].0.latitude, tap.latitude)
-    }
-
-    func testOpenRouteAsks() async {
-        let host = FakeHost()
+        host.position = fix
         host.hasRoute = true
-        let flow = RouteHereFlow(host: host)
-        flow.begin(target: target)
-        await wait("choice") { flow.step == .choosing(unsaved: true) }
-        flow.chooseAppend()
-        XCTAssertEqual(host.appended.count, 1)
-        XCTAssertEqual(flow.step, .idle)
+        let (flow, counts) = flow(host)
+        flow.guideHere(to: target)
+        await wait("route started") { host.started.count == 1 }
+        XCTAssertEqual(counts.guided, 1)
+        XCTAssertEqual(host.picking, 0)
     }
 
-    func testLateFixIgnoredAfterChooseStart() async {
+    func testWithoutPositionNothingIsPlannedFromIt() {
         let host = FakeHost()
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        await wait("waiting") { flow.step == .waiting }
-        flow.chooseStartMyself()
-        XCTAssertEqual(flow.step, choice)
-        XCTAssertEqual(host.stops, 1)
-        host.start = .ready
-        flow.received(fix)
-        await settle()
+        let (flow, counts) = flow(host)
+        flow.routeHere(to: target)
+        XCTAssertEqual(flow.message, RouteHereFlow.noPosition)
         XCTAssertTrue(host.started.isEmpty)
-        XCTAssertEqual(flow.step, choice)
+        XCTAssertEqual(counts.done, 0)
     }
 
-    func testLateFixIgnoredAfterCancel() async {
+    func testPositionOnAnotherMapIsTold() async {
         let host = FakeHost()
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        await wait("waiting") { flow.step == .waiting }
-        flow.cancel()
-        host.start = .ready
-        flow.received(fix)
-        await settle()
-        XCTAssertTrue(host.started.isEmpty)
-        XCTAssertEqual(flow.step, .idle)
-    }
-
-    func testAFixInTimeStartsTheRoute() async {
-        let host = FakeHost()
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        await wait("waiting") { flow.step == .waiting }
-        host.start = .ready
-        flow.received(fix)
-        await wait("route") { host.started.count == 1 }
-        XCTAssertEqual(host.started[0].0.latitude, -13.5)
-        XCTAssertEqual(host.stops, 1)
-    }
-
-    func testThirtySecondsLeadToTapStart() async {
-        let host = FakeHost()
-        let flow = RouteHereFlow(host: host, positionWait: 0.02)
-        beginFromPosition(flow)
-        await wait("waiting") { flow.step == .waiting }
-        await wait("tap") { flow.step == self.choice }
-    }
-
-    func testDeniedPermissionGoesStraightToTap() async {
-        let host = FakeHost()
-        host.deniedAtOnce = true
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        await wait("tap") { flow.step == .pickStart(otherMap: false, offersPosition: false) }
-    }
-
-    func testPositionOnAnotherMapAsksForStart() async {
-        let host = FakeHost()
+        host.position = fix
         host.start = .otherMap
-        host.lastPosition = fix
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        await wait("tap") { flow.step == .pickStart(otherMap: true, offersPosition: false) }
-    }
-
-    func testTapOutsideFlowIsNotConsumed() {
-        let flow = RouteHereFlow(host: FakeHost())
-        XCTAssertFalse(flow.tapped(tap))
-    }
-
-    func testTapSetsTheStart() async {
-        let host = FakeHost()
-        let flow = RouteHereFlow(host: host, positionWait: 0.01)
-        flow.begin(target: target)
-        await wait("tap") { flow.step == self.choice }
-        XCTAssertTrue(flow.tapped(tap))
-        XCTAssertEqual(host.started[0].0.latitude, tap.latitude)
-        XCTAssertEqual(host.started[0].1.latitude, target.latitude)
-    }
-
-    func testRouteChangedWhileWaitingEndsTheFlow() async {
-        let host = FakeHost()
-        let flow = RouteHereFlow(host: host)
-        beginFromPosition(flow)
-        await wait("waiting") { flow.step == .waiting }
-        flow.routeChanged()
-        XCTAssertEqual(flow.step, .idle)
-        XCTAssertEqual(host.stops, 1)
-        host.start = .ready
-        flow.received(fix)
-        await settle()
+        let (flow, _) = flow(host)
+        flow.offer(target)
+        flow.routeHere(to: target)
+        await wait("told") { flow.message == RouteHereFlow.otherMap }
         XCTAssertTrue(host.started.isEmpty)
+        XCTAssertNotNil(flow.point)
     }
 
-    func testRefusedRouteDoesNotReportDone() async {
+    /// Without a position the route begins at the place; taps add the next points.
+    func testPlanFromBeginsTheRouteThere() {
         let host = FakeHost()
-        host.acceptsRoute = false
-        var done = 0
-        let flow = RouteHereFlow(host: host, positionWait: 0.01)
-        flow.onDone = { done += 1 }
-        flow.begin(target: target)
-        await wait("tap") { flow.step == self.choice }
-        XCTAssertTrue(flow.tapped(tap))
-        XCTAssertEqual(done, 0)
-        XCTAssertEqual(flow.step, .idle)
+        let (flow, counts) = flow(host)
+        flow.offer(target)
+        flow.planFrom(target)
+        XCTAssertEqual(host.begun.first?.latitude, target.latitude)
+        XCTAssertNil(flow.point)
+        XCTAssertEqual(counts.done, 1)
+        XCTAssertEqual(host.picking, 1)
     }
 
-    func testNothingHappensWhileARouteIsBeingReplaced() async {
+    func testAppendKeepsPicking() {
+        let host = FakeHost()
+        host.hasRoute = true
+        let (flow, counts) = flow(host)
+        flow.append(target)
+        XCTAssertEqual(host.appended.count, 1)
+        XCTAssertEqual(counts.done, 1)
+        XCTAssertEqual(host.picking, 1)
+    }
+
+    /// An answer about an earlier place does nothing once another is chosen.
+    func testLateAnswerIsDropped() async {
+        let host = FakeHost()
+        host.position = fix
+        let (flow, _) = flow(host)
+        flow.offer(target)
+        flow.routeHere(to: target)
+        flow.dismiss()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(host.started.isEmpty)
+        XCTAssertFalse(flow.busy)
+    }
+
+    func testRouteBeingReplacedTakesNothing() {
         let host = FakeHost()
         host.isReplacingRoute = true
-        let flow = RouteHereFlow(host: host)
-        flow.begin(target: target)
-        await settle()
-        XCTAssertEqual(flow.step, .idle)
-        XCTAssertEqual(host.requests, 0)
-    }
-
-    // MARK: A tapped place
-
-    func testTappedPointIsOfferedAndDismissed() {
-        let flow = RouteHereFlow(host: FakeHost())
-        var marks: [CLLocationCoordinate2D?] = []
-        flow.onPoint = { marks.append($0) }
-        flow.offerPoint(target)
-        XCTAssertEqual(flow.point?.latitude, target.latitude)
-        flow.dismissPoint()
+        let (flow, counts) = flow(host)
+        flow.offer(target)
         XCTAssertNil(flow.point)
-        XCTAssertEqual(marks.count, 2)
-        XCTAssertNil(marks[1] as CLLocationCoordinate2D?)
+        flow.planFrom(target)
+        XCTAssertTrue(host.begun.isEmpty)
+        XCTAssertEqual(counts.done, 0)
     }
 
-    /// "Route hierher" on a tapped place goes as for a search hit.
-    func testRouteToPointAsksForTheStart() async {
+    func testUnsavedIsAskedOnlyWithARoute() async {
         let host = FakeHost()
-        host.start = .ready
-        host.lastPosition = fix
-        let flow = RouteHereFlow(host: host)
-        var guided = 0
-        flow.onGuide = { guided += 1 }
-        flow.offerPoint(target)
-        flow.routeToPoint()
-        XCTAssertNil(flow.point)
-        XCTAssertEqual(flow.step, choice)
-        flow.chooseMyPosition()
-        await wait("route started") { host.started.count == 1 }
-        XCTAssertEqual(guided, 0)
-    }
-
-    /// "Hierher führen" starts from the own position without asking, then guides.
-    func testGuideToPointStartsFromThePosition() async {
-        let host = FakeHost()
-        host.start = .ready
-        host.lastPosition = fix
-        let flow = RouteHereFlow(host: host)
-        host.flow = flow
-        var done = 0
-        var guided = 0
-        flow.onDone = { done += 1 }
-        flow.onGuide = { guided += 1 }
-        flow.offerPoint(target)
-        flow.guideToPoint()
-        await wait("route started") { host.started.count == 1 }
-        XCTAssertEqual(host.started[0].0.latitude, fix.coordinate.latitude)
-        XCTAssertEqual(host.started[0].1.latitude, target.latitude)
-        XCTAssertEqual(done, 1)
-        XCTAssertEqual(guided, 1)
-        XCTAssertEqual(flow.step, .idle)
-    }
-
-    /// With a route open, "Hierher führen" asks first; "Neue Route" then starts from the position.
-    func testGuideToPointWithRouteAsksFirst() async {
-        let host = FakeHost()
+        let (flow, _) = flow(host)
+        await flow.checkUnsaved()
+        XCTAssertFalse(flow.unsaved)
         host.hasRoute = true
-        host.start = .ready
-        host.lastPosition = fix
-        let flow = RouteHereFlow(host: host)
-        host.flow = flow
-        var guided = 0
-        flow.onGuide = { guided += 1 }
-        flow.offerPoint(target)
-        flow.guideToPoint()
-        await wait("asked") { flow.step == .choosing(unsaved: true) }
-        flow.chooseNewRoute()
-        await wait("route started") { host.started.count == 1 }
-        XCTAssertEqual(guided, 1)
-    }
-
-    /// Cancelled, a later route asks no more for the guidance.
-    func testCancelForgetsTheGuidance() async {
-        let host = FakeHost()
-        host.hasRoute = true
-        let flow = RouteHereFlow(host: host)
-        var guided = 0
-        flow.onGuide = { guided += 1 }
-        flow.offerPoint(target)
-        flow.guideToPoint()
-        await wait("asked") { flow.step != .idle }
-        flow.cancel()
-        flow.begin(target: target)
-        await wait("asked") { flow.step != .idle }
-        flow.chooseAppend()
-        XCTAssertEqual(host.appended.count, 1)
-        XCTAssertEqual(guided, 0)
+        await flow.checkUnsaved()
+        XCTAssertTrue(flow.unsaved)
     }
 }

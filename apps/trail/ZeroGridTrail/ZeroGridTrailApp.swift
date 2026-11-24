@@ -64,24 +64,27 @@ private struct RootView: View {
             let regions = RegionsController(
                 host: start.host, engine: start.engine, map: map, plan: plan, installed: start.regions)
             let search = SearchController(backend: SearchBackend(core: start.host.core), map: map.searchOverlay)
-            let routeHere = RouteHereFlow(host: LiveRouteHereHost(core: start.host.core, plan: plan, map: map))
-            search.onRouteHere = { [weak routeHere] hit in
-                routeHere?.hitChosen(CLLocationCoordinate2D(latitude: hit.lat, longitude: hit.lon))
-            }
-            search.onSelectionCleared = { [weak routeHere] in routeHere?.selectionCleared() }
+            let routeHere = RouteHereFlow(
+                host: LiveRouteHereHost(core: start.host.core, plan: plan, location: location))
+            // A hit chosen or left: the card of a tapped place goes.
+            search.onSelectionCleared = { [weak routeHere] in routeHere?.dismiss() }
             routeHere.onDone = { [weak search] in search?.routeDone() }
             map.searchOverlay.onOtherMove = { [weak search] in search?.mapMoved() }
             // A tap first answers "where does the route start", then sets a waypoint, then opens a dot.
-            plan.interceptTap = { [weak routeHere] at in routeHere?.tapped(at) ?? false }
-            plan.onRouteChanged = { [weak routeHere] in routeHere?.routeChanged() }
-            // Away from search hits, with a known position, a tap offers a route to the place.
-            plan.onFreeTap = { [weak search, weak map, weak routeHere, weak location] at in
+            // A tap on a search hit opens it; elsewhere it offers a route to the place, as a hit does.
+            plan.onFreeTap = { [weak search, weak map, weak routeHere] at in
                 if let index = map?.searchOverlay.dot(at: at) {
                     search?.tappedDot(index)
-                } else if location?.knowsPosition == true, search?.selected == nil {
-                    routeHere?.offerPoint(at)
+                } else if search?.selected == nil {
+                    routeHere?.offer(at)
+                }
+            }
+            // The first point of a route set with "+ Punkt": the way there from the own position is offered.
+            plan.onPickedTap = { [weak routeHere, weak location] at, first in
+                if first && location?.knowsPosition == true {
+                    routeHere?.offer(at, placed: true)
                 } else {
-                    routeHere?.dismissPoint()
+                    routeHere?.dismiss()
                 }
             }
             routeHere.onPoint = { [weak map] at in map?.route.showCursor(at) }

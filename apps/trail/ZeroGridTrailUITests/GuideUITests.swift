@@ -56,8 +56,8 @@ final class GuideUITests: XCTestCase {
         app.waitForStatus("guidance off") { $0.values["guide"] == "off" }
     }
 
-    /// With the position known, a tap on the map offers a route there; "Hierher führen" also starts the guidance.
-    func testTapOnMapGuidesThere() throws {
+    /// The Isarwinkel package with the GPS replaced by a walk, without a route.
+    private func launchWithoutRoute() throws -> XCUIApplication {
         guard let package = ProcessInfo.processInfo.environment["ISARWINKEL_PACKAGE"], !package.isEmpty else {
             throw XCTSkip("ISARWINKEL_PACKAGE is not set")
         }
@@ -72,30 +72,57 @@ final class GuideUITests: XCTestCase {
         }
         app.launch()
         app.waitForStatus("map rendered", timeout: 90) { $0.rendered }
+        return app
+    }
 
-        // Without a position a tap offers nothing.
-        let map = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45))
-        map.tap()
-        XCTAssertFalse(app.otherElements["map-point"].waitForExistence(timeout: 2))
-
+    private func locate(_ app: XCUIApplication) {
         app.buttons["center-location"].tap()
         XCTAssertTrue(app.staticTexts["location-accuracy"].waitForExistence(timeout: 20))
-        map.tap()
+    }
+
+    /// A tap on the map offers what a search hit offers; with the position "Hierher führen" also guides.
+    func testTapOnMapGuidesThere() throws {
+        let app = try launchWithoutRoute()
         let card = app.otherElements["map-point"]
+
+        // Without a position only a route that begins there.
+        app.place(0.3, 0.45).tap()
         XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["plan-from-here"].exists)
+        XCTAssertFalse(app.buttons["guide-here"].exists)
         app.buttons["point-close"].tap()
         XCTAssertTrue(card.waitForNonExistence(timeout: 5))
 
-        map.tap()
-        XCTAssertTrue(card.waitForExistence(timeout: 5))
-        app.buttons["point-guide-here"].tap()
-        XCTAssertTrue(card.waitForNonExistence(timeout: 5))
+        locate(app)
+        app.place(0.3, 0.45).tap()
+        XCTAssertTrue(app.buttons["guide-here"].waitForExistence(timeout: 5))
+        app.buttons["guide-here"].tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 10))
         app.waitForStatus("route planned", timeout: 90) {
             $0.int("waypoints") == 2 && $0.int("planning") == 0 && $0.int("distance_m") > 0
         }
-        XCTAssertTrue(
-            app.otherElements["guide-bar"].waitForExistence(timeout: 10),
-            "\(app.mapStatus.values) \(app.staticTexts.allElementsBoundByIndex.map(\.label))")
+        XCTAssertTrue(app.otherElements["guide-bar"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.buttons["guide-toggle"].value as? String, "an")
+        XCTAssertEqual(app.mapStatus.int("picking"), 0)
+    }
+
+    /// The first point set with "+ Punkt" offers the way from the own position;
+    /// afterwards taps add points until "Fertig".
+    func testFirstPointOffersTheWayFromThePosition() throws {
+        let app = try launchWithoutRoute()
+        locate(app)
+        app.buttons["plan-pick"].tap()
+        app.place(0.3, 0.45).tap()
+        XCTAssertTrue(app.staticTexts["Von meinem Standort hierher?"].waitForExistence(timeout: 5))
+        app.buttons["route-here"].tap()
+        app.waitForStatus("route from the position", timeout: 90) {
+            $0.int("waypoints") == 2 && $0.int("planning") == 0 && $0.int("distance_m") > 0
+        }
+        XCTAssertEqual(app.mapStatus.int("picking"), 1)
+        XCTAssertEqual(app.mapStatus.values["guide"], "off")
+
+        app.place(0.7, 0.4).tap()
+        app.waitForStatus("third point", timeout: 90) { $0.int("waypoints") == 3 && $0.int("planning") == 0 }
+        XCTAssertFalse(app.otherElements["map-point"].exists)
     }
 }

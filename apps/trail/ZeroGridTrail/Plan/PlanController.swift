@@ -139,10 +139,10 @@ final class PlanController: ObservableObject {
     private let newest = Newest()
     /// From the user's input to the drawn route, per computed plan; for the self-test.
     private(set) var planTimes: [TimeInterval] = []
-    /// Asked first about a tap on the map; true means it has been dealt with.
-    var interceptTap: ((CLLocationCoordinate2D) -> Bool)?
     /// A tap on the map that sets no waypoint.
     var onFreeTap: ((CLLocationCoordinate2D) -> Void)?
+    /// A tap that set a waypoint; whether it was the first of the route.
+    var onPickedTap: ((CLLocationCoordinate2D, Bool) -> Void)?
     /// The waypoints or legs of the planned route changed.
     var onRouteChanged: (() -> Void)?
     /// A route was drawn: its legs as the guidance measures them (a failed
@@ -160,19 +160,18 @@ final class PlanController: ObservableObject {
         self.profiles = profiles
         profile = profiles.first { $0.profile == "hike" }?.available == true ? "hike" : "manual"
         overlay.onTap = { [weak self] at in
-            guard let self, self.interceptTap?(at) != true else { return }
+            guard let self else { return }
             if self.picking {
+                let first = self.request.waypoints.isEmpty
                 self.addWaypoint(at)
+                self.onPickedTap?(at, first)
             } else {
                 self.onFreeTap?(at)
             }
         }
         overlay.onWaypointTap = { [weak self] index in
             guard let self, self.request.waypoints.indices.contains(index) else { return }
-            let point = self.request.waypoints[index]
-            // While a route start is being chosen, a waypoint is a place like any other.
-            let at = CLLocationCoordinate2D(latitude: point.lat, longitude: point.lon)
-            if self.interceptTap?(at) != true { self.menuWaypoint = index }
+            self.menuWaypoint = index
         }
         overlay.onWaypointMove = { [weak self] index, to in self?.moveWaypoint(index, to: to) }
         routes = (try? core.savedRoutes()) ?? []
@@ -298,6 +297,18 @@ final class PlanController: ObservableObject {
         let leg = formLeg
         let first = planAddWaypoint(request: planEmpty(), at: LatLon(lat: from.latitude, lon: from.longitude), leg: leg)
         request = planAddWaypoint(request: first, at: LatLon(lat: to.latitude, lon: to.longitude), leg: leg)
+        let core = core
+        queue.async { core.startNewRoute() }
+        compute()
+        return true
+    }
+
+    /// A new route that begins at `at`, in place of the one on the map.
+    func beginRoute(at: CLLocationCoordinate2D) -> Bool {
+        guard !replacing else { return false }
+        useRouteHereProfile()
+        loaded = nil
+        request = planAddWaypoint(request: planEmpty(), at: LatLon(lat: at.latitude, lon: at.longitude), leg: formLeg)
         let core = core
         queue.async { core.startNewRoute() }
         compute()
