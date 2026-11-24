@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use outdoor_core::{
-    CoreApp, CoreError, CoreListener, EngineFailure, LatLon, LegInput, OptionValue, PlanInput,
-    ValhallaEngine, failed_leg_color, plan_add_waypoint, plan_empty, plan_move_waypoint,
-    plan_remove_waypoint, plan_toggle_stage_end,
+    CoreApp, CoreError, CoreListener, EngineFailure, GuidanceInfo, LatLon, LegInput, OptionValue,
+    PlanInput, RecordingInfo, ValhallaEngine, failed_leg_color, plan_add_waypoint, plan_empty,
+    plan_move_waypoint, plan_remove_waypoint, plan_toggle_stage_end,
 };
 use sha2::{Digest, Sha256};
 
@@ -16,6 +16,8 @@ struct Quiet;
 impl CoreListener for Quiet {
     fn on_error(&self, _message: String) {}
     fn on_region_progress(&self, _region: String, _done: u64, _total: u64) {}
+    fn on_recording(&self, _status: RecordingInfo) {}
+    fn on_guidance(&self, _status: Option<GuidanceInfo>) {}
 }
 
 fn repo() -> PathBuf {

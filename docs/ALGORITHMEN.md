@@ -165,3 +165,35 @@ Beurteilung im Gelände.
   atomares Umbenennen des Verzeichnisses – eine Region ist ganz da oder gar nicht.
 - Kacheln liest ein eigener PMTiles-v3-Leser; die Karte holt sie über das Schema `tiles://`
   direkt aus dem Rust-Kern.
+
+## 7. Live-Routing (`core-app`, Modul `guide`)
+
+Der Guide folgt der geplanten Route Fix für Fix: Fortschritt entlang der Linie, Abweichung,
+Weg zurück, Rest. Er ändert die Route nie. Alle Werte (`GuideParams`) sind erste Werte, die mit
+echten Tracks nachgestellt werden.
+
+- **Fixes:** Genauigkeit über 50 m wird ignoriert. Abweichung: mehr als 40 m von der Linie, bei
+  mindestens 3 Fixes in Folge und mindestens 10 s. Zurück auf der Route ist man unter 20 m.
+  Angekommen: Fortschritt am Ende und höchstens 30 m von der Linie (Ziel in 30 m).
+- **Suchfenster:** Der Fortschritt wird nur in einem Stück der Linie gesucht, damit Schleifen und
+  nahe Parallelwege nicht springen: 200 m zurück, mindestens 500 m voraus. Nach einer Pause
+  zwischen Fixes wächst es nach vorn um 20 m/s × 3 × Zeit seit dem letzten Fix, abseits der
+  Route um dasselbe seit dem Verlassen. Bei Streckenabschnitten ohne Routing (Luftlinie, fehlend)
+  reicht es bis hinter deren Ende.
+- **Gleichstand:** Liegen zwei Stellen innerhalb von 1 m gleich nah (hin und zurück auf demselben
+  Weg), gilt die, die dem bisherigen Fortschritt am nächsten liegt.
+- **Gerade und fehlende Abschnitte** gelten nie als Abweichung: dort gibt es keinen Weg, dem man
+  folgen könnte.
+- **Weg zurück:** Bei einer Abweichung fragt der Kern das Routing nach einem Weg vom Fix zum
+  Zielpunkt. Zielpunkt ist der nächste Wegpunkt voraus. Solange man noch nie auf der Route war,
+  ist es der Wegpunkt, an dem der Guide platziert wurde: aus der Ferne also der Start; bei „Ab
+  hier führen“ (`guide_from_waypoint`) genau dieser Wegpunkt. Das Profil ist das des Abschnitts
+  am Fortschritt, sonst das des letzten gerouteten davor, sonst des ersten danach; nie eine
+  Luftlinie. Die Fahrtrichtung (Kurs) wird nur ab 1,5 m/s übergeben, darunter ist sie zu
+  verrauscht. Schlägt es fehl (`no_way_back`), wird nach 60 s oder 200 m Bewegung neu versucht.
+- **Rest:** Strecke und Zeit bis zum Etappenende und zum Ziel, mit dem Rest des Wegs zurück
+  eingerechnet. Die Zeit ist `None`, sobald ein Abschnitt voraus keine Zeit hat.
+- **Aufzeichnung:** Eine Aufzeichnung startet die Führung, wenn eine Route geplant ist. Wer sie
+  während einer Aufzeichnung ausschaltet, schaltet sie für diese Aufzeichnung aus (Einstellung
+  `guide_off_track` nennt den Track, auch nach einem Neustart). Eine neue Route setzt eine
+  laufende Führung neu auf.

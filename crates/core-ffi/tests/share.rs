@@ -12,7 +12,7 @@ use core_app::{LegSpec, PlanRequest};
 use core_location::{Fix, SourceStatus};
 use core_routing::{LatLon, Profile, RouteOptions};
 use core_share::{ShareOptions, ShareServer};
-use outdoor_core::{CoreApp, CoreListener};
+use outdoor_core::{CoreApp, CoreListener, GuidanceInfo, RecordingInfo};
 
 #[derive(Default)]
 struct Collect {
@@ -24,6 +24,8 @@ impl CoreListener for Collect {
     fn on_region_progress(&self, region: String, done: u64, total: u64) {
         self.progress.lock().unwrap().push((region, done, total));
     }
+    fn on_recording(&self, _status: RecordingInfo) {}
+    fn on_guidance(&self, _status: Option<GuidanceInfo>) {}
 }
 
 struct Quiet;

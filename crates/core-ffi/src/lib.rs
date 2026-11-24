@@ -7,14 +7,17 @@ use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
-use core_app::{App, AppError, AppListener, RecordingStatus};
+use core_app::{App, AppError, AppListener, GuideStatus, RecordingStatus};
 use core_location::{Fix, SourceStatus};
 use core_maps::{Contours, Layer, StyleOptions, TilePath};
 
+mod guide;
 mod plan;
 mod search;
 mod share;
+mod track;
 
+pub use guide::GuidanceInfo;
 pub use plan::{
     ElevationSample, EngineFailure, LatLon, LegInput, OptionInfo, OptionValue, PlanInput, PlanLeg,
     PlanResult, PlanTotals, ProfileChoice, SavedRoute, StageSummary, ValhallaEngine,
@@ -23,6 +26,7 @@ pub use plan::{
 };
 pub use search::{KnownPosition, RouteStart, SearchHit, SearchResults};
 pub use share::{ImportedRoute, RegionEntry, RegionList, RemoteRouteEntry};
+pub use track::{FixInput, LineVertex, RecordingInfo, TrackSummary, TrackView};
 
 uniffi::setup_scaffolding!();
 
@@ -33,6 +37,12 @@ pub trait CoreListener: Send + Sync {
     fn on_error(&self, message: String);
     /// Download progress of a region, in bytes.
     fn on_region_progress(&self, region: String, done: u64, total: u64);
+    /// The recording changed: its state with the points added since the last call.
+    fn on_recording(&self, status: RecordingInfo);
+    /// The guidance changed: its status on start and whenever a fix changes
+    /// it; `None` when it ends. The core calls this while an internal guide
+    /// lock is held: do not call `handle_fix` synchronously from inside it.
+    fn on_guidance(&self, status: Option<GuidanceInfo>);
 }
 
 /// A failure, with a stable code for a translated message.
@@ -93,12 +103,17 @@ pub struct MapOverview {
     pub attribution: Vec<String>,
 }
 
-/// Hands the core's notifications to the app; only errors so far.
+/// Hands the core's notifications to the app.
 struct Listener(Arc<dyn CoreListener>);
 
 impl AppListener for Listener {
     fn on_position(&self, _fix: &Fix) {}
-    fn on_recording(&self, _status: &RecordingStatus) {}
+    fn on_recording(&self, status: &RecordingStatus) {
+        self.0.on_recording(track::recording_info(status));
+    }
+    fn on_guidance(&self, status: Option<&GuideStatus>) {
+        self.0.on_guidance(status.map(guide::guidance_info));
+    }
     fn on_source_status(&self, _status: &SourceStatus) {}
     fn on_error(&self, message: &str) {
         self.0.on_error(message.into());
