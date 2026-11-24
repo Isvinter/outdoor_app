@@ -4,6 +4,7 @@
 
 mod app;
 mod error;
+mod guide;
 mod plan;
 mod regions;
 mod routes;
@@ -12,6 +13,7 @@ mod share;
 
 pub use app::{App, AppListener, LinePoint, RecordingPhase, RecordingStatus, TrackDetail};
 pub use error::AppError;
+pub use guide::{LegKind, LegSpan, Projection, RouteLine};
 pub use plan::{
     KnownPosition, Leg, LegError, LegSpec, MAX_POSITION_AGE_S, PlanRequest, RoutePlan, RoutePoint,
     RouteStart, Stage, Totals,
