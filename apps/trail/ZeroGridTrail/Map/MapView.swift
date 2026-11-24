@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The map and what the screen needs to know about it.
 @MainActor
-final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapViewDelegate {
+final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapViewDelegate, GuideCamera {
     let mapView: MLNMapView
     /// The planned route on this map.
     let route: RouteOverlay
@@ -13,6 +13,10 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     let searchOverlay: SearchOverlay
     /// The recording that runs and a stored track being looked at.
     let tracks: TrackOverlay
+    /// The part of the route behind the user and the way back.
+    let guide: GuideOverlay
+    /// The user moved the map by hand.
+    var onUserMove: (() -> Void)?
     private let core: CoreApp
 
     @Published private(set) var base: MapBase = .summer
@@ -84,11 +88,13 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         route = RouteOverlay(mapView: mapView)
         searchOverlay = SearchOverlay(mapView: mapView)
         tracks = TrackOverlay(mapView: mapView)
+        guide = GuideOverlay(mapView: mapView)
         dark = UserDefaults.standard.bool(forKey: Self.darkKey)
         reliefStrength = UserDefaults.standard.double(forKey: Self.reliefKey)
         super.init()
         route.dark = dark
         tracks.dark = dark
+        guide.dark = dark
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.maximumZoomLevel = 19
         mapView.delegate = self
@@ -249,6 +255,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         UserDefaults.standard.set(dark, forKey: Self.darkKey)
         route.dark = dark
         tracks.dark = dark
+        guide.dark = dark
         show(base)
     }
 
@@ -311,11 +318,22 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         applyRelief()
         tracks.styleLoaded(style)
         route.styleLoaded(style)
+        guide.styleLoaded(style)
         searchOverlay.styleLoaded(style)
     }
 
     func mapView(_ mapView: MLNMapView, regionWillChangeWith reason: MLNCameraChangeReason, animated: Bool) {
         searchOverlay.mapWillMove(reason: reason)
+        let gestures: MLNCameraChangeReason = [
+            .gesturePan, .gesturePinch, .gestureRotate, .gestureZoomIn, .gestureZoomOut, .gestureOneFingerZoom,
+            .gestureTilt,
+        ]
+        if !reason.isDisjoint(with: gestures) { onUserMove?() }
+    }
+
+    /// Keeps the position in the middle while guiding.
+    func follow(_ location: CLLocation) {
+        mapView.setCenter(location.coordinate, zoomLevel: max(mapView.zoomLevel, 15), animated: true)
     }
 
     func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {

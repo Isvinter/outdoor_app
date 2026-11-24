@@ -8,6 +8,8 @@ struct MapScreen: View {
     @ObservedObject var search: SearchController
     @ObservedObject var routeHere: RouteHereFlow
     @ObservedObject var recording: RecordingController
+    @ObservedObject var tracks: TracksController
+    @ObservedObject var guide: GuideController
     let start: AppStart.Ready
     @State private var detent = PlanSheet.collapsed
     @State private var choosingActivity = false
@@ -30,7 +32,12 @@ struct MapScreen: View {
                             .onChange(of: bottom) { search.topInset = Double($0) }
                     })
                 if !searchIsOpen {
-                    MapToolbar(controller: controller, record: recording.active ? nil : { choosingActivity = true })
+                    MapToolbar(controller: controller)
+                }
+                GuideBar(guide: guide)
+                if let message = guide.message {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { guide.message = nil }
                 }
                 if recording.active {
                     RecordingBar(recording: recording)
@@ -47,6 +54,10 @@ struct MapScreen: View {
                 if let message = recording.message {
                     Notice(text: message, warning: true)
                         .onTapGesture { recording.message = nil }
+                }
+                if let message = tracks.message {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { tracks.message = nil }
                 }
                 if let leg = plan.straightLineLeg {
                     StraightLineOffer(plan: plan, leg: leg)
@@ -77,13 +88,18 @@ struct MapScreen: View {
                 }
             }
             .padding()
-            LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) { controller.toggleLocation() }
+            VStack(alignment: .trailing, spacing: 12) {
+                MapSideButtons(record: recording.active ? nil : { choosingActivity = true })
+                LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) {
+                    controller.toggleLocation()
+                }
+            }
                 .padding(.trailing, 12)
                 // Above the collapsed sheet.
                 .padding(.bottom, 108)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             if start.options.selftest {
-                SelfTestStatus(controller: controller, plan: plan, regions: regions, start: start)
+                SelfTestStatus(controller: controller, plan: plan, regions: regions, guide: guide, start: start)
             }
         }
         // The hits and the chosen one must not end up behind a raised sheet.
@@ -95,7 +111,7 @@ struct MapScreen: View {
         }
         // Always there, like the sheet of Apple Maps; the map stays usable beside it.
         .sheet(isPresented: .constant(true)) {
-            PlanSheet(plan: plan, regions: regions, detent: $detent)
+            PlanSheet(plan: plan, regions: regions, tracks: tracks, guide: guide, detent: $detent)
                 .presentationDetents(PlanSheet.detents, selection: $detent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
@@ -174,6 +190,7 @@ private struct SelfTestStatus: View {
     @ObservedObject var controller: MapController
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
+    @ObservedObject var guide: GuideController
     let start: AppStart.Ready
 
     var body: some View {
@@ -225,6 +242,14 @@ private struct SelfTestStatus: View {
             parts.append(String(format: "rendered_ms=%.0f", rendered * 1000))
         }
         parts += plan.status
+        if let info = guide.info {
+            parts.append("guide=\(info.phase)")
+            parts.append("deviation=\(info.deviation)")
+            parts.append("way_back=\(controller.guide.wayBackDrawn ? 1 : 0)")
+        } else {
+            parts.append("guide=off")
+        }
+        parts.append("following=\(guide.following ? 1 : 0)")
         let waypoints = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         if !waypoints.isEmpty {
             parts.append("waypoint_xy=\(controller.screenPoints(of: waypoints))")

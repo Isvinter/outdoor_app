@@ -89,8 +89,9 @@ final class TrackOverlay {
 
     // MARK: Stored track
 
-    /// Shows a stored track and fits the map to it; nil takes it away.
-    func show(track segments: [[LatLon]]?, padding: UIEdgeInsets = .init(top: 120, left: 40, bottom: 320, right: 40)) {
+    /// Shows a stored track and fits the map to it, above the sheet at its
+    /// middle step; nil takes it away.
+    func show(track segments: [[LatLon]]?) {
         track = (segments ?? []).map { $0.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) } }
         (mapView.style?.source(withIdentifier: Self.trackSource) as? MLNShapeSource)?.shape = shape(track)
         let points = track.flatMap { $0 }
@@ -105,6 +106,8 @@ final class TrackOverlay {
             bounds.ne.latitude = max(bounds.ne.latitude, point.latitude)
             bounds.ne.longitude = max(bounds.ne.longitude, point.longitude)
         }
+        // Below the search field and the toolbar.
+        let padding = UIEdgeInsets(top: 210, left: 50, bottom: mapView.bounds.height * 0.5 + 30, right: 50)
         mapView.setVisibleCoordinateBounds(bounds, edgePadding: padding, animated: true, completionHandler: nil)
     }
 

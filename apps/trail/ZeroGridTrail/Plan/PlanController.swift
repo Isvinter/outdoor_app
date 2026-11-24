@@ -145,6 +145,9 @@ final class PlanController: ObservableObject {
     var onFreeTap: ((CLLocationCoordinate2D) -> Void)?
     /// The waypoints or legs of the planned route changed.
     var onRouteChanged: (() -> Void)?
+    /// A route was drawn: its legs as the guidance measures them (a failed
+    /// one straight), and its number of waypoints. Empty without a route.
+    var onRouteDrawn: ((_ legs: [[CLLocationCoordinate2D]], _ waypoints: Int) -> Void)?
 
     private static let lastProfileKey = "lastRouteProfile"
 
@@ -565,10 +568,13 @@ final class PlanController: ObservableObject {
     private func drawLegs() {
         // The cursor belonged to the route before.
         showCursor(nil)
-        guard let plan else { return overlay.show([]) }
+        guard let plan else {
+            onRouteDrawn?([], 0)
+            return overlay.show([])
+        }
         let points = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         let failedColor = failedLegColor()
-        overlay.show(plan.legs.enumerated().map { index, leg in
+        let drawn = plan.legs.enumerated().map { index, leg in
             if leg.errorCode != nil {
                 let ends = index + 1 < points.count ? [points[index], points[index + 1]] : []
                 return RouteOverlay.Leg(line: ends, color: failedColor, failed: true)
@@ -576,7 +582,9 @@ final class PlanController: ObservableObject {
             return RouteOverlay.Leg(
                 line: leg.line.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) },
                 color: leg.color, failed: false)
-        })
+        }
+        overlay.show(drawn)
+        onRouteDrawn?(drawn.map(\.line), points.count)
     }
 
     // MARK: Self-test

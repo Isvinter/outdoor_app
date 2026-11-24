@@ -1,5 +1,6 @@
 import CoreLocation
 import SwiftUI
+import UserNotifications
 
 @main
 struct ZeroGridTrailApp: App {
@@ -22,7 +23,7 @@ private struct RootView: View {
         case starting
         case ready(
             AppStart.Ready, MapController, PlanController, RegionsController, SearchController, RouteHereFlow,
-            RecordingController)
+            RecordingController, TracksController, GuideController)
         case failed(String)
     }
 
@@ -33,10 +34,11 @@ private struct RootView: View {
         case .starting:
             ProgressView("Karte wird vorbereitet …")
                 .task { await start() }
-        case .ready(let start, let controller, let plan, let regions, let search, let routeHere, let recording):
+        case .ready(let start, let controller, let plan, let regions, let search, let routeHere, let recording,
+            let tracks, let guide):
             MapScreen(
                 controller: controller, plan: plan, regions: regions, search: search, routeHere: routeHere,
-                recording: recording, start: start)
+                recording: recording, tracks: tracks, guide: guide, start: start)
         case .failed(let message):
             Text("Die App kann nicht starten: \(message)")
                 .padding()
@@ -77,7 +79,23 @@ private struct RootView: View {
             }
             let recording = RecordingController(
                 core: start.host.core, location: location, changes: start.host.recordingChanges, overlay: map.tracks)
-            phase = .ready(start, map, plan, regions, search, routeHere, recording)
+            let tracks = TracksController(
+                core: start.host.core, overlay: map.tracks, recordingChanges: start.host.recordingChanges)
+            let guide = GuideController(
+                core: start.host.core, location: location, changes: start.host.guidanceChanges, overlay: map.guide,
+                camera: map)
+            let alert = DeviationAlert(center: UNUserNotificationCenter.current(), haptics: SystemHaptics())
+            guide.onFirstStart = { alert.requestPermission() }
+            guide.alert = alert
+            plan.onRouteDrawn = { [weak guide, weak map] legs, waypoints in
+                map?.guide.setRoute(legs)
+                guide?.waypointCount = waypoints
+            }
+            if start.options.route.count == 2 {
+                let ends = start.options.route.map { CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) }
+                _ = plan.startRoute(from: ends[0], to: ends[1])
+            }
+            phase = .ready(start, map, plan, regions, search, routeHere, recording, tracks, guide)
         case .failure(let error):
             phase = .failed(describe(error))
         }
