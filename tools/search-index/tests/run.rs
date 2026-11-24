@@ -230,3 +230,26 @@ fn broken_area_id_is_an_error() {
     assert!(matches!(err, BuildError::Line { line: 2, .. }), "{err}");
     assert!(!out.exists());
 }
+
+#[test]
+fn places_store_their_size() {
+    let dir = temp("place-size");
+    let input = dir.join("places.geojsonseq");
+    let line = |id: &str, kind: &str, name: &str| {
+        format!(
+            "{{\"type\":\"Feature\",\"id\":\"{id}\",\"properties\":{{\"place\":\"{kind}\",\"name\":\"{name}\"}},\"geometry\":{{\"type\":\"Point\",\"coordinates\":[11.0,47.0]}}}}\n"
+        )
+    };
+    let text = line("n1", "city", "Grossstadt") + &line("n2", "suburb", "Vorstadt");
+    std::fs::write(&input, text).unwrap();
+    let out = dir.join("search.sqlite");
+    build(&input, &out, None).unwrap();
+    let index = SearchIndex::open(&out).unwrap();
+    let subtype = |name: &str| {
+        index.search(name, Some((47.0, 11.0)), 1).unwrap()[0]
+            .subtype
+            .clone()
+    };
+    assert_eq!(subtype("Grossstadt").as_deref(), Some("city"));
+    assert_eq!(subtype("Vorstadt").as_deref(), Some("part"));
+}

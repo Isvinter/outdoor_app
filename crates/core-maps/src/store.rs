@@ -24,7 +24,9 @@ use sha2::{Digest, Sha256};
 use crate::MapsError;
 use crate::dem::{DemCache, DemTile, ProfilePoint, decode_dem_tile, resample};
 use crate::fetch::Fetcher;
-use crate::manifest::{Catalog, CatalogEntry, Layer, ROUTING_FILE, RegionManifest, RoutingInfo};
+use crate::manifest::{
+    Catalog, CatalogEntry, Layer, ROUTING_FILE, RegionManifest, RoutingInfo, SEARCH_FILE,
+};
 use crate::pmtiles::Archive;
 
 const MANIFEST: &str = "manifest.json";
@@ -53,6 +55,15 @@ pub struct InstalledRegion {
     pub bytes: u64,
     /// Disabled regions stay installed but serve no tiles, routing or elevation.
     pub enabled: bool,
+}
+
+/// Where to search an enabled region.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchSource {
+    pub region: String,
+    pub name: String,
+    /// `None` if the region has no search file.
+    pub path: Option<PathBuf>,
 }
 
 /// A map tile ready to be handed to the renderer.
@@ -492,6 +503,26 @@ impl RegionStore {
                 info: manifest.routing.clone(),
             })
         })
+    }
+
+    /// The enabled regions and their search files.
+    pub fn search_sources(&self) -> Vec<SearchSource> {
+        let regions = self.regions.read().unwrap_or_else(PoisonError::into_inner);
+        regions
+            .iter()
+            .filter(|(_, region)| region.info.enabled)
+            .map(|(id, region)| {
+                let manifest = &region.info.manifest;
+                let path = self.dir.join(id).join(SEARCH_FILE);
+                SearchSource {
+                    region: id.clone(),
+                    name: manifest.name.clone(),
+                    path: (manifest.files.iter().any(|file| file.name == SEARCH_FILE)
+                        && path.is_file())
+                    .then_some(path),
+                }
+            })
+            .collect()
     }
 
     /// Ground elevation in metres at a position, from the finest elevation

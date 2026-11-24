@@ -296,7 +296,7 @@ fn leg_to(leg: &LegSpec) -> LegInput {
     }
 }
 
-fn request_from(input: &PlanInput) -> Result<PlanRequest, CoreError> {
+pub(crate) fn request_from(input: &PlanInput) -> Result<PlanRequest, CoreError> {
     Ok(PlanRequest {
         waypoints: input.waypoints.iter().map(|&p| p.into()).collect(),
         legs: input.legs.iter().map(leg_from).collect::<Result<_, _>>()?,
@@ -513,6 +513,25 @@ pub fn plan_set_last_leg(request: PlanInput, leg: LegInput) -> PlanInput {
         Ok(leg) => edit(request, |r| r.set_last_leg(leg)),
         Err(_) => request,
     }
+}
+
+/// Leg `index` takes `leg`; nothing else changes.
+#[uniffi::export]
+pub fn plan_set_leg(request: PlanInput, index: u32, leg: LegInput) -> PlanInput {
+    match leg_from(&leg) {
+        Ok(leg) => edit(request, |r| r.set_leg(index as usize, leg)),
+        Err(_) => request,
+    }
+}
+
+/// Whether a leg failing with this error code can be joined by a straight line.
+#[uniffi::export]
+pub fn leg_can_connect_straight(code: String) -> bool {
+    core_app::LegError {
+        code,
+        message: String::new(),
+    }
+    .can_connect_straight()
 }
 
 /// Colour of a leg that could not be computed.

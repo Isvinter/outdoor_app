@@ -144,3 +144,23 @@ input.switch:disabled { opacity: 0.45; cursor: default; }
 }
 #share-qr { width: 200px; height: 200px; margin: 4px auto 8px; }
 #share-qr svg { display: block; width: 200px; height: 200px; }
+
+/* Search */
+#search { display: flex; flex-direction: column; gap: 8px; }
+#search-input { width: 100%; }
+.search-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.search-chips[hidden] { display: none; }
+.search-chips button { padding: 3px 8px; font-size: 12px; border-radius: 12px; }
+.search-chips button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#search-results { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+#search-results[hidden] { display: none; }
+.search-hit { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; padding: 6px 2px; }
+.search-hit small { display: block; color: var(--muted); }
+#search-card { display: flex; flex-direction: column; gap: 4px; }
+#search-card[hidden] { display: none; }
+#search-back { align-self: flex-start; }
+#search-notes[hidden] { display: none; }
+#route-here, #route-straight { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+#route-here[hidden], #route-straight[hidden] { display: none; }
+#route-here p, #route-straight p { margin: 0; }
+#route-here-actions { display: flex; flex-direction: column; gap: 4px; }

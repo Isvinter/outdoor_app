@@ -20,7 +20,8 @@ pub use manifest::{
 };
 pub use pmtiles::{Archive, Header, TileType, tile_id};
 pub use store::{
-    InstalledRegion, Progress, RegionStore, RoutingTiles, Tile, catalog_location, fetch_document,
+    InstalledRegion, Progress, RegionStore, RoutingTiles, SearchSource, Tile, catalog_location,
+    fetch_document,
 };
 pub use style::{CONTOUR_MAX_ZOOM, Contours, StyleOptions, offline_style};
 pub use writer::{ArchiveInfo, write_archive};

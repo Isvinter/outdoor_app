@@ -1,18 +1,20 @@
 //! Reading the index, read-only.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags, Row, params};
 
-use crate::{Category, Hit, Kind, SEARCH_FORMAT, SearchError, normalize};
+use crate::{Category, Hit, Kind, SEARCH_FORMAT, SearchError, query_words};
 
 /// How many full-text candidates are ranked by distance.
 const CANDIDATES: i64 = 2000;
 /// Metres per degree of latitude, rounded down so bands stay on the safe side.
 const METRES_PER_LAT_DEGREE: f64 = 110_000.0;
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
+/// [`Hit::match_rank`] of everything but a place matching in whole words.
+const OTHER_RANK: u8 = 5;
 
 pub struct SearchIndex {
     conn: Connection,
@@ -42,65 +44,118 @@ impl SearchIndex {
         near: Option<(f64, f64)>,
         limit: usize,
     ) -> Result<Vec<Hit>, SearchError> {
-        let tokens: Vec<String> = normalize(text)
-            .split_whitespace()
-            .map(|token| format!("\"{token}\"*"))
-            .collect();
-        // Every token must match the name or the town, and at least one the
-        // name, so a town alone does not list all its streets.
-        let query = if tokens.is_empty() {
-            String::new()
-        } else {
-            let each = tokens
-                .iter()
-                .map(|t| format!("{{name town}} : {t}"))
-                .collect::<Vec<_>>()
-                .join(" AND ");
-            let in_name = tokens
-                .iter()
-                .map(|t| format!("name : {t}"))
-                .collect::<Vec<_>>()
-                .join(" OR ");
-            format!("({each}) AND ({in_name})")
-        };
+        if let Some(near) = near {
+            let mut hits = self.search_around(text, near, limit)?;
+            hits.sort_by(|a, b| {
+                a.match_rank.cmp(&b.match_rank).then(
+                    a.distance_m
+                        .unwrap_or(0.0)
+                        .total_cmp(&b.distance_m.unwrap_or(0.0)),
+                )
+            });
+            hits.truncate(limit);
+            return Ok(hits);
+        }
+        let words = query_words(text);
+        let query = match_query(&words);
         if query.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
-        let Some(near) = near else {
-            // Places first: their many names in other languages would otherwise
-            // rank them below anything that merely has the word in its name.
-            let mut stmt = self.conn.prepare_cached(
-                "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon
-                 FROM (SELECT rowid, rank AS score FROM name_terms WHERE name_terms MATCH ?1
-                       ORDER BY rank LIMIT ?2) f
-                 JOIN entry e ON e.id = f.rowid
-                 ORDER BY e.kind = 0 DESC, f.score, e.id",
-            )?;
-            let rows = stmt.query_map(params![query, CANDIDATES], |row| hit(row, None))?;
-            let mut hits = rows.collect::<Result<Vec<_>, _>>()?;
-            hits.truncate(limit);
-            return hits.into_iter().map(finish_hit).collect();
-        };
-        // With a position every match is a candidate: no rank ordering and no
-        // cap, only the nearest `limit` are kept while the rows stream by.
+        let whole_word_places = self.whole_word_places(&words)?;
+        // Places first: their many names in other languages would otherwise
+        // rank them below anything that merely has the word in its name.
         let mut stmt = self.conn.prepare_cached(
-            "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon
+            "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon, e.id
+             FROM (SELECT rowid, rank AS score FROM name_terms WHERE name_terms MATCH ?1
+                   ORDER BY rank LIMIT ?2) f
+             JOIN entry e ON e.id = f.rowid
+             ORDER BY e.kind = 0 DESC, f.score, e.id",
+        )?;
+        let rows = stmt.query_map(params![query, CANDIDATES], |row| {
+            let mut raw = hit(row, None)?;
+            let id: i64 = row.get(7)?;
+            if whole_word_places.contains(&id) {
+                raw.match_rank = place_rank(raw.subtype.as_deref());
+            }
+            Ok(raw)
+        })?;
+        let mut hits = rows.collect::<Result<Vec<_>, _>>()?;
+        hits.sort_by_key(|h| h.match_rank);
+        hits.truncate(limit);
+        hits.into_iter().map(finish_hit).collect()
+    }
+
+    /// The best `limit` places and, apart from them, the nearest `limit` other
+    /// entries matching `text`, so that neither can push the other out before
+    /// the caller decides what lies close enough. In no particular order.
+    pub fn search_around(
+        &self,
+        text: &str,
+        near: (f64, f64),
+        limit: usize,
+    ) -> Result<Vec<Hit>, SearchError> {
+        let words = query_words(text);
+        let query = match_query(&words);
+        if query.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let whole_word_places = self.whole_word_places(&words)?;
+        // Every match is a candidate: no rank ordering and no cap, only the
+        // best are kept while the rows stream by.
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT e.kind, e.category, e.subtype, e.name, e.town, e.lat, e.lon, e.id
              FROM name_terms f JOIN entry e ON e.id = f.rowid
              WHERE name_terms MATCH ?1",
         )?;
         let mut rows = stmt.query(params![query])?;
-        let mut nearest: BinaryHeap<ByDistance> = BinaryHeap::with_capacity(limit + 1);
+        let mut places: BinaryHeap<ByDistance> = BinaryHeap::with_capacity(limit + 1);
+        let mut others: BinaryHeap<ByDistance> = BinaryHeap::with_capacity(limit + 1);
         while let Some(row) = rows.next()? {
-            nearest.push(ByDistance(hit(row, Some(near))?));
-            if nearest.len() > limit {
-                nearest.pop();
+            let mut raw = hit(row, Some(near))?;
+            let id: i64 = row.get(7)?;
+            if whole_word_places.contains(&id) {
+                raw.match_rank = place_rank(raw.subtype.as_deref());
+            }
+            let heap = if raw.kind == Kind::Place.code() {
+                &mut places
+            } else {
+                &mut others
+            };
+            heap.push(ByDistance(raw));
+            if heap.len() > limit {
+                heap.pop();
             }
         }
-        nearest
-            .into_sorted_vec()
+        places
             .into_iter()
+            .chain(others)
             .map(|h| finish_hit(h.0))
             .collect()
+    }
+
+    /// The places that have every query word as a whole word.
+    fn whole_word_places(&self, words: &[Vec<String>]) -> Result<HashSet<i64>, SearchError> {
+        if words.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let query = words
+            .iter()
+            .map(|w| {
+                let any = w
+                    .iter()
+                    .map(|v| format!("\"{v}\""))
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                format!("name : ({any})")
+            })
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT e.id FROM name_terms f JOIN entry e ON e.id = f.rowid
+             WHERE name_terms MATCH ?1 AND e.kind = 0",
+        )?;
+        let rows = stmt.query_map(params![query], |row| row.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// The `limit` nearest entries of a category, named or not.
@@ -110,6 +165,27 @@ impl SearchIndex {
         near: (f64, f64),
         limit: usize,
     ) -> Result<Vec<Hit>, SearchError> {
+        self.nearest_in_category(category, near, None, limit)
+    }
+
+    /// The `limit` nearest entries of a category no more than `max_m` away.
+    pub fn by_category_within(
+        &self,
+        category: Category,
+        near: (f64, f64),
+        max_m: f64,
+        limit: usize,
+    ) -> Result<Vec<Hit>, SearchError> {
+        self.nearest_in_category(category, near, Some(max_m), limit)
+    }
+
+    fn nearest_in_category(
+        &self,
+        category: Category,
+        near: (f64, f64),
+        max_m: Option<f64>,
+        limit: usize,
+    ) -> Result<Vec<Hit>, SearchError> {
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -117,13 +193,17 @@ impl SearchIndex {
             "SELECT kind, category, subtype, name, town, lat, lon
              FROM entry WHERE category = ?1 AND lat BETWEEN ?2 AND ?3",
         )?;
-        let mut band = 0.05_f64;
+        let widest_band = max_m.map_or(180.0, |m| m / METRES_PER_LAT_DEGREE);
+        let mut band = 0.05_f64.min(widest_band);
         loop {
             let rows = stmt.query_map(
                 params![category.code(), near.0 - band, near.0 + band],
                 |row| hit(row, Some(near)),
             )?;
             let mut hits = rows.collect::<Result<Vec<_>, _>>()?;
+            if let Some(max_m) = max_m {
+                hits.retain(|h| h.distance_m <= max_m);
+            }
             hits.sort_by(|a, b| a.distance_m.total_cmp(&b.distance_m));
             hits.truncate(limit);
             // Everything within band * 110 km lies inside the latitude band, so
@@ -132,11 +212,19 @@ impl SearchIndex {
                 && hits
                     .last()
                     .is_some_and(|h| h.distance_m <= band * METRES_PER_LAT_DEGREE);
-            if complete || band >= 180.0 {
+            if complete || band >= widest_band {
                 return hits.into_iter().map(finish_hit).collect();
             }
-            band *= 2.0;
+            band = (band * 2.0).min(widest_band);
         }
+    }
+}
+
+impl Hit {
+    /// A place that has every query word as a whole word.
+    #[must_use]
+    pub fn is_whole_word_place(&self) -> bool {
+        self.match_rank < OTHER_RANK
     }
 }
 
@@ -151,9 +239,10 @@ struct RawHit {
     lon: f64,
     distance_m: f64,
     has_distance: bool,
+    match_rank: u8,
 }
 
-/// Orders hits by distance so a heap can drop the farthest.
+/// Orders hits by rank, then distance, so a heap can drop the last one.
 struct ByDistance(RawHit);
 
 impl PartialEq for ByDistance {
@@ -169,7 +258,56 @@ impl PartialOrd for ByDistance {
 }
 impl Ord for ByDistance {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.distance_m.total_cmp(&other.0.distance_m)
+        self.0
+            .match_rank
+            .cmp(&other.0.match_rank)
+            .then(self.0.distance_m.total_cmp(&other.0.distance_m))
+    }
+}
+
+/// Every word must match the name or the town, and at least one the name, so
+/// a town alone does not list all its streets. Empty without words.
+fn match_query(words: &[Vec<String>]) -> String {
+    if words.is_empty() {
+        return String::new();
+    }
+    let each = words
+        .iter()
+        .map(|w| format!("{{name town}} : ({})", prefix_terms(w)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let in_name = words
+        .iter()
+        .map(|w| format!("name : ({})", prefix_terms(w)))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    format!("({each}) AND ({in_name})")
+}
+
+/// All spellings of a word as a prefix. The short form `str` of `strasse` must
+/// match exactly, or it would also find every word starting with "str".
+fn prefix_terms(variants: &[String]) -> String {
+    variants
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            if i > 0 && v == "str" {
+                format!("\"{v}\"")
+            } else {
+                format!("\"{v}\"*")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+fn place_rank(subtype: Option<&str>) -> u8 {
+    match subtype {
+        Some("city") => 0,
+        Some("town") => 1,
+        Some("village") => 2,
+        Some("part") => 3,
+        _ => 4,
     }
 }
 
@@ -186,6 +324,7 @@ fn hit(row: &Row, near: Option<(f64, f64)>) -> rusqlite::Result<RawHit> {
         lon,
         distance_m: near.map_or(0.0, |n| haversine_m(n, (lat, lon))),
         has_distance: near.is_some(),
+        match_rank: OTHER_RANK,
     })
 }
 
@@ -208,10 +347,13 @@ fn finish_hit(raw: RawHit) -> Result<Hit, SearchError> {
         lat: raw.lat,
         lon: raw.lon,
         distance_m: raw.has_distance.then_some(raw.distance_m),
+        match_rank: raw.match_rank,
     })
 }
 
-fn haversine_m(a: (f64, f64), b: (f64, f64)) -> f64 {
+/// Metres between two `(lat, lon)` points on the earth.
+#[must_use]
+pub fn haversine_m(a: (f64, f64), b: (f64, f64)) -> f64 {
     let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
     let dlat = lat2 - lat1;
     let dlon = (b.1 - a.1).to_radians();

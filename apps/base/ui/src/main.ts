@@ -16,6 +16,7 @@ import { t, translateDocument, type MessageKey } from "./i18n";
 import { MapView, type BaseStyle } from "./map";
 import { RegionsPanel } from "./regions";
 import { RoutePanel } from "./route";
+import { SearchPanel } from "./search";
 import { SharePanel } from "./share";
 import { renderLegend } from "./legend";
 import { runDiagnostics } from "./diagnostics";
@@ -190,6 +191,7 @@ async function selectTrack(id: string | null): Promise<void> {
 // --- location ---------------------------------------------------------------
 
 function renderSourceStatus(status: SourceStatus | null): void {
+  route.setSourceStatus(status);
   const text =
     status === null
       ? t("location.status.off")
@@ -265,7 +267,16 @@ const regions = new RegionsPanel(view, {
   showError,
 });
 
-const route = new RoutePanel(view, { showMessage: (text) => showMessage(text), showError });
+const route = new RoutePanel(view, {
+  showMessage: (text) => showMessage(text),
+  showError,
+  routeHereDone: () => search.routeDone(),
+});
+const search = new SearchPanel(view, {
+  routeHere: (hit) => void route.routeHere({ lat: hit.lat, lon: hit.lon }),
+  selectionCleared: () => route.cancelRouteHere(),
+  showError,
+});
 const share = new SharePanel({ showMessage: (text) => showMessage(text), showError });
 
 // --- wiring -----------------------------------------------------------------
@@ -309,7 +320,10 @@ async function start(): Promise<void> {
   window.addEventListener("unhandledrejection", (e) => api.log("error", `unhandled: ${String(e.reason)}`));
   view.map.on("error", (e) => api.log("error", `map: ${e.error?.message ?? String(e)}`));
 
-  await events.onFix((fix) => view.showPosition(fix));
+  await events.onFix((fix) => {
+    view.showPosition(fix);
+    route.setPosition(fix);
+  });
   await events.onRecording((status) => {
     view.appendLive(status.appended);
     renderRecording(status);
@@ -437,10 +451,11 @@ async function start(): Promise<void> {
   const initial = await regions.refresh();
   if (initial?.installed_bounds) view.showBounds(initial.installed_bounds);
   await route.start();
+  search.start();
   await share.refresh();
   await loadRecordingState();
   await refreshTracks();
-  await runDiagnostics(view);
+  await runDiagnostics(view, route);
 }
 
 start().catch(showError);

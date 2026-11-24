@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use common::{
     app_with_basemap_only, app_with_ramp, app_with_ramp_routing, open, position, temp_dir,
 };
-use core_app::{App, AppError, LegSpec, PlanRequest};
+use core_app::{App, AppError, KnownPosition, LegSpec, PlanRequest, RouteStart};
 use core_routing::{
     DinParams, LatLon, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError, din_time_s,
 };
@@ -909,4 +909,117 @@ fn a_plan_in_flight_does_not_bring_back_a_cleared_one() {
         slow.join().unwrap();
         assert_eq!(app.planned_route(), None);
     });
+}
+
+fn known(at: LatLon, age_s: f64) -> KnownPosition {
+    KnownPosition {
+        lat: at.lat,
+        lon: at.lon,
+        age_s,
+    }
+}
+
+const ELSEWHERE: LatLon = LatLon { lat: 1.0, lon: 1.0 };
+
+#[test]
+fn fresh_position_in_same_region_is_ready() {
+    let app = app_with_ramp_routing("start-ready");
+    let (from, to) = (position(10.0, 32.0), position(50.0, 32.0));
+    assert_eq!(
+        app.route_start(Some(known(from, 5.0)), to),
+        RouteStart::Ready
+    );
+}
+
+#[test]
+fn position_older_than_two_minutes_is_no_position() {
+    let app = app_with_ramp_routing("start-old");
+    let (from, to) = (position(10.0, 32.0), position(50.0, 32.0));
+    assert_eq!(
+        app.route_start(Some(known(from, 120.0)), to),
+        RouteStart::Ready
+    );
+    assert_eq!(
+        app.route_start(Some(known(from, 120.1)), to),
+        RouteStart::NoPosition
+    );
+    assert_eq!(app.route_start(None, to), RouteStart::NoPosition);
+}
+
+#[test]
+fn position_in_other_region_is_other_map() {
+    let app = app_with_ramp_routing("start-other");
+    let to = position(50.0, 32.0);
+    assert_eq!(
+        app.route_start(Some(known(ELSEWHERE, 1.0)), to),
+        RouteStart::OtherMap
+    );
+}
+
+#[test]
+fn target_without_routing_is_other_map() {
+    let app = app_with_ramp("start-no-routing");
+    let (from, to) = (position(10.0, 32.0), position(50.0, 32.0));
+    assert_eq!(
+        app.route_start(Some(known(from, 1.0)), to),
+        RouteStart::OtherMap
+    );
+}
+
+#[test]
+fn disabled_region_does_not_count() {
+    let app = app_with_ramp_routing("start-disabled");
+    app.set_region_enabled("ramp", false).unwrap();
+    let (from, to) = (position(10.0, 32.0), position(50.0, 32.0));
+    assert_eq!(
+        app.route_start(Some(known(from, 1.0)), to),
+        RouteStart::OtherMap
+    );
+}
+
+#[test]
+fn empty_route_is_not_unsaved() {
+    let app = app_with_ramp("unsaved-empty");
+    assert!(!app.route_is_unsaved(&PlanRequest::empty()));
+}
+
+#[test]
+fn new_route_is_unsaved() {
+    let app = app_with_ramp("unsaved-new");
+    assert!(app.route_is_unsaved(&uphill()));
+    let one_point = manual(vec![position(10.0, 32.0)]);
+    assert!(app.route_is_unsaved(&one_point));
+}
+
+#[test]
+fn saved_route_is_not_unsaved_until_changed() {
+    let app = app_with_ramp("unsaved-saved");
+    let request = uphill();
+    app.plan_route(&request).unwrap();
+    app.save_planned_route("Tour").unwrap();
+    assert!(!app.route_is_unsaved(&request));
+    assert!(app.route_is_unsaved(&three_points()));
+}
+
+#[test]
+fn loaded_route_is_not_unsaved_until_changed() {
+    let app = app_with_ramp("unsaved-loaded");
+    let request = uphill();
+    app.plan_route(&request).unwrap();
+    let id = app.save_planned_route("Tour").unwrap().id;
+    app.start_new_route();
+    assert!(app.route_is_unsaved(&request));
+    let loaded = app.saved_route(id).unwrap();
+    assert!(!app.route_is_unsaved(&loaded.request));
+    assert!(app.route_is_unsaved(&three_points()));
+}
+
+#[test]
+fn deleted_saved_route_counts_as_unsaved() {
+    let app = app_with_ramp("unsaved-deleted");
+    let request = uphill();
+    app.plan_route(&request).unwrap();
+    let id = app.save_planned_route("Tour").unwrap().id;
+    app.delete_route(id).unwrap();
+    assert!(app.route_is_unsaved(&request));
 }

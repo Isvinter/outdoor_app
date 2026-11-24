@@ -2,7 +2,7 @@
 //! (`apps/base/ui/src/route.ts`), in the core for the mobile apps.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use core_app::{LegSpec, PlanRequest};
+use core_app::{LegError, LegSpec, PlanRequest};
 use core_routing::{LatLon, Profile, RouteOptions};
 
 fn at(i: usize) -> LatLon {
@@ -133,4 +133,53 @@ fn set_last_leg_changes_only_last() {
     );
     let one = PlanRequest::empty().add_waypoint(at(0), leg(Hike));
     assert_eq!(one.set_last_leg(leg(Manual)), one);
+}
+
+#[test]
+fn set_leg_changes_only_that_leg() {
+    let request = plan(&[Profile::Hike, Profile::Mtb, Profile::Car], &[1]);
+    let next = request.set_leg(1, leg(Profile::Manual));
+    assert_eq!(
+        profiles(&next),
+        [Profile::Hike, Profile::Manual, Profile::Car]
+    );
+    assert_eq!(next.waypoints, request.waypoints);
+    assert_eq!(next.stage_ends, request.stage_ends);
+    valid(&next);
+}
+
+#[test]
+fn set_leg_outside_the_route_changes_nothing() {
+    let request = plan(&[Profile::Hike], &[]);
+    assert_eq!(request.set_leg(5, leg(Profile::Manual)), request);
+}
+
+#[test]
+fn append_keeps_order_and_existing_legs() {
+    let one_point = PlanRequest {
+        waypoints: vec![at(0)],
+        legs: Vec::new(),
+        stage_ends: Vec::new(),
+    };
+    let next = one_point.add_waypoint(at(9), leg(Profile::Car));
+    assert_eq!(next.waypoints, [at(0), at(9)]);
+    assert_eq!(profiles(&next), [Profile::Car]);
+
+    let request = plan(&[Profile::Hike, Profile::Mtb], &[1]);
+    let next = request.add_waypoint(at(9), leg(Profile::Car));
+    assert_eq!(next.waypoints, [at(0), at(1), at(2), at(9)]);
+    assert_eq!(profiles(&next), [Profile::Hike, Profile::Mtb, Profile::Car]);
+    assert_eq!(next.stage_ends, [1]);
+}
+
+#[test]
+fn straight_line_only_for_missing_data_or_no_route() {
+    let error = |code: &str| LegError {
+        code: code.to_string(),
+        message: String::new(),
+    };
+    assert!(error("routing_unavailable").can_connect_straight());
+    assert!(error("route_not_found").can_connect_straight());
+    assert!(!error("routing_incompatible").can_connect_straight());
+    assert!(!error("routing").can_connect_straight());
 }

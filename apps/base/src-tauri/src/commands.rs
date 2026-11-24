@@ -2,12 +2,13 @@
 //! the result. Commands are `async` so they run off the UI thread.
 
 use core_app::{
-    App, AppError, PlanRequest, ProfileInfo, RecordingStatus, RegionsOverview, RoutePlan,
-    TrackDetail,
+    App, AppError, KnownPosition, PlanRequest, ProfileInfo, RecordingStatus, RegionsOverview,
+    RoutePlan, RouteStart, SearchResults, TrackDetail,
 };
 use core_gpx::parse_gpx;
 use core_location::{GpsdSource, GpxReplaySource};
 use core_maps::InstalledRegion;
+use core_routing::LatLon;
 use core_storage::{RouteRecord, TrackRecord};
 use core_track::Activity;
 use serde::Serialize;
@@ -69,6 +70,50 @@ pub async fn region_cancel(app: State<'_, App>, id: String) -> CommandResult<()>
 }
 
 // `region_delete` is in `build`: it also removes what a build left behind.
+
+// --- search -----------------------------------------------------------------
+
+#[tauri::command]
+pub async fn search_text(
+    handle: AppHandle,
+    text: String,
+    near: LatLon,
+    radius_m: f64,
+    limit: usize,
+) -> CommandResult<SearchResults> {
+    blocking(handle, move |app| {
+        Ok(app.search(&text, near, radius_m, limit))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn search_category(
+    handle: AppHandle,
+    category: String,
+    near: LatLon,
+    radius_m: f64,
+    limit: usize,
+) -> CommandResult<SearchResults> {
+    blocking(handle, move |app| {
+        app.search_category(&category, near, radius_m, limit)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn route_start_check(
+    app: State<'_, App>,
+    position: Option<KnownPosition>,
+    target: LatLon,
+) -> CommandResult<RouteStart> {
+    Ok(app.route_start(position, target))
+}
+
+#[tauri::command]
+pub async fn route_is_unsaved(app: State<'_, App>, request: PlanRequest) -> CommandResult<bool> {
+    Ok(app.route_is_unsaved(&request))
+}
 
 // --- routes -----------------------------------------------------------------
 
@@ -292,6 +337,15 @@ const SELFTEST_ROUTE_ENV: &str = "OUTDOOR_SELFTEST_ROUTE";
 #[tauri::command]
 pub fn selftest_route() -> Option<String> {
     std::env::var(SELFTEST_ROUTE_ENV).ok()
+}
+
+/// Set to `<text>;<lat>,<lon>` to go through search and "Route hierher" with
+/// real mouse events on start, report and exit (see README).
+const SELFTEST_SEARCH_ENV: &str = "OUTDOOR_SELFTEST_SEARCH";
+
+#[tauri::command]
+pub fn selftest_search() -> Option<String> {
+    std::env::var(SELFTEST_SEARCH_ENV).ok()
 }
 
 /// Replay speed of the recording self-test; 1 records in real time.

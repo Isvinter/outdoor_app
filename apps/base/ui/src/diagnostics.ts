@@ -13,6 +13,8 @@
  *  - OUTDOOR_SELFTEST_ROUTE=<lat>,<lon>;<lat>,<lon>[;…]: plan a hike through
  *    these points with the real controls, save it, report, exit. Together with
  *    OUTDOOR_SNAPSHOT the picture shows the route.
+ *  - OUTDOOR_SELFTEST_SEARCH=<text>;<lat>,<lon>: search around this place and
+ *    go through "Route hierher" with real mouse events, report, exit.
  *  - OUTDOOR_SELFTEST_SHARE=1: switch the home-network share on and off with
  *    real clicks, read the catalog and routes from it, report, exit. Together
  *    with OUTDOOR_SNAPSHOT the picture shows the share controls.
@@ -23,7 +25,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { LngLat, LngLatBounds } from "maplibre-gl";
 import { api, events, type Bbox } from "./api";
 import { t } from "./i18n";
-import type { MapView } from "./map";
+import type { MapCamera, MapView } from "./map";
+import type { RoutePanel } from "./route";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -541,8 +544,394 @@ async function startupProbe(view: MapView): Promise<void> {
   await api.probeReport({ page_ready_ms: Math.round(ready), map_drawn_ms: Math.round(performance.now()) });
 }
 
-export async function runDiagnostics(view: MapView): Promise<void> {
+/** Search and "Route hierher" through the real controls. */
+async function searchSelfTest(view: MapView, panel: RoutePanel, spec: string): Promise<void> {
+  const el = (id: string) => document.getElementById(id) as HTMLElement;
+  const text = (id: string) => el(id).textContent ?? "";
+  const action = (name: string) => document.querySelector<HTMLElement>(`#route-here-actions [data-action="${name}"]`);
+  const report: Record<string, unknown> = {};
+  const realNow = Date.now;
+  try {
+    const [query = "", place = ""] = spec.split(";");
+    const [lat = 0, lon = 0] = place.split(",").map(Number);
+    const centre = { lat, lon };
+    const fixAt = (at: { lat: number; lon: number }, time_ms = realNow()) => ({
+      ...at, ele: null, time_ms, h_accuracy_m: 5, speed_mps: null, course_deg: null,
+    });
+    const waypoints = () => view.waypointPositions();
+    const hits = () => [...document.querySelectorAll<HTMLElement>("#search-results .search-hit")];
+    const type = async (value: string) => {
+      const input = el("search-input") as HTMLInputElement;
+      input.focus();
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      if (value) await until(`hits for ${value}`, () => hits().length > 0);
+    };
+    /** Searches, opens hit `index` and presses "Route hierher"; returns the map position of the hit. */
+    const routeToHit = async (index: number) => {
+      view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+      await type("");
+      await type(query);
+      const hit = hits()[index];
+      if (!hit) throw new Error(`no hit ${index}`);
+      clickElement(hit);
+      await until("result card", () => !el("search-card").hidden);
+      view.map.stop();
+      const target = view.searchPinPosition();
+      if (!target) throw new Error("no pin on the map");
+      await sleep(100);
+      clickElement(el("search-route"));
+      return target;
+    };
+    const clickMap = async (at: { lat: number; lon: number }) => {
+      view.map.jumpTo({ center: [at.lon, at.lat] });
+      await sleep(250);
+      await clickCanvas(at);
+    };
+    const clickCanvas = async (at: { lat: number; lon: number }) => {
+      const canvas = view.map.getCanvas();
+      const box = canvas.getBoundingClientRect();
+      const { x, y } = view.map.project([at.lon, at.lat]);
+      for (const type of ["mousedown", "mouseup", "click"]) {
+        canvas.dispatchEvent(new MouseEvent(type, { clientX: box.left + x, clientY: box.top + y, bubbles: true, button: 0 }));
+      }
+      await sleep(150);
+    };
+    const clearRoute = async () => {
+      if (!(el("route-clear") as HTMLButtonElement).disabled) clickElement(el("route-clear"));
+      await until("route cleared", () => waypoints().length === 0);
+      await sleep(100);
+    };
+    const near = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) =>
+      Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lon - b.lon) < 1e-5;
+    const hereShown = () => !el("route-here").hidden;
+    const nearby = { lat: lat + 0.002, lon: lon + 0.002 };
+
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type(query);
+    const rows = hits();
+    report.hit_count = rows.length;
+    report.found = rows.length > 0;
+    report.category_word_found = rows.some((row) => {
+      const [title, details] = [row.querySelector("span")?.textContent ?? "", row.querySelector("small")?.textContent ?? ""];
+      return !title.toLowerCase().includes(query.toLowerCase()) && details.includes(t("search.category.lodging"));
+    });
+
+    // The hits on the map.
+    const dots = () => view.searchHitPositions();
+    const titles = () => hits().map((row) => row.querySelector("span")?.textContent ?? "");
+    const settled = async () => {
+      await sleep(700);
+      await until("map at rest", () => !view.map.isMoving());
+      await sleep(150);
+    };
+    /** A dot that no other dot covers, so that a click can only mean this one. */
+    const loneDot = () => {
+      const at = dots().map((p) => view.map.project([p.lon, p.lat]));
+      const index = at.findIndex((a, i) => at.every((b, j) => i === j || Math.hypot(a.x - b.x, a.y - b.y) > 16));
+      if (index < 0) throw new Error("no dot stands alone");
+      return index;
+    };
+    const research = async () => {
+      await type("");
+      await type(query);
+      await settled();
+    };
+    report.dots_match_list = rows.length > 0 && dots().length === rows.length;
+    await settled();
+    const shown = view.map.getBounds();
+    report.dots_fit_in_view = dots().every((p) => shown.contains([p.lon, p.lat]));
+    const listed = titles().join("|");
+    await type(`${query} `);
+    await sleep(450);
+    report.typing_keeps_anchor = titles().join("|") === listed;
+    await settled();
+
+    let index = loneDot();
+    let expected = titles()[index];
+    await clickCanvas(dots()[index] as { lat: number; lon: number });
+    await until("card from a dot", () => !el("search-card").hidden);
+    report.dot_click_opens_hit = text("search-card-title") === expected;
+
+    await research();
+    const style = el("map-style") as HTMLSelectElement;
+    const styleBefore = style.value;
+    const count = dots().length;
+    style.value = styleBefore === "winter" ? "topo" : "winter";
+    style.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(400);
+    await until("new style", () => view.map.isStyleLoaded() === true && view.map.getLayer("search-hits") !== undefined);
+    await sleep(400);
+    index = loneDot();
+    expected = titles()[index];
+    await clickCanvas(dots()[index] as { lat: number; lon: number });
+    await until("card after style change", () => !el("search-card").hidden);
+    report.dots_survive_style_change = dots().length === count && text("search-card-title") === expected;
+    style.value = styleBefore;
+    style.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(400);
+    await until("old style", () => view.map.isStyleLoaded() === true && view.map.getLayer("search-hits") !== undefined);
+
+    await research();
+    clickElement(el("route-edit"));
+    await clickCanvas(dots()[loneDot()] as { lat: number; lon: number });
+    await until("waypoint from a click on a dot", () => waypoints().length === 1);
+    report.picking_ignores_dot = el("search-card").hidden;
+    clickElement(el("route-edit"));
+    await clearRoute();
+
+    // "Zurück" from a chosen hit.
+    const sameCamera = (a: MapCamera, b: MapCamera) =>
+      Math.abs(a.center[0] - b.center[0]) < 1e-4 && Math.abs(a.center[1] - b.center[1]) < 1e-4 && Math.abs(a.zoom - b.zoom) < 0.01;
+    const pressBack = async () => {
+      clickElement(el("search-back"));
+      await until("list is back", () => el("search-card").hidden && !el("search-results").hidden);
+      await settled();
+    };
+    const freshOverview = async () => {
+      view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+      await research();
+      return view.camera();
+    };
+    let overview = await freshOverview();
+    const listBefore = titles().join("|");
+    const notesBefore = text("search-notes");
+    const realSearchText = api.searchText;
+    let searches = 0;
+    api.searchText = (...args) => {
+      searches++;
+      return realSearchText(...args);
+    };
+    await clickCanvas(dots()[loneDot()] as { lat: number; lon: number });
+    await until("card", () => !el("search-card").hidden);
+    await settled();
+    await pressBack();
+    api.searchText = realSearchText;
+    report.back_restores_list = titles().join("|") === listBefore && text("search-notes") === notesBefore && dots().length > 0;
+    report.back_restores_camera = sameCamera(view.camera(), overview);
+    report.back_keeps_query = (el("search-input") as HTMLInputElement).value === query && searches === 0;
+
+    // A second hit opened from the first still leads back to the overview.
+    const firstDot = loneDot();
+    await clickCanvas(dots()[firstDot] as { lat: number; lon: number });
+    await until("first card", () => !el("search-card").hidden);
+    await settled();
+    view.map.jumpTo({ center: overview.center, zoom: overview.zoom });
+    await sleep(250);
+    const at = dots().map((p) => view.map.project([p.lon, p.lat]));
+    const secondDot = at.findIndex((a, i) => i !== firstDot && at.every((b, j) => i === j || Math.hypot(a.x - b.x, a.y - b.y) > 16));
+    if (secondDot < 0) throw new Error("no second dot stands alone");
+    const secondTitle = titles()[secondDot];
+    await clickCanvas(dots()[secondDot] as { lat: number; lon: number });
+    await until("second card", () => text("search-card-title") === secondTitle);
+    await settled();
+    await pressBack();
+    report.back_after_two_hits = sameCamera(view.camera(), overview);
+
+    // A hit opened while the map is still fitting leads back to where the fit was heading.
+    overview = await freshOverview();
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await type(query);
+    await until("fit under way", () => view.map.isMoving());
+    clickElement(hits()[0] as HTMLElement);
+    await until("card during fit", () => !el("search-card").hidden);
+    await settled();
+    await pressBack();
+    report.back_during_fit = sameCamera(view.camera(), overview);
+
+    // "Zurück" while the app asks where the route starts.
+    clickElement(hits()[0] as HTMLElement);
+    await until("card before route", () => !el("search-card").hidden);
+    await sleep(100);
+    clickElement(el("search-route"));
+    await until("asked for start", hereShown);
+    await pressBack();
+    report.back_cancels_route_here = !hereShown() && waypoints().length === 0;
+
+    // No route open, no position: straight to choosing the start.
+    const first = await routeToHit(0);
+    await until("asked for start", hereShown);
+    report.new_route_without_prompt = action("new") === null;
+    report.no_position_asks_for_tap = text("route-here-text") === t("route.here.tap");
+    await clickMap(nearby);
+    await until("route of two points", () => waypoints().length === 2);
+    report.tap_is_start = near(waypoints()[0] ?? first, nearby) && near(waypoints()[1] ?? nearby, first);
+    await until("route shown", () => !el("route-result").hidden);
+    report.dots_gone_after_route = dots().length === 0;
+
+    // A route is open and unsaved: choice with warning, appending keeps it.
+    const before = waypoints();
+    const second = await routeToHit(1);
+    await until("choice", () => action("append") !== null);
+    report.choice_warns_when_unsaved = text("route-here-text") === t("route.here.unsaved");
+    clickElement(action("append") as HTMLElement);
+    await until("appended", () => waypoints().length === 3);
+    const after = waypoints();
+    const kept = before.every((point, i) => near(point, after[i] ?? { lat: 0, lon: 0 })) && near(after[2] ?? first, second);
+
+    // Appending to a route of a single point.
+    await clearRoute();
+    clickElement(el("route-edit"));
+    await clickMap(nearby);
+    clickElement(el("route-edit"));
+    await until("one point", () => waypoints().length === 1);
+    const one = await routeToHit(0);
+    await until("choice", () => action("append") !== null);
+    clickElement(action("append") as HTMLElement);
+    await until("appended to one point", () => waypoints().length === 2);
+    report.append_keeps_waypoints = kept && near(waypoints()[0] ?? one, nearby) && near(waypoints()[1] ?? nearby, one);
+
+    // Waiting for a position; a position after "Start selbst wählen" changes nothing.
+    await clearRoute();
+    panel.setSourceStatus({ state: "connecting" });
+    await routeToHit(0);
+    await until("waiting", () => action("choose-start") !== null);
+    report.wait_shows_choose_start = text("route-here-text") === t("route.here.waiting");
+    clickElement(action("choose-start") as HTMLElement);
+    await until("asked for start", () => text("route-here-text") === t("route.here.tap"));
+    panel.setPosition(fixAt(nearby));
+    await sleep(300);
+    report.late_fix_ignored_after_choose = waypoints().length === 0 && text("route-here-text") === t("route.here.tap");
+    clickElement(action("cancel") as HTMLElement);
+
+    // The same after "Abbrechen", with the position above grown old.
+    Date.now = () => realNow() + 200_000;
+    await routeToHit(0);
+    await until("waiting", () => action("choose-start") !== null);
+    clickElement(action("cancel") as HTMLElement);
+    Date.now = realNow;
+    panel.setPosition(fixAt(nearby));
+    await sleep(300);
+    report.late_fix_ignored_after_cancel = waypoints().length === 0 && !hereShown();
+
+    // A replayed fix has an old time stamp but has just arrived.
+    panel.setSourceStatus({ state: "active" });
+    panel.setPosition(fixAt(nearby, 1000));
+    const target = await routeToHit(0);
+    await until("route from the position", () => waypoints().length === 2);
+    report.replay_age_from_receipt = near(waypoints()[0] ?? target, nearby) && near(waypoints()[1] ?? nearby, target);
+    await clearRoute();
+
+    // A start outside every region: no routing data, a straight line on request.
+    panel.setSourceStatus(null);
+    Date.now = () => realNow() + 200_000;
+    await routeToHit(0);
+    await until("asked for start", () => text("route-here-text") === t("route.here.tap"));
+    Date.now = realNow;
+    await clickMap({ lat: lat + 5, lon: lon + 5 });
+    await until("straight line offered", () => !el("route-straight").hidden);
+    report.straight_offered_on_failed_leg = text("route-straight-text") === t("route.straight.no_data");
+    clickElement(el("route-straight-button"));
+    await until("straight line drawn", () => el("route-straight").hidden && !el("route-result").hidden);
+    await until("manual leg", () => text("route-legend").includes(t("route.profile.manual")));
+    report.straight_makes_manual_leg = true;
+    await clearRoute();
+
+    // A slow answer leaves a map the user has dragged in the meantime alone.
+    const realSearchCategory = api.searchCategory;
+    const lodgingButton = () => document.querySelector<HTMLElement>('#search-categories [data-category="lodging"]') as HTMLElement;
+    const dragMap = async () => {
+      const canvas = view.map.getCanvas();
+      const box = canvas.getBoundingClientRect();
+      const [x, y] = [box.left + box.width / 2, box.top + box.height / 2];
+      const mouse = (type: string, dx: number) =>
+        canvas.dispatchEvent(new MouseEvent(type, { clientX: x + dx, clientY: y, bubbles: true, button: 0, buttons: type === "mouseup" ? 0 : 1 }));
+      mouse("mousedown", 0);
+      for (let i = 1; i <= 6; i++) {
+        mouse("mousemove", i * 20);
+        await sleep(30);
+      }
+      await sleep(200);
+      mouse("mouseup", 120);
+      await sleep(300);
+      await until("drag at rest", () => !view.map.isMoving());
+    };
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await sleep(100);
+    api.searchCategory = async (...args) => {
+      await sleep(1500);
+      return realSearchCategory(...args);
+    };
+    clickElement(lodgingButton());
+    await sleep(50);
+    const cameraBeforeDrag = view.camera();
+    await dragMap();
+    const afterDrag = view.camera();
+    await until("slow answer", () => hits().length > 0);
+    await sleep(900);
+    api.searchCategory = realSearchCategory;
+    report.drag_moved_map = !sameCamera(afterDrag, cameraBeforeDrag);
+    report.slow_answer_keeps_drag = sameCamera(view.camera(), afterDrag);
+
+    // A move made by the app, like following the position, starts a new search area.
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await sleep(100);
+    clickElement(lodgingButton());
+    await until("category hits", () => hits().length > 0);
+    await settled();
+    const movedTo = { lat: lat + 0.05, lon };
+    let searchedAt: { lat: number; lon: number } | null = null;
+    api.searchCategory = (category, around, radiusM, limit) => {
+      searchedAt = around;
+      return realSearchCategory(category, around, radiusM, limit);
+    };
+    view.map.jumpTo({ center: [movedTo.lon, movedTo.lat] });
+    await sleep(200);
+    clickElement(lodgingButton());
+    await until("search after the move", () => searchedAt !== null);
+    api.searchCategory = realSearchCategory;
+    report.app_move_starts_new_area = near(searchedAt ?? centre, movedTo);
+    await settled();
+
+    // After a route from a category the quick choices are there again.
+    view.map.jumpTo({ center: [centre.lon, centre.lat], zoom: 14 });
+    await type("");
+    await sleep(100);
+    clickElement(lodgingButton());
+    await until("category hits", () => hits().length > 0);
+    Date.now = () => realNow() + 200_000;
+    clickElement(hits()[0] as HTMLElement);
+    await until("card", () => !el("search-card").hidden);
+    await sleep(100);
+    clickElement(el("search-route"));
+    await until("asked for start", () => text("route-here-text") === t("route.here.tap"));
+    Date.now = realNow;
+    await clickMap(nearby);
+    await until("route of two points", () => waypoints().length === 2);
+    await until("card closed", () => el("search-card").hidden === true);
+    report.categories_back_after_route = !el("search-categories").hidden && lodgingButton().getAttribute("aria-pressed") === "false";
+    await clearRoute();
+
+    report.layout_problems = layoutProblems();
+    report.ok = [
+      "found", "category_word_found", "new_route_without_prompt", "no_position_asks_for_tap", "tap_is_start",
+      "choice_warns_when_unsaved", "append_keeps_waypoints", "wait_shows_choose_start",
+      "late_fix_ignored_after_choose", "late_fix_ignored_after_cancel", "replay_age_from_receipt",
+      "straight_offered_on_failed_leg", "straight_makes_manual_leg",
+      "dots_match_list", "dots_fit_in_view", "typing_keeps_anchor", "dot_click_opens_hit",
+      "dots_survive_style_change", "picking_ignores_dot", "dots_gone_after_route",
+      "back_restores_list", "back_restores_camera", "back_keeps_query", "back_after_two_hits",
+      "back_during_fit", "back_cancels_route_here", "drag_moved_map", "slow_answer_keeps_drag",
+      "app_move_starts_new_area", "categories_back_after_route",
+    ].every((key) => report[key] === true);
+  } catch (e) {
+    report.ok = false;
+    report.error = String(e);
+    report.message = text("message");
+    report.route_here = text("route-here-text");
+  } finally {
+    Date.now = realNow;
+  }
+  await api.probeReport(report);
+}
+
+export async function runDiagnostics(view: MapView, routePanel: RoutePanel): Promise<void> {
   if (await invoke<boolean>("startup_probe")) await startupProbe(view);
+  const search = await invoke<string | null>("selftest_search");
+  if (search) return searchSelfTest(view, routePanel, search);
   const shot = await api.snapshotRequest();
   if (await invoke<boolean>("selftest_share")) return shareSelfTest(shot !== null);
   const route = await invoke<string | null>("selftest_route");

@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// Centres the map on the own position.
+/// Switches the own position on and centres the map on it, or switches it off.
 struct LocationButton: View {
     /// How uncertain the position is, in metres; shown beside the button.
     let accuracy: Double?
+    /// The position is shown and the GPS runs.
+    let on: Bool
     let action: () -> Void
 
     var body: some View {
@@ -31,12 +33,13 @@ struct LocationButton: View {
 
     private var button: some View {
         Button(action: action) {
-            Image(systemName: "location.fill")
+            Image(systemName: on ? "location.fill" : "location")
                 .font(.title3)
                 .frame(width: 48, height: 48)
                 .panelBackground(in: Circle())
         }
         .accessibilityIdentifier("center-location")
-        .accessibilityLabel("Position zentrieren")
+        .accessibilityLabel(on ? "Position ausschalten" : "Position zeigen")
+        .accessibilityValue(on ? "an" : "aus")
     }
 }

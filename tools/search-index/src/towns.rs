@@ -16,6 +16,18 @@ pub enum Rank {
     Part,
 }
 
+impl Rank {
+    /// How the size of a place is stored in the search file.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Rank::City => "city",
+            Rank::Town => "town",
+            Rank::Village => "village",
+            Rank::Part => "part",
+        }
+    }
+}
+
 struct Town {
     /// The display name first, then the alternative names.
     names: Vec<String>,

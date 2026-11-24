@@ -5,15 +5,34 @@ struct MapScreen: View {
     @ObservedObject var controller: MapController
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
+    @ObservedObject var search: SearchController
+    @ObservedObject var routeHere: RouteHereFlow
     let start: AppStart.Ready
     @State private var detent = PlanSheet.collapsed
+
+    /// The search takes the room of the toolbar while it shows more than its field.
+    private var searchIsOpen: Bool {
+        search.open || search.results != nil || search.selected != nil || routeHere.step != .idle
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
             MapView(controller: controller)
                 .ignoresSafeArea()
             VStack(spacing: 8) {
-                MapToolbar(controller: controller)
+                SearchBar(search: search, flow: routeHere)
+                    .background(GeometryReader { geometry in
+                        let bottom = geometry.frame(in: .global).maxY
+                        Color.clear
+                            .onAppear { search.topInset = Double(bottom) }
+                            .onChange(of: bottom) { search.topInset = Double($0) }
+                    })
+                if !searchIsOpen {
+                    MapToolbar(controller: controller)
+                }
+                if let leg = plan.straightLineLeg {
+                    StraightLineOffer(plan: plan, leg: leg)
+                }
                 if regions.installed.isEmpty {
                     NoRegionHint { regions.showing = true }
                 }
@@ -40,7 +59,7 @@ struct MapScreen: View {
                 }
             }
             .padding()
-            LocationButton(accuracy: controller.locationAccuracy) { controller.centreOnLocation() }
+            LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) { controller.toggleLocation() }
                 .padding(.trailing, 12)
                 // Above the collapsed sheet.
                 .padding(.bottom, 108)
@@ -48,6 +67,13 @@ struct MapScreen: View {
             if start.options.selftest {
                 SelfTestStatus(controller: controller, plan: plan, regions: regions, start: start)
             }
+        }
+        // The hits and the chosen one must not end up behind a raised sheet.
+        .onChange(of: searchIsOpen) { open in
+            if open { detent = PlanSheet.collapsed }
+        }
+        .onChange(of: search.selected) { selected in
+            if selected != nil { detent = PlanSheet.collapsed }
         }
         // Always there, like the sheet of Apple Maps; the map stays usable beside it.
         .sheet(isPresented: .constant(true)) {
@@ -59,6 +85,26 @@ struct MapScreen: View {
                 .preferredColorScheme(controller.dark ? .dark : .light)
         }
         .preferredColorScheme(controller.dark ? .dark : .light)
+    }
+}
+
+/// A leg without a route can be joined by a straight line, but only on request.
+private struct StraightLineOffer: View {
+    @ObservedObject var plan: PlanController
+    let leg: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(plan.straightLineText(leg: leg))
+                .font(.callout)
+                .accessibilityIdentifier("route-straight-text")
+            Button("Als gerade Linie verbinden") { plan.connectStraight(leg: leg) }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("route-straight")
+        }
+        .padding(12)
+        .frame(maxWidth: 480, alignment: .leading)
+        .panelBackground(in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

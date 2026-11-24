@@ -5,10 +5,12 @@
 
 mod normalize;
 mod read;
+mod words;
 mod write;
 
 pub use normalize::{index_terms, normalize};
-pub use read::SearchIndex;
+pub use read::{SearchIndex, haversine_m};
+pub use words::{category_for_word, query_words};
 pub use write::SearchWriter;
 
 /// Version of the file layout, stored in the `meta` table.
@@ -35,6 +37,16 @@ pub enum Category {
 }
 
 impl Kind {
+    /// The name the apps know the kind by.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Place => "place",
+            Kind::Street => "street",
+            Kind::Poi => "poi",
+        }
+    }
+
     pub(crate) fn code(self) -> i64 {
         match self {
             Kind::Place => 0,
@@ -54,6 +66,40 @@ impl Kind {
 }
 
 impl Category {
+    const ALL: [Category; 9] = [
+        Category::Fuel,
+        Category::Groceries,
+        Category::Food,
+        Category::Pharmacy,
+        Category::Lodging,
+        Category::Camping,
+        Category::Parking,
+        Category::Retail,
+        Category::Sights,
+    ];
+
+    /// The name the apps know the category by.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Category::Fuel => "fuel",
+            Category::Groceries => "groceries",
+            Category::Food => "food",
+            Category::Pharmacy => "pharmacy",
+            Category::Lodging => "lodging",
+            Category::Camping => "camping",
+            Category::Parking => "parking",
+            Category::Retail => "retail",
+            Category::Sights => "sights",
+        }
+    }
+
+    /// The category of a name from [`Category::as_str`].
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.as_str() == text)
+    }
+
     pub(crate) fn code(self) -> i64 {
         match self {
             Category::Fuel => 0,
@@ -113,6 +159,9 @@ pub struct Hit {
     pub lon: f64,
     /// Metres from the `near` point, when one was given.
     pub distance_m: Option<f64>,
+    /// Lower comes first: 0 city, 1 town, 2 village, 3 part of a place, 4 place
+    /// of unknown size, each having all query words as whole words; 5 the rest.
+    pub match_rank: u8,
 }
 
 #[derive(Debug, thiserror::Error)]
