@@ -58,6 +58,10 @@ pub struct RouteLine {
 /// Metres per degree of latitude on the mean Earth sphere.
 const M_PER_DEG: f64 = core_track::geo::EARTH_RADIUS_M * std::f64::consts::PI / 180.0;
 
+/// Offsets this close to the nearest one count as equally near in
+/// [`RouteLine::project_near`].
+pub const TIE_M: f64 = 1.0;
+
 impl RouteLine {
     /// The line of all legs of `plan`, in order. A failed leg gets a straight
     /// stand-in between its waypoints.
@@ -139,11 +143,51 @@ impl RouteLine {
         self.segment_leg.push(leg);
     }
 
+    /// A line of one routed leg along `points`, such as a way back.
+    #[must_use]
+    pub(crate) fn from_points(points: &[LatLon], spec: LegSpec, time_s: Option<f64>) -> RouteLine {
+        let mut line = RouteLine {
+            points: Vec::with_capacity(points.len()),
+            cum_m: Vec::with_capacity(points.len()),
+            segment_leg: Vec::new(),
+            legs: Vec::new(),
+            waypoint_m: Vec::new(),
+            stage_end_m: Vec::new(),
+            length_m: 0.0,
+        };
+        for &point in points {
+            line.push(point, 0);
+        }
+        line.legs.push(LegSpan {
+            from_m: 0.0,
+            to_m: line.length_m,
+            kind: LegKind::Routed,
+            spec,
+            time_s,
+        });
+        line.waypoint_m = vec![0.0, line.length_m];
+        line
+    }
+
     /// The nearest point of the line to `p`; `window` limits the search to
     /// `along_m` in `[from, to]`. Segments partly in the window count with
     /// their part inside it. `None` if no part of the line is in the window.
     #[must_use]
     pub fn project(&self, p: LatLon, window: Option<(f64, f64)>) -> Option<Projection> {
+        self.project_near(p, window, None)
+    }
+
+    /// Like [`RouteLine::project`], but among points whose offsets lie within
+    /// [`TIE_M`] of the nearest one, the one closest to `hint_m` along the
+    /// line wins. On a road taken out and back, this keeps the progress on
+    /// the way it is on, also right after the turnaround.
+    #[must_use]
+    pub fn project_near(
+        &self,
+        p: LatLon,
+        window: Option<(f64, f64)>,
+        hint_m: Option<f64>,
+    ) -> Option<Projection> {
         let (lo, hi) = window.unwrap_or((f64::NEG_INFINITY, f64::INFINITY));
         if lo > hi {
             return None;
@@ -164,11 +208,10 @@ impl RouteLine {
             });
         }
 
-        let mut best: Option<Projection> = None;
-        for (i, ends) in self.points.windows(2).enumerate() {
+        let candidates = self.points.windows(2).enumerate().filter_map(|(i, ends)| {
             let (start_m, end_m) = (self.cum_m[i], self.cum_m[i + 1]);
             if end_m < lo || start_m > hi {
-                continue;
+                return None;
             }
             let seg_m = end_m - start_m;
             let (t_lo, t_hi) = if seg_m > 0.0 {
@@ -189,16 +232,31 @@ impl RouteLine {
                 0.0
             };
             let t = t.clamp(t_lo, t_hi);
-            let offset_m = (ax + t * dx).hypot(ay + t * dy);
-            if best.is_none_or(|b| offset_m < b.offset_m) {
-                best = Some(Projection {
-                    along_m: (start_m + t * seg_m).clamp(lo, hi),
-                    offset_m,
-                    leg: self.segment_leg[i],
-                });
-            }
-        }
-        best
+            Some(Projection {
+                along_m: (start_m + t * seg_m).clamp(lo, hi),
+                offset_m: (ax + t * dx).hypot(ay + t * dy),
+                leg: self.segment_leg[i],
+            })
+        });
+
+        let Some(hint_m) = hint_m else {
+            return candidates.reduce(|best, c| if c.offset_m < best.offset_m { c } else { best });
+        };
+        let candidates: Vec<Projection> = candidates.collect();
+        let nearest_m = candidates
+            .iter()
+            .map(|c| c.offset_m)
+            .fold(f64::INFINITY, f64::min);
+        candidates
+            .into_iter()
+            .filter(|c| c.offset_m <= nearest_m + TIE_M)
+            .reduce(|best, c| {
+                if (c.along_m - hint_m).abs() < (best.along_m - hint_m).abs() {
+                    c
+                } else {
+                    best
+                }
+            })
     }
 
     /// The point `along_m` from the start, clamped to the line. An empty
@@ -236,11 +294,11 @@ impl RouteLine {
     /// line and both included. Empty if `to_m` comes before `from_m`.
     #[must_use]
     pub fn line_between(&self, from_m: f64, to_m: f64) -> Vec<LatLon> {
-        let from_m = from_m.clamp(0.0, self.length_m);
-        let to_m = to_m.clamp(0.0, self.length_m);
         if to_m < from_m || self.points.is_empty() {
             return Vec::new();
         }
+        let from_m = from_m.clamp(0.0, self.length_m);
+        let to_m = to_m.clamp(0.0, self.length_m);
         let mut part = vec![self.point_at(from_m)];
         part.extend(
             self.points
@@ -256,115 +314,8 @@ impl RouteLine {
 
 #[cfg(test)]
 mod tests {
-    use core_routing::RouteOptions;
-
     use super::*;
-    use crate::plan::{Leg, LegError, PLAN_FORMAT, PlanRequest, Totals};
-
-    const SYLVENSTEIN: &str = include_str!("../../../../fixtures/gpx/real/tour_sylvensteinsee.gpx");
-    const OBERGRIES: &str =
-        include_str!("../../../../fixtures/gpx/real/von Rottach-Egern nach Obergries.gpx");
-
-    fn track_points(gpx: &str) -> Vec<LatLon> {
-        let doc = core_gpx::parse_gpx(gpx).unwrap();
-        doc.tracks
-            .iter()
-            .flat_map(|t| &t.segments)
-            .flat_map(|s| &s.points)
-            .map(|p| LatLon {
-                lat: p.lat,
-                lon: p.lon,
-            })
-            .collect()
-    }
-
-    fn line_length(line: &[LatLon]) -> f64 {
-        line.windows(2).map(|w| w[0].distance_m(&w[1])).sum()
-    }
-
-    fn leg(profile: Profile, line: Vec<LatLon>) -> Leg {
-        Leg {
-            profile,
-            options: RouteOptions::default(),
-            distance_m: line_length(&line),
-            line,
-            duration_s: None,
-            ascent_m: None,
-            descent_m: None,
-            time_s: Some(60.0),
-            region: None,
-            max_mtb_scale: None,
-            error: None,
-        }
-    }
-
-    fn failed_leg() -> Leg {
-        Leg {
-            error: Some(LegError {
-                code: "route_not_found".into(),
-                message: "no way".into(),
-            }),
-            time_s: None,
-            ..leg(Profile::Hike, Vec::new())
-        }
-    }
-
-    /// A plan of `legs` between `waypoints`, without stages or totals.
-    fn plan(waypoints: Vec<LatLon>, legs: Vec<Leg>, stage_ends: Vec<usize>) -> RoutePlan {
-        RoutePlan {
-            format: PLAN_FORMAT,
-            request: PlanRequest {
-                waypoints,
-                legs: legs
-                    .iter()
-                    .map(|l| LegSpec {
-                        profile: l.profile,
-                        options: l.options,
-                    })
-                    .collect(),
-                stage_ends,
-            },
-            legs,
-            elevation: Vec::new(),
-            stages: Vec::new(),
-            total: Totals {
-                distance_m: 0.0,
-                ascent_m: None,
-                descent_m: None,
-                time_s: None,
-                min_ele_m: None,
-                max_ele_m: None,
-                failed_legs: 0,
-            },
-        }
-    }
-
-    /// A plan whose legs follow `points`, split at `cuts`.
-    fn plan_along(points: &[LatLon], cuts: &[usize], stage_ends: Vec<usize>) -> RoutePlan {
-        let mut bounds = vec![0];
-        bounds.extend_from_slice(cuts);
-        bounds.push(points.len() - 1);
-        let waypoints = bounds.iter().map(|&i| points[i]).collect();
-        let legs = bounds
-            .windows(2)
-            .map(|b| leg(Profile::Hike, points[b[0]..=b[1]].to_vec()))
-            .collect();
-        plan(waypoints, legs, stage_ends)
-    }
-
-    fn north(p: LatLon, m: f64) -> LatLon {
-        LatLon {
-            lat: p.lat + m / M_PER_DEG,
-            lon: p.lon,
-        }
-    }
-
-    fn east(p: LatLon, m: f64) -> LatLon {
-        LatLon {
-            lat: p.lat,
-            lon: p.lon + m / (M_PER_DEG * p.lat.to_radians().cos()),
-        }
-    }
+    use crate::guide::testing::*;
 
     #[test]
     fn from_plan_places_waypoints_and_stage_ends() {
@@ -529,5 +480,51 @@ mod tests {
         assert!(part[0].distance_m(&east(a, 500.0)) < 1.0);
         assert_eq!(part[1], b);
         assert!(part[2].distance_m(&north(b, 500.0)) < 1.0);
+    }
+
+    #[test]
+    fn line_between_is_empty_when_reversed_beyond_the_end() {
+        let a = LatLon {
+            lat: 47.6,
+            lon: 11.7,
+        };
+        let line = RouteLine::from_plan(&plan(
+            vec![a, east(a, 1000.0)],
+            vec![leg(Profile::Hike, vec![a, east(a, 1000.0)])],
+            Vec::new(),
+        ));
+        assert!(line.line_between(5000.0, 2000.0).is_empty());
+        assert!(line.line_between(-5.0, -10.0).is_empty());
+        assert_eq!(line.line_between(-10.0, -5.0).len(), 2);
+    }
+
+    #[test]
+    fn project_near_prefers_the_hint_on_a_tie() {
+        let out = track_points(OBERGRIES);
+        let back: Vec<LatLon> = out.iter().rev().copied().collect();
+        let (start, end) = (out[0], out[out.len() - 1]);
+        let line = RouteLine::from_plan(&plan(
+            vec![start, end, start],
+            vec![leg(Profile::Hike, out.clone()), leg(Profile::Hike, back)],
+            Vec::new(),
+        ));
+        let turn_m = line.waypoint_m[1];
+        let p = out[out.len() - 5];
+        let out_m = line.project(p, None).unwrap().along_m;
+        assert!(out_m < turn_m);
+        let back_m = 2.0 * turn_m - out_m;
+
+        let near_back = line.project_near(p, None, Some(back_m)).unwrap();
+        assert!((near_back.along_m - back_m).abs() < 1.0, "{near_back:?}");
+        let near_out = line.project_near(p, None, Some(out_m)).unwrap();
+        assert!((near_out.along_m - out_m).abs() < 1.0, "{near_out:?}");
+        // Without a hint, the nearest point still wins outright.
+        let beside = north(p, 30.0);
+        assert_eq!(
+            line.project_near(beside, None, Some(back_m))
+                .unwrap()
+                .offset_m,
+            line.project(beside, None).unwrap().offset_m
+        );
     }
 }
