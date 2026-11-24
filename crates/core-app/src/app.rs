@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::AppError;
+use crate::guide::{ActiveGuide, GuideStatus};
 
 /// Recording updates are sent to the listener at most this often.
 const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
@@ -76,6 +78,9 @@ pub trait AppListener: Send + Sync {
     fn on_error(&self, message: &str);
     /// Download progress of a map region.
     fn on_region_progress(&self, _progress: &core_maps::Progress) {}
+    /// Guidance along the planned route: its status on start and whenever a
+    /// fix changes it; `None` when it ends.
+    fn on_guidance(&self, _status: Option<&GuideStatus>) {}
 }
 
 /// The application. One instance per database.
@@ -91,11 +96,18 @@ pub(crate) struct Shared {
     /// waiting for `inner` to deliver a fix.
     source: Mutex<Option<Box<dyn LocationSource>>>,
     pub(crate) listener: Arc<dyn AppListener>,
+    /// Guidance along the planned route; see `guide/app.rs` for the locking.
+    pub(crate) guide: Mutex<Option<ActiveGuide>>,
+    /// Held while a fix is taken in by the guide, so that fixes are taken in
+    /// one after the other; `guide` stays free meanwhile.
+    pub(crate) guide_turn: Mutex<()>,
+    /// Numbers the guides started; a fix taken in by an older one is dropped.
+    pub(crate) guide_generation: AtomicU64,
 }
 
 pub(crate) struct Inner {
     pub(crate) storage: Storage,
-    last_fix: Option<Fix>,
+    pub(crate) last_fix: Option<Fix>,
     recording: Option<ActiveRecording>,
 }
 
@@ -186,10 +198,16 @@ impl Shared {
         if let Some(message) = error {
             self.listener.on_error(&message);
         }
+        self.guide_fix(&fix);
     }
 }
 
 impl Inner {
+    /// The track being recorded, if any.
+    pub(crate) fn recording_track(&self) -> Option<Uuid> {
+        self.recording.as_ref().map(|rec| rec.track_id)
+    }
+
     /// Adds a fix to the active recording. Returns a status if one is due.
     fn record(&mut self, fix: Fix) -> Result<Option<RecordingStatus>, AppError> {
         let Some(rec) = &mut self.recording else {
@@ -280,6 +298,9 @@ impl App {
                 routing: crate::routes::Routing::default(),
                 source: Mutex::new(None),
                 listener,
+                guide: Mutex::new(None),
+                guide_turn: Mutex::new(()),
+                guide_generation: AtomicU64::new(0),
             }),
         })
     }
@@ -346,6 +367,9 @@ impl App {
             rec.status()
         };
         self.shared.listener.on_recording(&status);
+        if let Some(track) = status.track_id {
+            self.shared.guide_recording(track);
+        }
         Ok(status)
     }
 
@@ -455,6 +479,9 @@ impl App {
             rec.status()
         };
         self.shared.listener.on_recording(&status);
+        if let Some(track) = status.track_id {
+            self.shared.guide_recording(track);
+        }
         Ok(status)
     }
 

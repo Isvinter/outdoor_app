@@ -127,15 +127,22 @@ impl Routing {
     }
 
     /// Keeps the result of the plan begun as `generation`, unless a newer plan
-    /// was begun or the planned route was replaced since.
-    pub(crate) fn finish_plan(&self, generation: u64, plan: RoutePlan) {
+    /// was begun or the planned route was replaced since. True if it was
+    /// kept: the planned route changed, and the caller tells the guide
+    /// ([`Shared::plan_changed`](crate::app::Shared::plan_changed)).
+    #[must_use]
+    pub(crate) fn finish_plan(&self, generation: u64, plan: RoutePlan) -> bool {
         let mut planned = self.planned();
-        if self.generation.load(Ordering::SeqCst) == generation {
+        let current = self.generation.load(Ordering::SeqCst) == generation;
+        if current {
             *planned = Some(plan);
         }
+        current
     }
 
     /// Replaces the planned route; plans still being computed no longer count.
+    /// The caller tells the guide of the change
+    /// ([`Shared::plan_changed`](crate::app::Shared::plan_changed)).
     pub(crate) fn set_planned(&self, plan: Option<RoutePlan>) {
         let mut planned = self.planned();
         self.generation.fetch_add(1, Ordering::SeqCst);
@@ -319,6 +326,7 @@ impl App {
     /// route it belongs to stays: "save" still overwrites it.
     pub fn clear_planned_route(&self) {
         self.shared.routing.set_planned(None);
+        self.shared.plan_changed();
     }
 
     /// Starts afresh: no planned route, and "save" stores a new one.
@@ -469,6 +477,7 @@ impl App {
         let plan = self.load_plan(id)?;
         self.shared.routing.set_planned(Some(plan.clone()));
         *self.shared.routing.loaded() = Some(id);
+        self.shared.plan_changed();
         Ok(plan)
     }
 

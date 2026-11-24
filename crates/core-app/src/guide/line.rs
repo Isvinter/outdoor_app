@@ -127,6 +127,12 @@ impl RouteLine {
         line
     }
 
+    /// Whether the line has no point at all (a plan without waypoints).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty()
+    }
+
     /// Appends `point` as part of leg `leg`; a repeated point is left out.
     fn push(&mut self, point: LatLon, leg: usize) {
         let Some(&last) = self.points.last() else {
