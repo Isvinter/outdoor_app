@@ -33,6 +33,9 @@ struct MapScreen: View {
                 if !searchIsOpen {
                     MapToolbar(controller: controller)
                 }
+                if let point = routeHere.point {
+                    MapPointCard(flow: routeHere, at: point, from: controller.location.last)
+                }
                 LocationBlockedNotice(location: controller.location)
                 GuideBar(guide: guide)
                 if let message = guide.message {

@@ -16,6 +16,8 @@ private final class FakeHost: RouteHereHost {
     var stops = 0
     var pickingStopped = 0
     var acceptsRoute = true
+    /// As the planning does: a changed route tells the flow at once.
+    weak var flow: RouteHereFlow?
 
     func routeIsUnsaved() async -> Bool { unsaved }
 
@@ -26,12 +28,14 @@ private final class FakeHost: RouteHereHost {
     func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool {
         guard acceptsRoute else { return false }
         started.append((from, to))
+        flow?.routeChanged()
         return true
     }
 
     func appendTarget(_ to: CLLocationCoordinate2D) -> Bool {
         guard acceptsRoute else { return false }
         appended.append(to)
+        flow?.routeChanged()
         return true
     }
 
@@ -283,5 +287,93 @@ final class RouteHereFlowTests: XCTestCase {
         await settle()
         XCTAssertEqual(flow.step, .idle)
         XCTAssertEqual(host.requests, 0)
+    }
+
+    // MARK: A tapped place
+
+    func testTappedPointIsOfferedAndDismissed() {
+        let flow = RouteHereFlow(host: FakeHost())
+        var marks: [CLLocationCoordinate2D?] = []
+        flow.onPoint = { marks.append($0) }
+        flow.offerPoint(target)
+        XCTAssertEqual(flow.point?.latitude, target.latitude)
+        flow.dismissPoint()
+        XCTAssertNil(flow.point)
+        XCTAssertEqual(marks.count, 2)
+        XCTAssertNil(marks[1] as CLLocationCoordinate2D?)
+    }
+
+    /// "Route hierher" on a tapped place goes as for a search hit.
+    func testRouteToPointAsksForTheStart() async {
+        let host = FakeHost()
+        host.start = .ready
+        host.lastPosition = fix
+        let flow = RouteHereFlow(host: host)
+        var guided = 0
+        flow.onGuide = { guided += 1 }
+        flow.offerPoint(target)
+        flow.routeToPoint()
+        XCTAssertNil(flow.point)
+        XCTAssertEqual(flow.step, choice)
+        flow.chooseMyPosition()
+        await wait("route started") { host.started.count == 1 }
+        XCTAssertEqual(guided, 0)
+    }
+
+    /// "Hierher führen" starts from the own position without asking, then guides.
+    func testGuideToPointStartsFromThePosition() async {
+        let host = FakeHost()
+        host.start = .ready
+        host.lastPosition = fix
+        let flow = RouteHereFlow(host: host)
+        host.flow = flow
+        var done = 0
+        var guided = 0
+        flow.onDone = { done += 1 }
+        flow.onGuide = { guided += 1 }
+        flow.offerPoint(target)
+        flow.guideToPoint()
+        await wait("route started") { host.started.count == 1 }
+        XCTAssertEqual(host.started[0].0.latitude, fix.coordinate.latitude)
+        XCTAssertEqual(host.started[0].1.latitude, target.latitude)
+        XCTAssertEqual(done, 1)
+        XCTAssertEqual(guided, 1)
+        XCTAssertEqual(flow.step, .idle)
+    }
+
+    /// With a route open, "Hierher führen" asks first; "Neue Route" then starts from the position.
+    func testGuideToPointWithRouteAsksFirst() async {
+        let host = FakeHost()
+        host.hasRoute = true
+        host.start = .ready
+        host.lastPosition = fix
+        let flow = RouteHereFlow(host: host)
+        host.flow = flow
+        var guided = 0
+        flow.onGuide = { guided += 1 }
+        flow.offerPoint(target)
+        flow.guideToPoint()
+        await wait("asked") { flow.step == .choosing(unsaved: true) }
+        flow.chooseNewRoute()
+        await wait("route started") { host.started.count == 1 }
+        XCTAssertEqual(guided, 1)
+    }
+
+    /// Cancelled, a later route asks no more for the guidance.
+    func testCancelForgetsTheGuidance() async {
+        let host = FakeHost()
+        host.hasRoute = true
+        let flow = RouteHereFlow(host: host)
+        var guided = 0
+        flow.onGuide = { guided += 1 }
+        flow.offerPoint(target)
+        flow.guideToPoint()
+        await wait("asked") { flow.step != .idle }
+        flow.cancel()
+        flow.begin(target: target)
+        await wait("asked") { flow.step != .idle }
+        flow.chooseAppend()
+        XCTAssertEqual(host.appended.count, 1)
+        XCTAssertEqual(guided, 0)
     }
 }

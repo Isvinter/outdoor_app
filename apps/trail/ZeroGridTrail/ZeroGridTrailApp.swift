@@ -74,9 +74,17 @@ private struct RootView: View {
             // A tap first answers "where does the route start", then sets a waypoint, then opens a dot.
             plan.interceptTap = { [weak routeHere] at in routeHere?.tapped(at) ?? false }
             plan.onRouteChanged = { [weak routeHere] in routeHere?.routeChanged() }
-            plan.onFreeTap = { [weak search, weak map] at in
-                if let index = map?.searchOverlay.dot(at: at) { search?.tappedDot(index) }
+            // Away from search hits, with a known position, a tap offers a route to the place.
+            plan.onFreeTap = { [weak search, weak map, weak routeHere, weak location] at in
+                if let index = map?.searchOverlay.dot(at: at) {
+                    search?.tappedDot(index)
+                } else if location?.knowsPosition == true, search?.selected == nil {
+                    routeHere?.offerPoint(at)
+                } else {
+                    routeHere?.dismissPoint()
+                }
             }
+            routeHere.onPoint = { [weak map] at in map?.route.showCursor(at) }
             let recording = RecordingController(
                 core: start.host.core, location: location, changes: start.host.recordingChanges, overlay: map.tracks)
             let tracks = TracksController(
@@ -85,6 +93,9 @@ private struct RootView: View {
                 core: start.host.core, location: location, changes: start.host.guidanceChanges, overlay: map.guide,
                 camera: map)
             tracks.onOpen = { [weak guide] in guide?.following = false }
+            routeHere.onGuide = { [weak plan, weak guide] in
+                plan?.whenPlanned { guide?.startIfIdle() }
+            }
             recording.onTracksChanged = { [weak tracks] in tracks?.refresh() }
             let alert = DeviationAlert(center: UNUserNotificationCenter.current(), haptics: SystemHaptics())
             guide.onFirstStart = { alert.requestPermission() }

@@ -55,4 +55,47 @@ final class GuideUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["guide-bar"].waitForNonExistence(timeout: 5))
         app.waitForStatus("guidance off") { $0.values["guide"] == "off" }
     }
+
+    /// With the position known, a tap on the map offers a route there; "Hierher führen" also starts the guidance.
+    func testTapOnMapGuidesThere() throws {
+        guard let package = ProcessInfo.processInfo.environment["ISARWINKEL_PACKAGE"], !package.isEmpty else {
+            throw XCTSkip("ISARWINKEL_PACKAGE is not set")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-selftest", "-resetData", "-importFixture", package,
+            "-startCenter", "47.6803,11.5741", "-startZoom", "15",
+        ]
+        let bundle = Bundle(for: GuideUITests.self)
+        if let track = bundle.url(forResource: "isarwinkel-deviation", withExtension: "gpx", subdirectory: "replay") {
+            app.launchArguments += ["-replayGPX", track.path]
+        }
+        app.launch()
+        app.waitForStatus("map rendered", timeout: 90) { $0.rendered }
+
+        // Without a position a tap offers nothing.
+        let map = app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45))
+        map.tap()
+        XCTAssertFalse(app.otherElements["map-point"].waitForExistence(timeout: 2))
+
+        app.buttons["center-location"].tap()
+        XCTAssertTrue(app.staticTexts["location-accuracy"].waitForExistence(timeout: 20))
+        map.tap()
+        let card = app.otherElements["map-point"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        app.buttons["point-close"].tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 5))
+
+        map.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        app.buttons["point-guide-here"].tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 5))
+        app.waitForStatus("route planned", timeout: 90) {
+            $0.int("waypoints") == 2 && $0.int("planning") == 0 && $0.int("distance_m") > 0
+        }
+        XCTAssertTrue(
+            app.otherElements["guide-bar"].waitForExistence(timeout: 10),
+            "\(app.mapStatus.values) \(app.staticTexts.allElementsBoundByIndex.map(\.label))")
+        XCTAssertEqual(app.buttons["guide-toggle"].value as? String, "an")
+    }
 }

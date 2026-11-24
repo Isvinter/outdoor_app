@@ -129,6 +129,11 @@ final class GuideController: ObservableObject {
         }
     }
 
+    /// Starts the guidance along the planned route, unless it runs.
+    func startIfIdle() {
+        if !active { start { try $0.startGuidance() } }
+    }
+
     /// "Ab hier führen": the guidance starts at waypoint `index` (from 0).
     func startFromWaypoint(_ index: Int) {
         start { try $0.guideFromWaypoint(index: UInt32(index)) }

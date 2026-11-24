@@ -40,8 +40,14 @@ protocol RouteHereHost: AnyObject {
 @MainActor
 final class RouteHereFlow: ObservableObject {
     @Published private(set) var step = RouteHereStep.idle
+    /// A place tapped on the map, offered as a target while the position is known.
+    @Published private(set) var point: CLLocationCoordinate2D?
     /// A route to the target is on the map.
     var onDone: (() -> Void)?
+    /// The route was asked for by "Hierher führen": the guidance should start once it is computed.
+    var onGuide: (() -> Void)?
+    /// The tapped place to mark on the map, or nil to take the mark away.
+    var onPoint: ((CLLocationCoordinate2D?) -> Void)?
 
     private let host: RouteHereHost
     private let positionWait: Double
@@ -50,19 +56,27 @@ final class RouteHereFlow: ObservableObject {
     private var run = 0
     private var waitTask: Task<Void, Never>?
     private var requesting = false
+    /// "Hierher führen": the route starts at the own position without asking, and the guidance follows.
+    private var guiding = false
 
     init(host: RouteHereHost, positionWait: Double = 30) {
         self.host = host
         self.positionWait = positionWait
     }
 
-    func begin(target: CLLocationCoordinate2D) {
+    func begin(target: CLLocationCoordinate2D, guide: Bool = false) {
         guard !host.isReplacingRoute else { return }
+        dismissPoint()
         cancel()
         self.target = target
+        guiding = guide
         let number = run
         guard host.hasRoute else {
-            askForStart(otherMap: false, offersPosition: true)
+            if guide {
+                startFromPosition(number, location: host.lastPosition)
+            } else {
+                askForStart(otherMap: false, offersPosition: true)
+            }
             return
         }
         Task { [weak self] in
@@ -75,7 +89,36 @@ final class RouteHereFlow: ObservableObject {
 
     func chooseNewRoute() {
         guard case .choosing = step else { return }
-        askForStart(otherMap: false, offersPosition: true)
+        if guiding {
+            startFromPosition(run, location: host.lastPosition)
+        } else {
+            askForStart(otherMap: false, offersPosition: true)
+        }
+    }
+
+    /// A tap on the map, away from search hits, while the own position is known.
+    func offerPoint(_ at: CLLocationCoordinate2D) {
+        guard step == .idle else { return }
+        point = at
+        onPoint?(at)
+    }
+
+    func dismissPoint() {
+        guard point != nil else { return }
+        point = nil
+        onPoint?(nil)
+    }
+
+    /// "Route hierher" on the tapped place: as for a search hit.
+    func routeToPoint() {
+        guard let point else { return }
+        begin(target: point)
+    }
+
+    /// "Hierher führen": a route from the own position, then the guidance.
+    func guideToPoint() {
+        guard let point else { return }
+        begin(target: point, guide: true)
     }
 
     /// The own position as the start; waits for it if it is not known yet.
@@ -93,7 +136,7 @@ final class RouteHereFlow: ObservableObject {
     /// "Route hierher" or, while the start is chosen, "Hier starten" on a search hit.
     func hitChosen(_ at: CLLocationCoordinate2D) {
         if step.picksStart {
-            if let target, !isTarget(at) { finish(made: host.startRoute(from: at, to: target)) }
+            if let target, !isTarget(at) { finish { host.startRoute(from: at, to: target) } }
         } else {
             begin(target: at)
         }
@@ -107,7 +150,7 @@ final class RouteHereFlow: ObservableObject {
 
     func chooseAppend() {
         guard case .choosing = step, let target else { return }
-        finish(made: host.appendTarget(target))
+        finish { host.appendTarget(target) }
     }
 
     func chooseStartMyself() {
@@ -121,6 +164,7 @@ final class RouteHereFlow: ObservableObject {
         stopWaiting()
         step = .idle
         target = nil
+        guiding = false
     }
 
     /// The route on the map changed: what was asked or waited for no longer holds.
@@ -137,7 +181,7 @@ final class RouteHereFlow: ObservableObject {
     /// A tap on the map; true if it was the start of the route.
     func tapped(_ at: CLLocationCoordinate2D) -> Bool {
         guard step.picksStart, let target else { return false }
-        finish(made: host.startRoute(from: at, to: target))
+        finish { host.startRoute(from: at, to: target) }
         return true
     }
 
@@ -156,7 +200,7 @@ final class RouteHereFlow: ObservableObject {
             switch start {
             case .ready:
                 if let location {
-                    self.finish(made: self.host.startRoute(from: location.coordinate, to: target))
+                    self.finish { self.host.startRoute(from: location.coordinate, to: target) }
                 } else {
                     self.askForStart(otherMap: false, offersPosition: false)
                 }
@@ -203,8 +247,14 @@ final class RouteHereFlow: ObservableObject {
         }
     }
 
-    private func finish(made: Bool) {
+    /// `make` puts the route on the map. Changing the route ends the flow
+    /// (`routeChanged`), so what the flow was for is read before.
+    private func finish(_ make: () -> Bool) {
+        let guide = guiding
+        let made = make()
         cancel()
-        if made { onDone?() }
+        guard made else { return }
+        onDone?()
+        if guide { onGuide?() }
     }
 }

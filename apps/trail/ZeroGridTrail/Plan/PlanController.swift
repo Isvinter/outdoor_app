@@ -150,6 +150,8 @@ final class PlanController: ObservableObject {
     var onRouteDrawn: ((_ legs: [[CLLocationCoordinate2D]], _ waypoints: Int) -> Void)?
 
     private static let lastProfileKey = "lastRouteProfile"
+    /// Runs once the route being computed is there; dropped if it fails.
+    private var afterPlanned: (() -> Void)?
 
     init(core: CoreApp, map: MapController) {
         self.core = core
@@ -530,8 +532,15 @@ final class PlanController: ObservableObject {
         }
     }
 
+    /// `action` runs once the route being computed is on the map, not if it fails.
+    func whenPlanned(_ action: @escaping () -> Void) {
+        afterPlanned = action
+    }
+
     private func computed(_ result: Result<PlanResult, Error>, started: Date) {
         planning = false
+        var after = afterPlanned
+        afterPlanned = nil
         switch result {
         case .success(let plan):
             self.plan = plan
@@ -545,9 +554,11 @@ final class PlanController: ObservableObject {
         case .failure(let error):
             plan = nil
             message = PlanTexts.error(error)
+            after = nil
         }
         drawLegs()
         planTimes.append(Date().timeIntervalSince(started))
+        after?()
     }
 
     // MARK: Drawing

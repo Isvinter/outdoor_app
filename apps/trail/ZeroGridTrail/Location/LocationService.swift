@@ -151,6 +151,12 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
 
     func isRequired(_ demand: LocationDemand) -> Bool { demands.contains(demand) }
 
+    /// The GPS runs and has a position from the last two minutes.
+    var knowsPosition: Bool {
+        guard running, let last else { return false }
+        return last.timestamp.timeIntervalSinceNow > -120
+    }
+
     func require(_ demand: LocationDemand) {
         demands.insert(demand)
         update()
