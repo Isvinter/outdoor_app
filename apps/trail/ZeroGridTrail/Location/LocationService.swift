@@ -110,7 +110,7 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
     /// A recording or the guidance needs the GPS, but the permission is refused.
     @Published private(set) var blocked = false
 
-    /// "bike", "mtb", "hike" or "ski_tour"; any other value means no activity.
+    /// "bike", "mtb", "hike", "ski_tour" or "other" while recording; empty otherwise.
     var activity: String = "" {
         didSet { manager.activityType = Self.activityType(for: activity) }
     }
@@ -142,7 +142,7 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
         "Ohne Standortzugriff zeichnet Trail nichts auf und kann nicht führen. Bitte in den Einstellungen erlauben."
 
     static func activityType(for activity: String) -> CLActivityType {
-        ["bike", "mtb", "hike", "ski_tour"].contains(activity) ? .fitness : .other
+        ["bike", "mtb", "hike", "ski_tour", "other"].contains(activity) ? .fitness : .other
     }
 
     var mayLocate: Bool {

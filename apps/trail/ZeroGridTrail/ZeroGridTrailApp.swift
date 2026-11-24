@@ -85,6 +85,7 @@ private struct RootView: View {
                 core: start.host.core, location: location, changes: start.host.guidanceChanges, overlay: map.guide,
                 camera: map)
             tracks.onOpen = { [weak guide] in guide?.following = false }
+            recording.onTracksChanged = { [weak tracks] in tracks?.refresh() }
             let alert = DeviationAlert(center: UNUserNotificationCenter.current(), haptics: SystemHaptics())
             guide.onFirstStart = { alert.requestPermission() }
             guide.alert = alert

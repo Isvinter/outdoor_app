@@ -22,7 +22,9 @@ final class TracksUITests: XCTestCase {
         app.buttons["track-rename"].tap()
         let field = app.alerts.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.typeText("Sylvenstein Runde")
+        // It holds the name given when recording.
+        XCTAssertTrue((field.value as? String ?? "").hasSuffix(" Wandern"))
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 30) + "Sylvenstein Runde")
         app.alerts.buttons["Umbenennen"].tap()
         XCTAssertTrue(app.staticTexts["Sylvenstein Runde"].waitForExistence(timeout: 5))
 

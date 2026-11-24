@@ -12,7 +12,6 @@ struct MapScreen: View {
     @ObservedObject var guide: GuideController
     let start: AppStart.Ready
     @State private var detent = PlanSheet.collapsed
-    @State private var choosingActivity = false
 
     /// The search takes the room of the toolbar while it shows more than its field.
     private var searchIsOpen: Bool {
@@ -42,15 +41,14 @@ struct MapScreen: View {
                 }
                 if recording.active {
                     RecordingBar(recording: recording)
-                } else if choosingActivity {
-                    ActivityPicker(preselected: recording.lastActivity) { activity in
-                        choosingActivity = false
-                        recording.start(activity: activity)
-                    } cancel: {
-                        choosingActivity = false
-                    }
-                } else if recording.interrupted != nil {
-                    InterruptedRecordingPrompt(recording: recording)
+                } else if let track = recording.ended {
+                    SaveTrackPanel(recording: recording, track: track)
+                        .id(track.id)
+                }
+                if let notice = recording.notice {
+                    Notice(text: notice)
+                        .accessibilityIdentifier("recording-notice")
+                        .onTapGesture { recording.notice = nil }
                 }
                 if let message = recording.message {
                     Notice(text: message, warning: true)
@@ -90,7 +88,7 @@ struct MapScreen: View {
             }
             .padding()
             VStack(alignment: .trailing, spacing: 12) {
-                MapSideButtons(record: recording.active ? nil : { choosingActivity = true })
+                MapSideButtons(record: recording.active || recording.ended != nil ? nil : { recording.start() })
                 LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) {
                     controller.toggleLocation()
                 }
