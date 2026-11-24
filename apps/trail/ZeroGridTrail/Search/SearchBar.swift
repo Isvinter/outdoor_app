@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 
 /// The search above the map: the field, the quick choices, the list of hits and
@@ -25,7 +26,7 @@ struct SearchBar: View {
                 }
             }
             if let hit = search.selected {
-                ResultCard(hit: hit, search: search)
+                ResultCard(hit: hit, search: search, action: cardAction(hit))
             }
             if flow.step != .idle {
                 RouteHereBanner(flow: flow)
@@ -40,6 +41,11 @@ struct SearchBar: View {
         .onChange(of: search.selected) { selected in
             if selected != nil { focused = false }
         }
+    }
+
+    private func cardAction(_ hit: SearchHit) -> String? {
+        guard flow.step.picksStart else { return "Route hierher" }
+        return flow.isTarget(CLLocationCoordinate2D(latitude: hit.lat, longitude: hit.lon)) ? nil : "Hier starten"
     }
 
     private var field: some View {
@@ -139,6 +145,10 @@ private struct RouteHereBanner: View {
                 button("Start selbst wählen", identifier: "route-here-choose-start", primary: true) {
                     flow.chooseStartMyself()
                 }
+            case .pickStart(_, true):
+                button("Mein Standort", identifier: "route-here-my-position", primary: true) {
+                    flow.chooseMyPosition()
+                }
             default:
                 EmptyView()
             }
@@ -152,10 +162,10 @@ private struct RouteHereBanner: View {
             return unsaved ? "Nicht gespeichert: Bei „Neue Route“ geht die alte verloren." : "Route hierher"
         case .waiting:
             return "Standort wird gesucht …"
-        case .tapStart(let otherMap):
+        case .pickStart(let otherMap, _):
             return otherMap
-                ? "Dein Standort liegt nicht auf derselben Karte wie das Ziel. Tippe, wo die Route beginnen soll."
-                : "Tippe auf der Karte, wo die Route beginnen soll."
+                ? "Dein Standort liegt nicht auf derselben Karte wie das Ziel. Tippe auf die Karte oder suche oben, wo die Route beginnen soll."
+                : "Wo soll die Route beginnen? Tippe auf die Karte oder suche oben einen Ort."
         case .idle:
             return ""
         }

@@ -56,9 +56,9 @@ private struct RootView: View {
             let search = SearchController(backend: SearchBackend(core: start.host.core), map: map.searchOverlay)
             let routeHere = RouteHereFlow(host: LiveRouteHereHost(core: start.host.core, plan: plan, map: map))
             search.onRouteHere = { [weak routeHere] hit in
-                routeHere?.begin(target: CLLocationCoordinate2D(latitude: hit.lat, longitude: hit.lon))
+                routeHere?.hitChosen(CLLocationCoordinate2D(latitude: hit.lat, longitude: hit.lon))
             }
-            search.onSelectionCleared = { [weak routeHere] in routeHere?.cancel() }
+            search.onSelectionCleared = { [weak routeHere] in routeHere?.selectionCleared() }
             routeHere.onDone = { [weak search] in search?.routeDone() }
             map.searchOverlay.onOtherMove = { [weak search] in search?.mapMoved() }
             // A tap first answers "where does the route start", then sets a waypoint, then opens a dot.

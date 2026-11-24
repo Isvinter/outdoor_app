@@ -7,7 +7,14 @@ enum RouteHereStep: Equatable {
     case idle
     case choosing(unsaved: Bool)
     case waiting
-    case tapStart(otherMap: Bool)
+    /// The user chooses the start: a tap on the map, a search hit or, if
+    /// offered, the own position.
+    case pickStart(otherMap: Bool, offersPosition: Bool)
+
+    var picksStart: Bool {
+        if case .pickStart = self { return true }
+        return false
+    }
 }
 
 /// What "Route hierher" needs from the planning, the core and the position.
@@ -27,8 +34,9 @@ protocol RouteHereHost: AnyObject {
     func stopPicking()
 }
 
-/// From a search hit to a route: asks if a route is open, waits for the
-/// position if needed, or lets the user tap the start.
+/// From a search hit to a route: asks if a route is open, then lets the user
+/// choose the start: the own position (waiting for it if needed), a tap on the
+/// map or another search hit.
 @MainActor
 final class RouteHereFlow: ObservableObject {
     @Published private(set) var step = RouteHereStep.idle
@@ -54,7 +62,7 @@ final class RouteHereFlow: ObservableObject {
         self.target = target
         let number = run
         guard host.hasRoute else {
-            startFromPosition(number, location: host.lastPosition)
+            askForStart(otherMap: false, offersPosition: true)
             return
         }
         Task { [weak self] in
@@ -67,7 +75,34 @@ final class RouteHereFlow: ObservableObject {
 
     func chooseNewRoute() {
         guard case .choosing = step else { return }
+        askForStart(otherMap: false, offersPosition: true)
+    }
+
+    /// The own position as the start; waits for it if it is not known yet.
+    func chooseMyPosition() {
+        guard case .pickStart(_, true) = step else { return }
         startFromPosition(run, location: host.lastPosition)
+    }
+
+    /// Is this the target of the route being set up?
+    func isTarget(_ at: CLLocationCoordinate2D) -> Bool {
+        guard let target else { return false }
+        return target.latitude == at.latitude && target.longitude == at.longitude
+    }
+
+    /// "Route hierher" or, while the start is chosen, "Hier starten" on a search hit.
+    func hitChosen(_ at: CLLocationCoordinate2D) {
+        if step.picksStart {
+            if let target, !isTarget(at) { finish(made: host.startRoute(from: at, to: target)) }
+        } else {
+            begin(target: at)
+        }
+    }
+
+    /// The chosen search hit is gone. While the start is chosen the search
+    /// looks for the start, so the flow goes on.
+    func selectionCleared() {
+        if !step.picksStart { cancel() }
     }
 
     func chooseAppend() {
@@ -77,7 +112,7 @@ final class RouteHereFlow: ObservableObject {
 
     func chooseStartMyself() {
         guard step == .waiting else { return }
-        askForStart(otherMap: false)
+        askForStart(otherMap: false, offersPosition: true)
     }
 
     /// Ends the flow where it stands; later answers and positions do nothing.
@@ -101,7 +136,7 @@ final class RouteHereFlow: ObservableObject {
 
     /// A tap on the map; true if it was the start of the route.
     func tapped(_ at: CLLocationCoordinate2D) -> Bool {
-        guard case .tapStart = step, let target else { return false }
+        guard step.picksStart, let target else { return false }
         finish(made: host.startRoute(from: at, to: target))
         return true
     }
@@ -118,16 +153,15 @@ final class RouteHereFlow: ObservableObject {
             let start = await self.host.routeStart(position: known, target: target)
             // The user chose the start meanwhile: a position no longer decides it.
             guard number == self.run else { return }
-            if case .tapStart = self.step { return }
             switch start {
             case .ready:
                 if let location {
                     self.finish(made: self.host.startRoute(from: location.coordinate, to: target))
                 } else {
-                    self.askForStart(otherMap: false)
+                    self.askForStart(otherMap: false, offersPosition: false)
                 }
             case .otherMap:
-                self.askForStart(otherMap: true)
+                self.askForStart(otherMap: true, offersPosition: false)
             case .noPosition:
                 self.waitForPosition(number)
             }
@@ -141,21 +175,23 @@ final class RouteHereFlow: ObservableObject {
         waitTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             guard !Task.isCancelled, let self, number == self.run, self.step == .waiting else { return }
-            self.askForStart(otherMap: false)
+            self.askForStart(otherMap: false, offersPosition: true)
         }
         requesting = true
         host.requestPosition({ [weak self] location in
             self?.received(location)
         }, denied: { [weak self] in
             guard let self, number == self.run, self.step == .waiting else { return }
-            self.askForStart(otherMap: false)
+            self.askForStart(otherMap: false, offersPosition: false)
         })
     }
 
-    private func askForStart(otherMap: Bool) {
+    /// A new run: an answer about the position asked for before does nothing.
+    private func askForStart(otherMap: Bool, offersPosition: Bool) {
+        run += 1
         stopWaiting()
         host.stopPicking()
-        step = .tapStart(otherMap: otherMap)
+        step = .pickStart(otherMap: otherMap, offersPosition: offersPosition)
     }
 
     private func stopWaiting() {

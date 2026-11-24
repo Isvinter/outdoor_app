@@ -1,9 +1,12 @@
 import SwiftUI
 
-/// The chosen hit: what it is, the way back to the list and "Route hierher".
+/// The chosen hit: what it is, the way back to the list and "Route hierher",
+/// or "Hier starten" while the start of a route is chosen.
 struct ResultCard: View {
     let hit: SearchHit
     @ObservedObject var search: SearchController
+    /// The title of the button; none for the target itself while the start is chosen.
+    let action: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -20,9 +23,11 @@ struct ResultCard: View {
             Text(SearchTexts.details(hit, distance: Format.distance))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            Button("Route hierher") { search.routeHere() }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("route-here")
+            if let action {
+                Button(action) { search.routeHere() }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("route-here")
+            }
         }
     }
 }
