@@ -34,7 +34,11 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Lädt Karten und Routen von ZeroGrid Base im Heimnetz.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Zeigt deine Position auf der Karte.</string>
+	<string>Zeigt deine Position auf der Karte, zeichnet Touren auf und führt dich auf der Route.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>

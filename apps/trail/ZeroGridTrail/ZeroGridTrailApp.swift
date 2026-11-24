@@ -48,7 +48,13 @@ private struct RootView: View {
         }.value
         switch result {
         case .success(let start):
-            let map = MapController(core: start.host.core, bounds: start.bounds, zoom: start.options.startZoom ?? 11,
+            var replay: GPXReplay?
+            if let path = start.options.replayGPX {
+                replay = try? GPXReplay(contentsOf: URL(fileURLWithPath: path))
+            }
+            let location = LocationService(core: start.host.core, manager: replay)
+            let map = MapController(
+                core: start.host.core, location: location, bounds: start.bounds, zoom: start.options.startZoom ?? 11,
                 centre: start.options.startCenter)
             let plan = PlanController(core: start.host.core, map: map)
             let regions = RegionsController(
