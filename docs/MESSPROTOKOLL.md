@@ -274,7 +274,7 @@ Anzahl der Linienstücke in der Kartenquelle; Region `cusco` über die Oberfläc
 
 ## Offline-Suche (2026-11-23)
 
-Größtes Testpaket `alpenraum-ost-urlaub` (Suchindex 88 MB), Release-Build unter Linux, Index je Suche neu geöffnet wie in der App, Kartenmitte Innsbruck, 30 Treffer, je 7 Läufe mit warmem Dateicache. Ziel: unter 300 ms. Auf dem iPhone noch nicht gemessen.
+Größtes Testpaket `alpenraum-ost-urlaub` (Suchindex 88 MB), Release-Build unter Linux, Index je Suche neu geöffnet wie in der App, Kartenmitte Innsbruck, 30 Treffer, je 7 Läufe mit warmem Dateicache. Ziel: unter 300 ms. Auf dem iPhone siehe unten.
 
 | Suche | Median | Maximum |
 | --- | --- | --- |
@@ -283,6 +283,19 @@ Größtes Testpaket `alpenraum-ost-urlaub` (Suchindex 88 MB), Release-Build unte
 | `Hauptstraße` | 0 ms | 0 ms |
 | `Innsbruck` | 0 ms | 6 ms |
 | `Ma` (kürzeste, breiteste Suche) | 39 ms | 41 ms |
+
+### Trail auf dem iPhone (2026-11-24)
+
+iPhone 13 Pro Max, Release-Build, Flugmodus, Handtest durch den Nutzer nach der Liste aus
+`docs/superpowers/plans/2026-11-24-uebergabe-trail-mac.md`. Alle Punkte bestanden.
+
+- Antwortzeit, geschätzt: 100 bis 200 ms vom Tippen eines Buchstabens bis zur neuen Trefferliste.
+  Davon sind 200 ms die Wartezeit nach dem Tippen (`typingDelay`), die Suche selbst fällt nicht auf.
+  Ziel unter 300 ms eingehalten.
+- Geändert nach dem Test: Der Standortknopf schaltet das GPS an und aus, beim Start ist es aus.
+  „Route hierher“ fragt nach dem Start: eigener Standort, Tipp auf die Karte oder ein Suchtreffer
+  („Hier starten“). Danach von Hand nachgeprüft.
+- Simulator mit dem Endstand: alle 64 Unit-Tests und 43 UI-Tests grün.
 
 ## Rohdaten
 
