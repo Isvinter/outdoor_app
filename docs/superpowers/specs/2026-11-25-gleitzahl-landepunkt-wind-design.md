@@ -63,9 +63,13 @@ ausgeblendet.
   Nullschieber und ohne GPS: ausgeblendet bzw. „–“. Nach dem Kreisen erscheint sie wieder,
   sobald ein ganzer Zeitraum geradeaus geflogen wurde.
 - **Sperren gegen Fehlanzeigen am Boden** (Nutzerentscheidung): GZ und Landepunkt
-  erscheinen nur ab etwa **15 km/h über Grund** und mindestens etwa **30 m über dem
-  Gelände** (ohne bekanntes Gelände: nur die Geschwindigkeitssperre). Das hält Gehen und die
-  meisten Seilbahnfahrten heraus. Der Nutzer startet Sky ohnehin direkt vor dem Start und
+  erscheinen nur ab etwa **7 km/h über Grund** und mindestens etwa **30 m über dem
+  Gelände** (ohne bekanntes Gelände: nur die Geschwindigkeitssperre). Das hält Gehen heraus;
+  eine Talfahrt mit der Seilbahn hoch über dem Tal kann durchrutschen. Zuerst waren 15 km/h
+  vorgeschlagen; beim Planen fiel auf, dass dann genau der Brauneck-Fall verschwindet
+  (Trimmfahrt um 36 km/h gegen 25 km/h Wind ergibt etwa 11 km/h über Grund). Gehen
+  schließt schon die Sperre über Gelände aus, deshalb reicht eine niedrige
+  Geschwindigkeitssperre. Der Nutzer startet Sky ohnehin direkt vor dem Start und
   nutzt Sky nur zum Fliegen; eine echte Start-/Landeerkennung kommt später als eigenes
   Feature und ersetzt dann diese Sperren.
 - Anzeige mit einer Nachkommastelle (`6,8`), sehr große Werte gedeckelt (Wert für die
@@ -174,7 +178,7 @@ weg, weil die Leiste unten mit dem Luftraum-Warnbanner kollidiert.
 
 ## Dem Builder überlassen
 
-- Genaue Werte der Sperren (um 15 km/h, um 30 m über Gelände).
+- Genaue Werte der Sperren (um 7 km/h, um 30 m über Gelände).
 - Gewichtung der Kreise und Schwelle für „weicht stark ab“.
 - Genaue Erkennung von Geradeausflug und Kreis (Schwellen für Drehrate/Kursänderung).
 - Mindesthöhenverlust und Deckel für die GZ; Verhalten bei Nullschieber.
