@@ -3,6 +3,9 @@
 
 use crate::model::{LatLon, TurnKind};
 
+/// How far before and after a turn the direction is measured, in metres.
+pub const TURN_REACH_M: f64 = 20.0;
+
 /// Change of direction at `line[index]` in degrees, −180…180, positive to the
 /// right. The direction before and after is taken between the point and the
 /// point about `reach_m` away along the line (or the end of the line, if it is

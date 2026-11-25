@@ -1,7 +1,8 @@
 //! A planned route as one line with distances along it, so that a position
 //! can be placed on the route and progress measured in metres.
 
-use core_routing::{LatLon, Profile};
+use core_routing::turns::{TURN_REACH_M, angle_at, kind_for_angle};
+use core_routing::{LatLon, Profile, TurnKind};
 use core_track::geo::haversine_m;
 
 use crate::plan::{LegSpec, RoutePlan};
@@ -39,6 +40,23 @@ pub struct Projection {
     pub leg: usize,
 }
 
+/// A turn placed on the line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineTurn {
+    /// Distance from the start of the line to the turn.
+    pub at_m: f64,
+    pub kind: TurnKind,
+    /// Number of the exit to take at a roundabout, counted from 1.
+    pub exit: Option<u8>,
+    /// Index of the leg the user is on when coming up to the turn. For a turn
+    /// at a waypoint and a stage end, that is the leg ending there.
+    pub leg: usize,
+}
+
+/// A turn the router gave this close to a waypoint stands for the turn there;
+/// no second one is taken from the directions of the legs.
+const SEAM_TURN_M: f64 = 5.0;
+
 /// All legs of a plan joined into one line.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RouteLine {
@@ -53,6 +71,11 @@ pub struct RouteLine {
     /// Distance from the start to each stage end.
     pub stage_end_m: Vec<f64>,
     pub length_m: f64,
+    /// Turns along the line, in order of `at_m`.
+    pub turns: Vec<LineTurn>,
+    /// Whether turns were computed for every routed leg. `false` for plans
+    /// stored before turns existed; [`RouteLine::turns`] then lacks some.
+    pub has_turns: bool,
 }
 
 /// Metres per degree of latitude on the mean Earth sphere.
@@ -76,7 +99,11 @@ impl RouteLine {
             waypoint_m: Vec::new(),
             stage_end_m: Vec::new(),
             length_m: 0.0,
+            turns: Vec::new(),
+            has_turns: true,
         };
+        // Index in `points` of each waypoint between two legs.
+        let mut seam_points = Vec::with_capacity(plan.legs.len());
         for (index, leg) in plan.legs.iter().enumerate() {
             let kind = if leg.error.is_some() || leg.line.is_empty() {
                 LegKind::Missing
@@ -93,8 +120,25 @@ impl RouteLine {
                 &leg.line
             };
             let from_m = line.length_m;
+            // A point equal to the one before is left out, so it maps to that.
+            let mut joined = Vec::with_capacity(geometry.len());
             for &point in geometry {
                 line.push(point, index);
+                joined.push(line.points.len() - 1);
+            }
+            seam_points.push(line.points.len().saturating_sub(1));
+            if kind == LegKind::Routed {
+                match &leg.turns {
+                    None => line.has_turns = false,
+                    Some(turns) => line.turns.extend(turns.iter().filter_map(|turn| {
+                        Some(LineTurn {
+                            at_m: line.cum_m[*joined.get(turn.at)?],
+                            kind: turn.kind,
+                            exit: turn.exit,
+                            leg: index,
+                        })
+                    })),
+                }
             }
             line.legs.push(LegSpan {
                 from_m,
@@ -124,7 +168,60 @@ impl RouteLine {
             .iter()
             .filter_map(|&w| line.waypoint_m.get(w).copied())
             .collect();
+        line.add_seam_turns(&seam_points);
+        line.add_stage_ends(&plan.request.stage_ends);
+        // Stable: at the same place, a turn stays before the stage end.
+        line.turns.sort_by(|a, b| a.at_m.total_cmp(&b.at_m));
         line
+    }
+
+    /// Adds the turns at waypoints between two routed legs, from the
+    /// directions of the legs there. `seam_points` holds the index in
+    /// `points` of the end of each leg.
+    fn add_seam_turns(&mut self, seam_points: &[usize]) {
+        for (leg, pair) in self.legs.windows(2).enumerate() {
+            if pair.iter().any(|span| span.kind != LegKind::Routed) {
+                continue;
+            }
+            let at_m = pair[0].to_m;
+            if self
+                .turns
+                .iter()
+                .any(|turn| (turn.at_m - at_m).abs() <= SEAM_TURN_M)
+            {
+                continue;
+            }
+            let Some(kind) =
+                angle_at(&self.points, seam_points[leg], TURN_REACH_M).and_then(kind_for_angle)
+            else {
+                continue;
+            };
+            self.turns.push(LineTurn {
+                at_m,
+                kind,
+                exit: None,
+                leg,
+            });
+        }
+    }
+
+    /// Adds a turn for each stage end before the destination; arriving there
+    /// is told by the guide's phase.
+    fn add_stage_ends(&mut self, stage_ends: &[usize]) {
+        for &waypoint in stage_ends {
+            let Some(leg) = waypoint
+                .checked_sub(1)
+                .filter(|&leg| leg + 1 < self.legs.len())
+            else {
+                continue;
+            };
+            self.turns.push(LineTurn {
+                at_m: self.legs[leg].to_m,
+                kind: TurnKind::StageEnd,
+                exit: None,
+                leg,
+            });
+        }
     }
 
     /// Whether the line has no point at all (a plan without waypoints).
@@ -160,6 +257,9 @@ impl RouteLine {
             waypoint_m: Vec::new(),
             stage_end_m: Vec::new(),
             length_m: 0.0,
+            turns: Vec::new(),
+            // The router gives a way back without turns.
+            has_turns: false,
         };
         for &point in points {
             line.push(point, 0);
@@ -322,6 +422,7 @@ impl RouteLine {
 mod tests {
     use super::*;
     use crate::guide::testing::*;
+    use core_routing::Turn;
 
     #[test]
     fn from_plan_places_waypoints_and_stage_ends() {
@@ -529,5 +630,184 @@ mod tests {
         // Equal up to rounding: the two take different ways to the same point.
         let near = line.project_near(beside, None, Some(back_m)).unwrap();
         assert!((near.offset_m - line.project(beside, None).unwrap().offset_m).abs() < 1e-9);
+    }
+
+    fn origin() -> LatLon {
+        LatLon {
+            lat: 47.6,
+            lon: 11.7,
+        }
+    }
+
+    fn turn(at: usize, kind: TurnKind) -> Turn {
+        Turn {
+            at,
+            kind,
+            exit: None,
+        }
+    }
+
+    /// The kinds of the line's turns with where they lie, in order.
+    fn kinds(line: &RouteLine) -> Vec<(TurnKind, f64, usize)> {
+        line.turns.iter().map(|t| (t.kind, t.at_m, t.leg)).collect()
+    }
+
+    /// A plan of two routed legs along `first` and `second`, without turns of
+    /// their own, with `stage_ends`.
+    fn two_legs(first: Vec<LatLon>, second: Vec<LatLon>, stage_ends: Vec<usize>) -> RouteLine {
+        let waypoints = vec![first[0], second[0], second[second.len() - 1]];
+        RouteLine::from_plan(&plan(
+            waypoints,
+            vec![
+                routed_leg(first, Vec::new()),
+                routed_leg(second, Vec::new()),
+            ],
+            stage_ends,
+        ))
+    }
+
+    #[test]
+    fn leg_turns_are_placed_along_the_line() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let c = east(b, 100.0);
+        let d = east(c, 100.0);
+        let e = north(d, 100.0);
+        let line = RouteLine::from_plan(&plan(
+            vec![a, c, e],
+            vec![
+                routed_leg(vec![a, b, c], vec![turn(1, TurnKind::Right)]),
+                routed_leg(vec![c, d, e], vec![turn(1, TurnKind::Left)]),
+            ],
+            Vec::new(),
+        ));
+
+        assert!(line.has_turns);
+        assert_eq!(line.turns.len(), 2, "{:?}", line.turns);
+        let first = line.turns[0];
+        assert_eq!(
+            (first.kind, first.leg, first.exit),
+            (TurnKind::Right, 0, None)
+        );
+        assert!((first.at_m - a.distance_m(&b)).abs() < 1e-6, "{first:?}");
+        let second = line.turns[1];
+        assert_eq!((second.kind, second.leg), (TurnKind::Left, 1));
+        let expected = line.waypoint_m[1] + c.distance_m(&d);
+        assert!((second.at_m - expected).abs() < 1e-6, "{second:?}");
+    }
+
+    #[test]
+    fn turn_at_seam_from_leg_directions() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let line = two_legs(vec![a, b], vec![b, east(b, 100.0)], Vec::new());
+        assert_eq!(kinds(&line), vec![(TurnKind::Right, line.waypoint_m[1], 0)]);
+    }
+
+    #[test]
+    fn straight_seam_has_no_turn() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let line = two_legs(vec![a, b], vec![b, north(b, 100.0)], Vec::new());
+        assert!(line.has_turns);
+        assert!(line.turns.is_empty(), "{:?}", line.turns);
+    }
+
+    #[test]
+    fn seam_reversal_is_u_turn() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let line = two_legs(vec![a, b], vec![b, a], Vec::new());
+        assert_eq!(kinds(&line), vec![(TurnKind::UTurn, line.waypoint_m[1], 0)]);
+    }
+
+    #[test]
+    fn valhalla_turn_near_seam_is_not_doubled() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let c = east(b, 3.0);
+        let line = RouteLine::from_plan(&plan(
+            vec![a, b, east(b, 100.0)],
+            vec![
+                routed_leg(vec![a, b], Vec::new()),
+                routed_leg(
+                    vec![b, c, east(b, 100.0)],
+                    vec![turn(1, TurnKind::KeepRight)],
+                ),
+            ],
+            Vec::new(),
+        ));
+        assert_eq!(line.turns.len(), 1, "{:?}", line.turns);
+        assert_eq!(line.turns[0].kind, TurnKind::KeepRight);
+    }
+
+    #[test]
+    fn seam_next_to_manual_or_failed_has_no_turn() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let c = east(b, 100.0);
+        let cases = [
+            vec![
+                routed_leg(vec![a, b], Vec::new()),
+                leg(Profile::Manual, vec![b, c]),
+            ],
+            vec![
+                leg(Profile::Manual, vec![a, b]),
+                routed_leg(vec![b, c], Vec::new()),
+            ],
+            vec![routed_leg(vec![a, b], Vec::new()), failed_leg()],
+            vec![failed_leg(), routed_leg(vec![b, c], Vec::new())],
+        ];
+        for legs in cases {
+            let line = RouteLine::from_plan(&plan(vec![a, b, c], legs, Vec::new()));
+            assert!(line.has_turns);
+            assert!(line.turns.is_empty(), "{:?}", line.turns);
+        }
+    }
+
+    #[test]
+    fn stage_end_is_a_turn() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let line = two_legs(vec![a, b], vec![b, north(b, 100.0)], vec![1]);
+        assert_eq!(
+            kinds(&line),
+            vec![(TurnKind::StageEnd, line.waypoint_m[1], 0)]
+        );
+
+        // With a turn there, too: the turn first. The destination gets none.
+        let line = two_legs(vec![a, b], vec![b, east(b, 100.0)], vec![1, 2]);
+        let at = line.waypoint_m[1];
+        assert_eq!(
+            kinds(&line),
+            vec![(TurnKind::Right, at, 0), (TurnKind::StageEnd, at, 0)]
+        );
+    }
+
+    #[test]
+    fn old_legs_mean_no_turns() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let c = east(b, 100.0);
+        let line = RouteLine::from_plan(&plan(
+            vec![a, b, c],
+            vec![
+                routed_leg(vec![a, b], Vec::new()),
+                leg(Profile::Hike, vec![b, c]),
+            ],
+            Vec::new(),
+        ));
+        assert!(!line.has_turns);
+
+        let line = RouteLine::from_plan(&plan(
+            vec![a, b, c],
+            vec![
+                leg(Profile::Manual, vec![a, b]),
+                leg(Profile::Manual, vec![b, c]),
+            ],
+            Vec::new(),
+        ));
+        assert!(line.has_turns);
+        assert!(line.turns.is_empty());
     }
 }

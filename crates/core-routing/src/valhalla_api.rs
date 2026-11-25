@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::model::{LatLon, Profile, Route, RouteRequest, RoutingError, Turn, TurnKind};
-use crate::turns::{angle_at, kind_for_angle};
+use crate::turns::{TURN_REACH_M, angle_at, kind_for_angle};
 
 /// The profiles Valhalla computes.
 pub const VALHALLA_PROFILES: [Profile; 5] = [
@@ -176,9 +176,6 @@ struct Maneuver {
     #[serde(default)]
     roundabout_exit_count: Option<u32>,
 }
-
-/// How far before and after a maneuver the direction is measured, in metres.
-const TURN_REACH_M: f64 = 20.0;
 
 /// Smallest bend at which Valhalla's "straight on" still counts as a turn.
 const STRAIGHT_TURN_DEG: f64 = 45.0;
