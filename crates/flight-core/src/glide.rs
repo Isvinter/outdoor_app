@@ -16,8 +16,9 @@ pub const MAX_RATIO: f64 = 40.0;
 /// Seconds of samples the buffer keeps, whatever the window, so that a window change
 /// applies at once (the longest window is 60 s).
 const KEEP_S: f64 = 62.0;
-/// A pause between two samples longer than this clears the buffer.
-const MAX_GAP_S: f64 = 3.0;
+/// A pause between two samples longer than this clears the buffer. The engine also hides
+/// the glide ratio once the last fix is older than this.
+pub const MAX_GAP_S: f64 = 3.0;
 /// Displacement divided by path length must reach this for the flight to count as straight.
 const MIN_STRAIGHTNESS: f64 = 0.8;
 /// Mean sink rate below which there is no glide (climbing or zero sinker).
@@ -58,6 +59,11 @@ impl GlideEstimator {
             window_s,
             samples: VecDeque::new(),
         }
+    }
+
+    /// The window in seconds.
+    pub fn window_s(&self) -> f64 {
+        self.window_s
     }
 
     /// Changes the window; the next [`glide`](Self::glide) call already uses it.

@@ -10,7 +10,7 @@ use std::time::Instant;
 use flight_core::airspace::Airspace;
 use flight_core::airspace_warning::{Altitudes, Fix, Level, Warner, Warning, WarningSettings};
 use flight_core::flightlog;
-use flight_core::glide::{GlideEstimator, GlideSample};
+use flight_core::glide::{self, Glide, GlideEstimator, GlideSample};
 use flight_core::igc::FlightMeta;
 use flight_core::landing::{LandingPoint, LandingQuery};
 use flight_core::sensor::{GpsFix, SensorEvent};
@@ -345,8 +345,9 @@ pub struct Processor {
     wind: WindEstimator,
     /// Whether the last fix was high enough above the ground to show the glide ratio.
     height_ok: bool,
-    /// Set while the GPS is lost; hides the glide ratio.
-    gps_lost: bool,
+    /// Age of the last fix in seconds, `None` before the first one. Hides the glide ratio
+    /// once it is older than [`glide::MAX_GAP_S`].
+    fix_age_s: Option<f64>,
     /// Time of the last fix, the "now" for the wind estimate.
     last_fix_time_s: Option<f64>,
     /// Landing query for the last fix, handed out once by `take_landing_query`.
@@ -379,7 +380,7 @@ impl Processor {
             glide: GlideEstimator::new(settings.glide_window_s),
             wind: WindEstimator::new(),
             height_ok: false,
-            gps_lost: false,
+            fix_age_s: None,
             last_fix_time_s: None,
             landing_query: None,
             warnings: Vec::new(),
@@ -395,11 +396,17 @@ impl Processor {
         }
     }
 
-    /// Ends all warnings if the last GPS fix is older than [`WARNING_GPS_TIMEOUT_S`].
-    /// `gps_age_s` is the age of the last fix, `None` if there was none.
-    pub fn expire_warnings(&mut self, gps_age_s: Option<f64>) {
+    /// Tells the processor how old the last GPS fix is (`None` if there was none), so that
+    /// what depends on the position ends when the GPS is lost: the glide ratio and landing
+    /// query after [`glide::MAX_GAP_S`], the airspace warnings after
+    /// [`WARNING_GPS_TIMEOUT_S`]. Called with the sensor time of the other samples while
+    /// they keep coming, and with the engine's own clock while nothing arrives at all.
+    pub fn note_gps_age(&mut self, gps_age_s: Option<f64>) {
+        self.fix_age_s = gps_age_s;
+        if gps_age_s.is_none_or(|age| age > glide::MAX_GAP_S) {
+            self.landing_query = None;
+        }
         let stale = gps_age_s.is_none_or(|age| age > WARNING_GPS_TIMEOUT_S);
-        self.gps_lost = stale;
         if stale && !self.warnings.is_empty() {
             self.warnings.clear();
             self.update_alert();
@@ -581,7 +588,7 @@ impl Processor {
                 let age = self
                     .last_fix
                     .map(|fix| event.time().seconds_since(fix.time));
-                self.expire_warnings(age);
+                self.note_gps_age(age);
             }
         }
         if let Some(recording) = &mut self.recording {
@@ -598,7 +605,7 @@ impl Processor {
 
     /// Feeds the glide and wind estimators with a fix and prepares the landing query.
     fn update_glide_and_wind(&mut self, fix: &GpsFix) {
-        self.gps_lost = false;
+        self.fix_age_s = Some(0.0);
         let time_s = fix.time.as_secs();
         self.last_fix_time_s = Some(time_s);
         if let (Some(ground_speed_mps), Some(course_deg)) = (fix.ground_speed_mps, fix.course_deg) {
@@ -638,9 +645,20 @@ impl Processor {
         };
     }
 
-    /// The glide, unless a gate hides it (see the task rules: height, GPS).
-    fn shown_glide(&self) -> Option<flight_core::glide::Glide> {
-        if self.gps_lost || !self.height_ok {
+    /// The glide, unless it says nothing right now: the last fix is older than
+    /// [`glide::MAX_GAP_S`], the glider is too low above known ground (or has only a 2D fix
+    /// there), or it turned less than a whole window ago (right after circling the window
+    /// would still hold part of the climb or the circles).
+    fn shown_glide(&self) -> Option<Glide> {
+        let fix_fresh = self.fix_age_s.is_some_and(|age| age <= glide::MAX_GAP_S);
+        if !fix_fresh || !self.height_ok {
+            return None;
+        }
+        let turned_recently = match (self.last_fix_time_s, self.wind.last_turn_s()) {
+            (Some(now_s), Some(turn_s)) => now_s - turn_s < self.glide.window_s(),
+            _ => false,
+        };
+        if turned_recently {
             return None;
         }
         self.glide.glide()
@@ -1314,5 +1332,132 @@ mod tests {
         });
         let after = processor.status(80.0, true).glide_ratio.unwrap();
         assert!((after - 4.0).abs() < 0.5, "10 s window: {after}");
+    }
+
+    /// Glide ratio shown after each GPS fix of the flight, as (fix time, ratio).
+    fn shown_ratios(
+        processor: &mut Processor,
+        flight: &mut Simulation<sensor_sim::sources::SimGps>,
+    ) -> Vec<(f64, Option<f64>)> {
+        let mut shown = Vec::new();
+        flight.run_fast(|event| {
+            processor.handle(&event);
+            if let SensorEvent::Gps(fix) = event {
+                shown.push((fix.time.as_secs(), processor.status(0.0, true).glide_ratio));
+            }
+        });
+        shown
+    }
+
+    #[test]
+    fn after_circling_the_glide_ratio_waits_for_a_whole_straight_window() {
+        use sensor_sim::synthetic::Segment;
+        // 60 s climbing in circles, then a straight glide at ratio 8 through the air.
+        for wind in [None, Some((90.0, 7.0))] {
+            let (mut processor, _control) = processor();
+            let mut flight = glide_flight(
+                vec![
+                    Segment::circling(60.0, 2.0, 20.0),
+                    Segment::straight(30.0, -1.25),
+                ],
+                wind,
+            );
+            let shown = shown_ratios(&mut processor, &mut flight);
+            let (end_s, end) = *shown.last().unwrap();
+            let end = end.unwrap_or_else(|| panic!("{wind:?}: nothing at {end_s} s"));
+            if wind.is_none() {
+                assert!((end - 8.0).abs() < 0.5, "end {end}");
+            }
+            for (time_s, ratio) in shown {
+                if time_s < 80.0 {
+                    assert_eq!(ratio, None, "{wind:?} at {time_s} s");
+                } else if let Some(ratio) = ratio {
+                    assert!(
+                        (ratio - end).abs() < 0.5,
+                        "{wind:?} at {time_s} s: {ratio} vs {end}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn circling_while_sinking_in_strong_wind_hides_the_glide_ratio() {
+        use sensor_sim::synthetic::Segment;
+        // The wind is stronger than the airspeed: the ground track hardly curls up.
+        let (mut processor, _control) = processor();
+        let mut flight = glide_flight(
+            vec![Segment::circling(120.0, -1.0, 20.0)],
+            Some((0.0, 12.0)),
+        );
+        for (time_s, ratio) in shown_ratios(&mut processor, &mut flight) {
+            assert_eq!(ratio, None, "at {time_s} s");
+        }
+        assert_eq!(processor.take_landing_query(), None);
+    }
+
+    #[test]
+    fn losing_the_gps_hides_the_glide_ratio_after_three_seconds() {
+        use flight_core::sensor::AccelSample;
+        use sensor_sim::synthetic::Segment;
+        let (mut processor, _control) = processor();
+        let mut last_fix_s = 0.0;
+        glide_flight(vec![Segment::straight(30.0, -1.25)], None).run_fast(|event| {
+            if let SensorEvent::Gps(fix) = &event {
+                last_fix_s = fix.time.as_secs();
+            }
+            processor.handle(&event);
+        });
+        assert!(processor.status(0.0, true).glide_ratio.is_some());
+        assert!(processor.take_landing_query().is_some());
+
+        // Only the accelerometer goes on.
+        let accel = |t: f64| {
+            SensorEvent::Accel(AccelSample {
+                time: Timestamp::from_secs(t),
+                vertical_mps2: 0.0,
+            })
+        };
+        processor.handle(&accel(last_fix_s + 2.5));
+        assert!(
+            processor.status(0.0, true).glide_ratio.is_some(),
+            "2.5 s without GPS"
+        );
+        processor.handle(&accel(last_fix_s + 3.5));
+        assert_eq!(
+            processor.status(0.0, true).glide_ratio,
+            None,
+            "3.5 s without GPS"
+        );
+        assert_eq!(processor.take_landing_query(), None);
+
+        // The engine loop reports the age by its own clock when no sample arrives at all.
+        let (mut processor, _control) = self::processor();
+        glide_flight(vec![Segment::straight(30.0, -1.25)], None)
+            .run_fast(|event| processor.handle(&event));
+        processor.note_gps_age(Some(1.0));
+        assert!(processor.status(0.0, true).glide_ratio.is_some());
+        processor.note_gps_age(Some(3.5));
+        assert_eq!(processor.status(0.0, true).glide_ratio, None);
+    }
+
+    #[test]
+    fn a_2d_fix_over_known_ground_hides_the_glide_ratio() {
+        use flight_core::terrain::FlatTerrain;
+        use sensor_sim::synthetic::Segment;
+        let (mut processor, _control) = processor();
+        processor.set_terrain(Arc::new(FlatTerrain(1000.0)));
+        glide_flight(vec![Segment::straight(30.0, -1.25)], None).run_fast(|event| {
+            let event = match event {
+                SensorEvent::Gps(fix) => SensorEvent::Gps(GpsFix {
+                    fix_3d: false,
+                    ..fix
+                }),
+                other => other,
+            };
+            processor.handle(&event);
+        });
+        assert_eq!(processor.status(30.0, true).glide_ratio, None);
+        assert_eq!(processor.take_landing_query(), None);
     }
 }

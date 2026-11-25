@@ -249,8 +249,10 @@ Gleitflug, gemessen über ein gleitendes Fenster (Einstellung 10, 20, 30 oder 60
 - **Ergebnis:** `Gleitzahl = d / Höhenverlust`, gedeckelt bei 40. Der Kurs ist die Peilung vom
   ersten zum letzten Punkt über Grund; er zeigt also nach hinten, wenn der Wind rückwärts
   versetzt.
-- Lieber nichts anzeigen als etwas Falsches: Kreisen, Steigen, zu langsam oder ein noch nicht
-  volles Fenster (auch nach einer GPS-Lücke) ergeben `None`.
+- Lieber nichts anzeigen als etwas Falsches: Steigen, zu langsam, nicht geradeaus oder ein noch
+  nicht volles Fenster (auch nach einer GPS-Lücke) ergeben `None`. Die Geradeaus-Prüfung allein
+  erkennt Kreisen aber nicht sicher (direkt nach dem Bart, oder beim Kreisen in starkem Wind, wo
+  die Spur sich kaum einrollt); das übernimmt die Engine (siehe Anzeige-Sperren).
 
 ### Landepunkt
 
@@ -282,8 +284,33 @@ Mittelpunkt der Windvektor ist (die Fluggeschwindigkeit dreht sich, der Wind ble
   mit mindestens 8 Punkten, höchstens 60 s Dauer, Radius mindestens 3 m/s und RMS-Rest / Radius
   höchstens 0,3. Der Mittelpunkt ist der Wind (wohin); angezeigt wird „woher“.
 - **Mittel:** Höchstens 6 Kreise, Gewicht 0,7^k (neuester k = 0) für Mittelpunkt und Restgüte.
-  Ein Kreis, der mehr als 120 s nach dem letzten endet (neuer Bart), oder dessen Wind mehr als
-  2,5 m/s vom Mittel abweicht, ersetzt die Liste.
+  Ein Kreis, der mehr als 120 s nach dem Ende des letzten beginnt (neuer Bart), oder dessen
+  Wind mehr als 2,5 m/s vom Mittel abweicht, ersetzt die Liste.
 - **Sterne:** Minimum aus Anzahl (1, 2, ab 3 → 3) und Güte (≤ 0,1 → 3, ≤ 0,2 → 2, sonst 1).
-  Minus 1 ab 10 min Alter des neuesten Kreises, minus 2 ab 20 min, ab 30 min nichts. Minus 1,
-  solange ein Kreis in einem neuen Bart schon 180° gedreht hat (alter Wind). Unter 1 Stern nichts.
+  Minus 1 ab 5 min Alter (seit dem Ende des neuesten Kreises), minus 2 ab 15 min, ab 30 min
+  nichts. Minus 1, solange ein Kreis in einem neuen Bart schon 180° gedreht hat (alter Wind).
+  Unter 1 Stern nichts.
+- **Letzte Drehung:** `last_turn_s` ist die Zeit des letzten Punkts einer echten Drehung: eines
+  laufenden Kreises ab 60° Kursänderung, des Kreises nach einem fertigen Kreis oder einer starken
+  Gegendrehung direkt nach einer echten Drehung. Kurs-Zickzack im Geradeausflug kommt nie so
+  weit. Kreist der Schirm in Wind stärker als seine Fahrt, pendelt der Kurs nur hin und her
+  (bei 8 m/s Fahrt und 12 m/s Wind um ±42°), zählt so aber durchgehend als Drehung.
+
+### Anzeige-Sperren (`vario-engine`)
+
+Die Engine (`Processor`) zeigt Gleitzahl und Landepunkt nur, wenn sie gerade etwas aussagen:
+
+- **Geschwindigkeit:** mindestens 1,4 m/s (ca. 5 km/h) über Grund im Fenster (Modul `glide`).
+- **Höhe:** bei bekanntem Gelände mindestens 30 m darüber, gemessen mit der GPS-Höhe; dafür ist
+  ein 3D-Fix nötig, mit 2D-Fix gibt es nichts. Ohne bekanntes Gelände gilt nur die
+  Geschwindigkeit.
+- **GPS-Verlust:** Ist der letzte Fix älter als 3 s, verschwinden beide (gemessen an der Zeit der
+  übrigen Sensoren, ohne jeden Sensor an der Uhr der Engine). Die Luftraumwarnungen enden erst
+  nach 30 s.
+- **Nach dem Kreisen:** Keine Gleitzahl, solange seit der letzten Drehung (`last_turn_s` aus
+  `wind`) noch kein ganzes Fenster vergangen ist. Sonst enthielte das Fenster noch Steigen oder
+  Kreisstücke und zeigte z. B. direkt nach dem Bart Werte um 40 statt 8.
+- **Landepunkt:** Die Anfrage nimmt die GPS-Höhe (MSL, wie das Gelände), die Gleitzahl selbst
+  die Druckhöhe des Varios (nur Differenzen zählen). Ein eigener Thread sucht den Treffer und
+  rechnet nur die neueste Anfrage. Ist keine Gleitzahl sichtbar, wird auch kein Landepunkt
+  gezeigt und das alte Ergebnis verworfen.

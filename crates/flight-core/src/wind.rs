@@ -27,6 +27,15 @@ const MAX_CIRCLES: usize = 6;
 const AGE_WEIGHT: f64 = 0.7;
 /// A circle whose wind differs more than this (m/s) from the mean replaces the list.
 const MAX_SHIFT_MPS: f64 = 2.5;
+/// Summed course change (degrees, one direction) from which a turn in progress counts as
+/// turning for [`WindEstimator::last_turn_s`]. In wind up to twice the airspeed the course
+/// of a circling glider still swings by more than this.
+const TURNING_DEG: f64 = 60.0;
+/// Age of the newest circle (seconds) from which the wind loses one star, two stars, or
+/// disappears.
+const AGE_MINUS_ONE_S: f64 = 5.0 * 60.0;
+const AGE_MINUS_TWO_S: f64 = 15.0 * 60.0;
+const MAX_AGE_S: f64 = 30.0 * 60.0;
 
 /// One GPS fix: ground speed and course over ground.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -54,6 +63,8 @@ pub struct WindEstimator {
     progress: Option<Progress>,
     /// Accepted circles of the current thermal, newest first.
     circles: Vec<Circle>,
+    /// See [`WindEstimator::last_turn_s`].
+    last_turn_s: Option<f64>,
 }
 
 /// The circle being flown right now.
@@ -66,6 +77,8 @@ struct Progress {
     sign: f64,
     /// Consecutive samples turning too slowly (or the wrong way).
     weak: u32,
+    /// Whether this turn has gone far enough to count as turning (see [`TURNING_DEG`]).
+    turning: bool,
 }
 
 /// An accepted full circle.
@@ -128,14 +141,24 @@ impl WindEstimator {
             p.samples.push(sample);
             p.turned_deg += diff;
         } else if strong {
+            // A strong turn the other way right after a real turn (an S-turn, or the course
+            // swinging to and fro while circling in strong wind) is still turning.
+            let reversal = self.progress.as_ref().is_some_and(|p| p.turning);
             self.progress = Some(Progress {
                 samples: vec![previous, sample],
                 turned_deg: diff,
                 sign: rate.signum(),
                 weak: 0,
+                turning: reversal,
             });
         } else {
             self.progress = None;
+        }
+        if let Some(p) = self.progress.as_mut() {
+            p.turning |= p.turned_deg.abs() >= TURNING_DEG;
+            if p.turning {
+                self.last_turn_s = Some(sample.time_s);
+            }
         }
 
         let complete = self
@@ -154,6 +177,8 @@ impl WindEstimator {
                 turned_deg: 0.0,
                 sign: done.sign,
                 weak: 0,
+                // Still circling: the next circle counts as turning from its first sample.
+                turning: true,
             });
         }
     }
@@ -174,11 +199,11 @@ impl WindEstimator {
         let mut stars = count_stars.min(quality_stars);
 
         let age_s = now_s - newest.end_s;
-        if age_s > 30.0 * 60.0 {
+        if age_s > MAX_AGE_S {
             return None;
-        } else if age_s > 20.0 * 60.0 {
+        } else if age_s > AGE_MINUS_TWO_S {
             stars -= 2;
-        } else if age_s > 10.0 * 60.0 {
+        } else if age_s > AGE_MINUS_ONE_S {
             stars -= 1;
         }
         // Old wind while a circle in a new thermal is half done.
@@ -229,6 +254,16 @@ impl WindEstimator {
             weight *= AGE_WEIGHT;
         }
         Some((sum_x / sum_w, sum_y / sum_w, sum_q / sum_w))
+    }
+
+    /// Time of the last sample that belonged to a real turn: a turn in progress of at least
+    /// 60°, the circle after a completed one, or a strong turn the other way right after a
+    /// real turn. The engine hides the glide ratio until a whole window has passed since
+    /// then. Course jitter in straight flight never gets that far; a glider circling in
+    /// wind stronger than its airspeed swings its course by more than 60° to and fro
+    /// although it never turns a full circle.
+    pub fn last_turn_s(&self) -> Option<f64> {
+        self.last_turn_s
     }
 
     #[cfg(test)]
@@ -553,20 +588,61 @@ mod tests {
     fn old_wind_loses_stars_and_disappears() {
         let s = circles(0.0, 3, 20.0, 8.0, 270.0, 4.0, None);
         let e = fed(&s);
-        assert_eq!(e.estimate(60.0 + 11.0 * 60.0).unwrap().stars, 2);
-        assert_eq!(e.estimate(60.0 + 21.0 * 60.0).unwrap().stars, 1);
-        assert_eq!(e.estimate(60.0 + 31.0 * 60.0), None);
+        let end = last_time(&s);
+        assert_eq!(e.estimate(end + 4.0 * 60.0).unwrap().stars, 3);
+        assert_eq!(e.estimate(end + 6.0 * 60.0).unwrap().stars, 2);
+        assert_eq!(e.estimate(end + 14.0 * 60.0).unwrap().stars, 2);
+        assert_eq!(e.estimate(end + 16.0 * 60.0).unwrap().stars, 1);
+        assert_eq!(e.estimate(end + 29.0 * 60.0).unwrap().stars, 1);
+        assert_eq!(e.estimate(end + 31.0 * 60.0), None);
+    }
+
+    #[test]
+    fn last_turn_marks_circling_but_not_jitter() {
+        let zigzag = straight(0.0, (0..60).map(|i| if i % 2 == 0 { 42.0 } else { 48.0 }));
+        let mut e = fed(&zigzag);
+        assert_eq!(e.last_turn_s(), None, "course jitter is no turn");
+
+        let circle = circles(100.0, 2, 20.0, 8.0, 270.0, 4.0, None);
+        for s in &circle {
+            e.push(*s);
+        }
+        let turn = e.last_turn_s().unwrap();
+        assert!(turn >= last_time(&circle) - 1.0, "{turn}");
+
+        // Straight again: the last turn stays where the circling ended.
+        let after = last_time(&circle);
+        for s in straight(after + 1.0, std::iter::repeat_n(90.0, 30)) {
+            e.push(s);
+        }
+        assert!(e.last_turn_s().unwrap() <= after + 3.0);
+    }
+
+    #[test]
+    fn swinging_course_in_wind_stronger_than_airspeed_counts_as_turning() {
+        // 12 m/s wind against 8 m/s airspeed: the course only swings about ±42° around
+        // downwind and never turns a full circle, yet the glider is circling.
+        let s = circles(0.0, 3, 20.0, 8.0, 0.0, 12.0, None);
+        let mut e = WindEstimator::new();
+        for sample in &s {
+            e.push(*sample);
+            if sample.time_s >= 15.0 {
+                let turn = e.last_turn_s().unwrap();
+                assert!(sample.time_s - turn <= 1.0, "{} {turn}", sample.time_s);
+            }
+        }
     }
 
     #[test]
     fn old_wind_in_a_new_thermal_loses_a_star() {
         let old = circles(0.0, 3, 20.0, 8.0, 270.0, 4.0, None);
-        let new = circles(last_time(&old) + 301.0, 1, 20.0, 8.0, 90.0, 3.0, None);
+        let new = circles(last_time(&old) + 151.0, 1, 20.0, 8.0, 90.0, 3.0, None);
         let mut e = fed(&old);
         assert_eq!(e.estimate(last_time(&old)).unwrap().stars, 3);
-        // Five minutes straight, on the course the new circle begins with.
+        // Two and a half minutes straight (a new thermal, the wind not yet aged), on the
+        // course the new circle begins with.
         let course = new[0].course_deg;
-        for s in straight(last_time(&old) + 1.0, std::iter::repeat_n(course, 300)) {
+        for s in straight(last_time(&old) + 1.0, std::iter::repeat_n(course, 150)) {
             e.push(s);
         }
 

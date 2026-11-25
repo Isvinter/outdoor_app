@@ -197,7 +197,7 @@ fn run(
         apply_airspace_changes(&mut processor, shared, landing);
         processor.set_test_alert(*lock(&shared.test_alert));
         // Covers the case that no sensor delivers at all any more.
-        processor.expire_warnings(processor.gps_age_s());
+        processor.note_gps_age(processor.gps_age_s());
         // Sleep until a sample arrives, but wake up regularly to notice `stop`.
         match events.recv_timeout(IDLE_WAKEUP) {
             Ok(event) => {
@@ -377,6 +377,80 @@ mod tests {
             (distance - expected).abs() < expected * 0.1,
             "distance {distance}, expected {expected}"
         );
+        engine.stop();
+    }
+
+    /// Starts an engine over flat ground at 700 m and sends it the events of a glide
+    /// flight with these segments up to `until_s`; returns the engine, the sender (a
+    /// closed channel would stop the engine) and the remaining events.
+    fn engine_with_flight(
+        segments: Vec<sensor_sim::synthetic::Segment>,
+        until_s: f64,
+    ) -> (Engine, mpsc::Sender<SensorEvent>, Vec<SensorEvent>) {
+        use flight_core::terrain::FlatTerrain;
+        use flight_core::time::{Date, TimeOfDay};
+        use sensor_sim::synthetic::SyntheticFlight;
+        use sensor_sim::{SimConfig, Simulation};
+
+        let (sender, receiver) = mpsc::channel();
+        let settings = VarioSettings::default();
+        let engine =
+            Engine::start(receiver, ToneControl::new(&settings), &settings, None, None).unwrap();
+        engine.set_terrain(Arc::new(FlatTerrain(700.0)));
+        let mut builder = SyntheticFlight::builder().start(47.665, 11.526, 1700.0);
+        for segment in segments {
+            builder = builder.segment(segment);
+        }
+        let utc = UtcDateTime::new(
+            Date::new(2026, 7, 28).unwrap(),
+            TimeOfDay::new(10, 0, 0).unwrap(),
+        );
+        let mut rest = Vec::new();
+        Simulation::synthetic(builder.build(), utc, &SimConfig::default()).run_fast(|event| {
+            if event.time().as_secs() <= until_s {
+                sender.send(event).unwrap();
+            } else {
+                rest.push(event);
+            }
+        });
+        (engine, sender, rest)
+    }
+
+    #[test]
+    fn engine_hides_the_landing_point_when_the_glide_ends() {
+        use sensor_sim::synthetic::Segment;
+        let (engine, sender, rest) = engine_with_flight(
+            vec![
+                Segment::straight(60.0, -1.25),
+                Segment::circling(40.0, 1.0, 20.0),
+            ],
+            60.0,
+        );
+        let status = wait_for(&engine, |status| status.landing.is_some());
+        let fixes = status.gps.total
+            + rest
+                .iter()
+                .filter(|event| matches!(event, SensorEvent::Gps(_)))
+                .count() as u64;
+        for event in rest {
+            sender.send(event).unwrap();
+        }
+        let status = wait_for(&engine, |status| status.gps.total == fixes);
+        assert_eq!(status.glide_ratio, None);
+        assert_eq!(status.landing, None);
+        engine.stop();
+    }
+
+    #[test]
+    fn engine_hides_the_glide_and_landing_point_when_the_gps_is_lost() {
+        use sensor_sim::synthetic::Segment;
+        let (engine, _sender, _rest) =
+            engine_with_flight(vec![Segment::straight(60.0, -1.25)], 60.0);
+        wait_for(&engine, |status| status.landing.is_some());
+        // No sample arrives any more: after 3 s by the engine's clock both disappear.
+        let status = wait_for(&engine, |status| status.glide_ratio.is_none());
+        assert_eq!(status.landing, None);
+        assert!(status.gps.age_s.unwrap() > 3.0, "{:?}", status.gps.age_s);
         engine.stop();
     }
 
