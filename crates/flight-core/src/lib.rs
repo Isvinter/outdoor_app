@@ -19,3 +19,4 @@ pub mod terrain;
 pub mod time;
 pub mod track;
 pub mod vario;
+pub mod wind;

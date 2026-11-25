@@ -265,3 +265,23 @@ Modul `landing`. Wo die aktuelle Gleitlinie das Gelände trifft, entlang des Kur
 - **Nichts statt Falsches:** Liegt der Start schon unter dem Gelände, ist das Gelände am Start oder
   irgendwo auf dem Weg unbekannt (außerhalb der Regionen), oder gibt es keinen Treffer innerhalb
   der Reichweite, so gibt es `None`.
+
+### Wind
+
+Modul `wind`. Beim Kreisen liegen die Geschwindigkeiten über Grund auf einem Kreis, dessen
+Mittelpunkt der Windvektor ist (die Fluggeschwindigkeit dreht sich, der Wind bleibt).
+
+- **Punkte:** Je GPS-Punkt `x = v·sin(Kurs)` (Ost), `y = v·cos(Kurs)` (Nord).
+- **Vollkreis:** Kursänderung je Punkt (gefaltet auf −180°..180°) durch die Zeit. Ein Kreis läuft,
+  solange die Drehrate mindestens 4°/s in gleicher Richtung beträgt; bis zu 2 schwächere Punkte
+  in Folge sind erlaubt, der dritte bricht ab, ebenso eine Lücke über 3 s. Bei 360° Summe ist der
+  Kreis fertig, der nächste beginnt an diesem Punkt.
+- **Anpassung:** Algebraischer Kleinste-Quadrate-Kreis (Kåsa, 3×3-Normalgleichungen). Gültig nur
+  mit mindestens 8 Punkten, höchstens 60 s Dauer, Radius mindestens 3 m/s und RMS-Rest / Radius
+  höchstens 0,3. Der Mittelpunkt ist der Wind (wohin); angezeigt wird „woher“.
+- **Mittel:** Höchstens 6 Kreise, Gewicht 0,7^k (neuester k = 0) für Mittelpunkt und Restgüte.
+  Ein Kreis, der mehr als 120 s nach dem letzten endet (neuer Bart), oder dessen Wind mehr als
+  2,5 m/s vom Mittel abweicht, ersetzt die Liste.
+- **Sterne:** Minimum aus Anzahl (1, 2, ab 3 → 3) und Güte (≤ 0,1 → 3, ≤ 0,2 → 2, sonst 1).
+  Minus 1 ab 10 min Alter des neuesten Kreises, minus 2 ab 20 min, ab 30 min nichts. Minus 1,
+  solange ein Kreis in einem neuen Bart schon 180° gedreht hat (alter Wind). Unter 1 Stern nichts.
