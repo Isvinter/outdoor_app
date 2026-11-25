@@ -315,6 +315,31 @@ final class PlanController: ObservableObject {
         return true
     }
 
+    /// Off the route during the guidance: the route goes on from `from` to
+    /// waypoint `index` and on as before; the part before is dropped without
+    /// asking. The leg keeps the profile of the one it replaces. The route no
+    /// longer stands for a saved one: "save" stores a new route.
+    func reroute(from: LatLon, toWaypoint index: Int) {
+        let old = request
+        guard !replacing, old.waypoints.indices.contains(index), old.legs.count == old.waypoints.count - 1,
+            !old.legs.isEmpty
+        else { return }
+        let count = old.waypoints.count - index + 1
+        var new = old
+        new.waypoints = [from] + Array(old.waypoints[index...])
+        new.legs = [old.legs[max(index - 1, 0)]] + Array(old.legs[index...])
+        new.stageEnds = old.stageEnds
+            .map { Int($0) - index + 1 }
+            .filter { $0 > 0 && $0 < count - 1 }
+            .map { UInt32($0) }
+        picking = false
+        loaded = nil
+        request = new
+        let core = core
+        queue.async { core.detachPlannedRoute() }
+        compute()
+    }
+
     /// `to` becomes the next destination of the route on the map.
     func appendTarget(_ to: CLLocationCoordinate2D) -> Bool {
         guard !replacing else { return false }

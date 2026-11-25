@@ -414,6 +414,23 @@ fn loaded_route_becomes_the_planned_route() {
     assert!(app.planned_route().is_none());
 }
 
+/// Detached, the plan stays but "save" no longer overwrites the saved route.
+#[test]
+fn detached_route_is_saved_as_a_new_one() {
+    let app = app_with_ramp("detach");
+    let plan = app.plan_route(&uphill()).unwrap();
+    let first = app.save_planned_route("Rampe").unwrap();
+    assert_eq!(app.loaded_route(), Some(first.id));
+
+    app.detach_planned_route();
+
+    assert_eq!(app.planned_route(), Some(plan));
+    assert_eq!(app.loaded_route(), None);
+    let second = app.save_planned_route("Rampe umgeplant").unwrap();
+    assert_ne!(second.id, first.id);
+    assert_eq!(app.saved_routes().unwrap().len(), 2);
+}
+
 #[test]
 fn routes_are_exported_as_gpx_with_elevation() {
     let app = app_with_ramp("export");

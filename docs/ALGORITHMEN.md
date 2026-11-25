@@ -180,7 +180,7 @@ Beurteilung im Gelände.
 ## 7. Live-Routing (`core-app`, Modul `guide`)
 
 Der Guide folgt der geplanten Route Fix für Fix: Fortschritt entlang der Linie, Abweichung,
-Weg zurück, Rest. Er ändert die Route nie. Alle Werte (`GuideParams`) sind erste Werte, die mit
+Weg zurück, Rest. Er selbst ändert die Route nie; das tut Trail (siehe „Umplanen“). Alle Werte (`GuideParams`) sind erste Werte, die mit
 echten Tracks nachgestellt werden.
 
 - **Fixes:** Genauigkeit über 50 m wird ignoriert. Abweichung: mehr als 40 m von der Linie, bei
@@ -202,6 +202,14 @@ echten Tracks nachgestellt werden.
   am Fortschritt, sonst das des letzten gerouteten davor, sonst des ersten danach; nie eine
   Luftlinie. Die Fahrtrichtung (Kurs) wird nur ab 1,5 m/s übergeben, darunter ist sie zu
   verrauscht. Schlägt es fehl (`no_way_back`), wird nach 60 s oder 200 m Bewegung neu versucht.
+- **Umplanen (Trail, nach dem Test draußen vom Nutzer gewünscht):** Ist ein Weg zurück gefunden,
+  ersetzt Trail die Route ohne Rückfrage: von der Position (Anfang des Wegs zurück) zum Zielpunkt
+  des Wegs zurück und von dort wie bisher. Der gefahrene Teil und die erreichten Wegpunkte
+  verschwinden; wer ihn sehen will, zeichnet auf. Das neue erste Teilstück behält das Profil des
+  ersetzten, die übrigen kommen aus dem Zwischenspeicher. Einmal je Abweichung. Die Führung wird
+  auf der neuen Route neu angesetzt und läuft weiter. Die Route gilt danach nicht mehr als die
+  gespeicherte (`detach_planned_route`): „Speichern“ legt eine neue an, die gespeicherte bleibt.
+  Ohne Weg zurück bleibt die Route, und die Leiste sagt „Kein Weg zurück gefunden“.
 - **Rest:** Strecke und Zeit bis zum Etappenende und zum Ziel, mit dem Rest des Wegs zurück
   eingerechnet. Die Zeit ist `None`, sobald ein Abschnitt voraus keine Zeit hat.
 - **Aufzeichnung:** Führung und Aufzeichnung sind unabhängig (Entscheidung des Nutzers nach dem

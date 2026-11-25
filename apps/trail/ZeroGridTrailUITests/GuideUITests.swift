@@ -29,7 +29,7 @@ final class GuideUITests: XCTestCase {
         return app
     }
 
-    func testGuideShowsWayBackAfterLeavingRoute() throws {
+    func testLeavingTheRouteReroutesFromThere() throws {
         let app = try launch()
         let toggle = app.buttons["guide-toggle"]
         XCTAssertEqual(toggle.value as? String, "aus")
@@ -37,12 +37,16 @@ final class GuideUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["guide-bar"].waitForExistence(timeout: 10))
         XCTAssertEqual(toggle.value as? String, "an")
 
-        let off = app.waitForStatus("off the route", timeout: 60) { $0.values["guide"] == "off_route" }
-        // The walk goes on straight away; a second deviation may follow quickly.
-        XCTAssertGreaterThanOrEqual(off.int("deviation"), 1)
-        XCTAssertTrue(app.staticTexts["guide-way-back"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["guide-way-back"].label.hasPrefix("Weg zurück zum Ziel: "))
-        app.waitForStatus("way back drawn") { $0.int("way_back") == 1 }
+        let before = app.mapStatus
+        // Off the route the route is planned anew from there, without asking; the guidance goes on.
+        let rerouted = app.waitForStatus("rerouted", timeout: 90) {
+            $0.int("plans") > before.int("plans") && $0.int("planning") == 0
+                && $0.values["start"] != before.values["start"]
+        }
+        XCTAssertEqual(rerouted.int("waypoints"), 2)
+        XCTAssertNotEqual(rerouted.values["guide"], "off")
+        XCTAssertEqual(toggle.value as? String, "an")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
 
         // Moving the map ends following; the bar brings it back.
         XCTAssertEqual(app.mapStatus.int("following"), 1)

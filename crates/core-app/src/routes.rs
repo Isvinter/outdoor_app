@@ -335,6 +335,13 @@ impl App {
         *self.shared.routing.loaded() = None;
     }
 
+    /// The planned route no longer stands for the saved one it came from, as
+    /// after rerouting during the guidance: "save" stores a new route and the
+    /// saved one stays as it was. The plan and a running guidance stay.
+    pub fn detach_planned_route(&self) {
+        *self.shared.routing.loaded() = None;
+    }
+
     /// The saved route that "save" overwrites: the one loaded or saved last.
     pub fn loaded_route(&self) -> Option<Uuid> {
         *self.shared.routing.loaded()

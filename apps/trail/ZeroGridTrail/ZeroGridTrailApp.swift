@@ -96,6 +96,8 @@ private struct RootView: View {
                 core: start.host.core, location: location, changes: start.host.guidanceChanges, overlay: map.guide,
                 camera: map)
             tracks.onOpen = { [weak guide] in guide?.following = false }
+            // Off the route: the route is planned anew from there, the old one goes.
+            guide.onReroute = { [weak plan] from, next in plan?.reroute(from: from, toWaypoint: next) }
             routeHere.onGuide = { [weak plan, weak guide] in
                 plan?.whenPlanned { guide?.startIfIdle() }
             }

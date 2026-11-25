@@ -7,15 +7,12 @@ private final class FakeHost: RouteHereHost {
     var hasRoute = false
     var isReplacingRoute = false
     var position: CLLocation?
-    var unsaved = true
     var start = RouteStart.ready
     var started: [(CLLocationCoordinate2D, CLLocationCoordinate2D)] = []
     var appended: [CLLocationCoordinate2D] = []
     var begun: [CLLocationCoordinate2D] = []
     var picking = 0
     var acceptsRoute = true
-
-    func routeIsUnsaved() async -> Bool { unsaved }
 
     func routeStart(position: KnownPosition, target: CLLocationCoordinate2D) async -> RouteStart { start }
 
@@ -182,15 +179,5 @@ final class RouteHereFlowTests: XCTestCase {
         flow.planFrom(target)
         XCTAssertTrue(host.begun.isEmpty)
         XCTAssertEqual(counts.done, 0)
-    }
-
-    func testUnsavedIsAskedOnlyWithARoute() async {
-        let host = FakeHost()
-        let (flow, _) = flow(host)
-        await flow.checkUnsaved()
-        XCTAssertFalse(flow.unsaved)
-        host.hasRoute = true
-        await flow.checkUnsaved()
-        XCTAssertTrue(flow.unsaved)
     }
 }

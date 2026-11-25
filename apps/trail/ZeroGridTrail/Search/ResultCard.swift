@@ -89,12 +89,6 @@ struct TargetActions: View {
                     .foregroundStyle(.orange)
                     .accessibilityIdentifier("route-here-message")
             }
-            if appends && flow.unsaved {
-                Text("Nicht gespeichert: Eine neue Route ersetzt die auf der Karte.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("route-here-unsaved")
-            }
             if location.knowsPosition {
                 HStack {
                     Button("Route hierher") { flow.routeHere(to: at) }
@@ -117,6 +111,5 @@ struct TargetActions: View {
                     .accessibilityIdentifier("route-here-append")
             }
         }
-        .task(id: "\(at.latitude),\(at.longitude)") { await flow.checkUnsaved() }
     }
 }

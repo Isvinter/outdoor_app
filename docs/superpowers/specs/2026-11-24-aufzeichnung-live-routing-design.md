@@ -155,3 +155,9 @@ Der Nutzer fand nicht heraus, wie eine Aufnahme startet: Die Wahl der Aktivität
 - **Aufnahme und Live-Routing sind getrennt.** Eine Aufnahme startet keine Führung und eine Führung keine Aufnahme. Die Regel „bei laufender Aufzeichnung standardmäßig an“ und die Einstellung `guide_off_track` entfallen.
 - **Tipp auf die Karte:** Ist die eigene Position bekannt und der Modus „+ Punkt“ aus, bietet ein Tipp auf die Karte (abseits von Suchtreffern) „Route hierher“ und „Hierher führen“ an, wie bei einem Suchtreffer.
 - Die Bedienung insgesamt wird später überarbeitet.
+
+## Nach dem Test draußen (2026-11-25, vom Nutzer entschieden)
+
+- **Umplanen beim Abkommen:** Statt eines Wegs zurück neben der Route ersetzt Trail die Route ohne Rückfrage durch eine neue ab der Position; die alte verschwindet von der Karte, auch der gefahrene Teil. Betroffen ist nur das aktive Teilstück.
+- **Nur Gespeichertes bleibt:** Routen bleiben nur durch „Speichern“, Tracks nur durch die Aufnahme. Alles andere liegt im Arbeitsspeicher und wird ohne Kommentar verworfen, auch beim Ende der App. Die Warnung „Nicht gespeichert“ entfällt.
+- **Gespeicherte Route nach dem Umplanen:** „Speichern“ legt eine neue Route an; die gespeicherte bleibt unverändert (Vorschlag von Claude, vom Nutzer nicht widersprochen).

@@ -10,7 +10,6 @@ protocol RouteHereHost: AnyObject {
     var isReplacingRoute: Bool { get }
     /// The own position, if the GPS runs and knows it; from the one GPS of the app.
     var position: CLLocation? { get }
-    func routeIsUnsaved() async -> Bool
     func routeStart(position: KnownPosition, target: CLLocationCoordinate2D) async -> RouteStart
     /// A new route; false if the planning cannot take it now.
     func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool
@@ -40,8 +39,6 @@ struct MapPoint: Equatable {
 final class RouteHereFlow: ObservableObject {
     /// The tapped place whose card shows; search hits have their own card.
     @Published private(set) var point: MapPoint?
-    /// The route on the map would be lost by a new one.
-    @Published private(set) var unsaved = false
     /// Planning from the position is under way.
     @Published private(set) var busy = false
     /// Why the route could not be made, in German.
@@ -84,15 +81,6 @@ final class RouteHereFlow: ObservableObject {
         guard point != nil else { return }
         point = nil
         onPoint?(nil)
-    }
-
-    /// Asks the core whether the route on the map is saved; for the warning on the card.
-    func checkUnsaved() async {
-        guard host.hasRoute else {
-            unsaved = false
-            return
-        }
-        unsaved = await host.routeIsUnsaved()
     }
 
     /// "Route hierher": a new route from the own position.

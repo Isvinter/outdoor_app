@@ -31,11 +31,6 @@ final class LiveRouteHereHost: RouteHereHost {
     var isReplacingRoute: Bool { plan.isReplacingRoute }
     var position: CLLocation? { location.knowsPosition ? location.last : nil }
 
-    func routeIsUnsaved() async -> Bool {
-        let (core, request) = (core, plan.request)
-        return await Task.detached(priority: .userInitiated) { core.routeIsUnsaved(request: request) }.value
-    }
-
     func routeStart(position: KnownPosition, target: CLLocationCoordinate2D) async -> RouteStart {
         let core = core
         let to = LatLon(lat: target.latitude, lon: target.longitude)

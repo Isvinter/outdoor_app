@@ -33,6 +33,9 @@ final class GuideController: ObservableObject {
     /// Before the guidance first runs, also when a recording starts it; to
     /// ask for the permission of notifications.
     var onFirstStart: (() -> Void)?
+    /// Off the route with a way back found: the route should go on from
+    /// `from` to waypoint `toWaypoint` (from 0), in place of the old one.
+    var onReroute: ((_ from: LatLon, _ toWaypoint: Int) -> Void)?
     /// Tells the user about each new deviation.
     var alert: DeviationAlert? {
         didSet {
@@ -52,6 +55,8 @@ final class GuideController: ObservableObject {
     private let deviations = PassthroughSubject<GuidanceInfo, Never>()
     /// The deviation counted last, so that each is told once.
     private var counted: UInt32 = 0
+    /// The deviation rerouted last, so that each is rerouted once.
+    private var rerouted: UInt32 = 0
     private var watches: [AnyCancellable] = []
     private var arrivedUntil = 0
 
@@ -95,6 +100,7 @@ final class GuideController: ObservableObject {
             onFirstStart = nil
             // A fresh guide counts from zero.
             counted = 0
+            rerouted = 0
             arrived = false
             location.require(.guidance)
             following = true
@@ -105,6 +111,14 @@ final class GuideController: ObservableObject {
         if new.deviation > counted {
             counted = new.deviation
             deviations.send(new)
+        }
+        // The way back may come later than the deviation (a retry after "no way back").
+        if new.deviation < rerouted { rerouted = new.deviation }
+        if new.phase == "off_route", new.deviation > rerouted, let from = new.wayBack.first,
+            let next = new.nextWaypoint
+        {
+            rerouted = new.deviation
+            onReroute?(from, Int(next))
         }
     }
 

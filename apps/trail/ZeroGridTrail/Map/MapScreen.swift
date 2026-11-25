@@ -265,8 +265,9 @@ private struct SelfTestStatus: View {
         }
         parts.append("following=\(guide.following ? 1 : 0)")
         let waypoints = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-        if !waypoints.isEmpty {
+        if let first = waypoints.first {
             parts.append("waypoint_xy=\(controller.screenPoints(of: waypoints))")
+            parts.append(String(format: "start=%.5f,%.5f", first.latitude, first.longitude))
         }
         if !start.options.project.isEmpty {
             let places = start.options.project.map { CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) }
