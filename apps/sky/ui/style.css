@@ -435,6 +435,12 @@ h2:first-child {
   margin: 0;
   accent-color: var(--ink);
 }
+.setting select {
+  width: 100%;
+  height: 40px;
+  font: inherit;
+  margin: 4px 0;
+}
 .setting small,
 .hint {
   display: block;

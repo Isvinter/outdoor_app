@@ -102,6 +102,14 @@
         <input id="set-damping" type="range" min="0" max="5" step="0.1" />
         <small>Mittelungszeit des Varios: größer ist ruhiger, reagiert aber später.</small>
       </div>
+      <div class="setting">
+        <label for="set-glide-window">Gleitzahl-Zeitraum</label>
+        <select id="set-glide-window">
+          <option value="10">10 s</option><option value="20">20 s</option>
+          <option value="30">30 s</option><option value="60">60 s</option>
+        </select>
+        <small>Länger ist ruhiger, zeigt nach einem Windsprung aber länger den alten Wert.</small>
+      </div>
       <div id="settings-message"></div>
       <div class="row">
         <button id="tone-climb" class="button" disabled>Testton Steigen</button>

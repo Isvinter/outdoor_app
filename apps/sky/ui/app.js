@@ -541,6 +541,7 @@ function showSettings() {
     $(input).value = settings[field];
     $(output).textContent = format(settings[field]);
   }
+  $("set-glide-window").value = String(settings.glideWindowS);
 }
 
 async function applySettings(changed) {
@@ -565,6 +566,10 @@ for (const [input, output, field, format] of settingInputs) {
     applySettings({ ...settings, [field]: Number($(input).value) });
   });
 }
+
+$("set-glide-window").addEventListener("change", () => {
+  applySettings({ ...settings, glideWindowS: Number($("set-glide-window").value) });
+});
 
 $("reset-settings").addEventListener("click", async () => {
   applySettings(await invoke("default_settings"));

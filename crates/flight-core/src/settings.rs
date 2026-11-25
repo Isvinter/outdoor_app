@@ -14,7 +14,13 @@ pub struct VarioSettings {
     /// Averaging time of the displayed and audible climb rate in seconds. 0 turns
     /// averaging off; larger values are calmer but react later.
     pub damping_s: f64,
+    /// Time window in seconds over which the glide ratio is averaged. One of
+    /// [`GLIDE_WINDOWS_S`].
+    pub glide_window_s: f64,
 }
+
+/// The glide windows the user can choose from, in seconds.
+pub const GLIDE_WINDOWS_S: [f64; 4] = [10.0, 20.0, 30.0, 60.0];
 
 impl Default for VarioSettings {
     fn default() -> Self {
@@ -23,6 +29,7 @@ impl Default for VarioSettings {
             sink_threshold_mps: -2.5,
             volume: 0.8,
             damping_s: 0.5,
+            glide_window_s: 20.0,
         }
     }
 }
@@ -35,6 +42,8 @@ pub enum SettingsError {
     VolumeOutOfRange,
     #[error("the damping must be between 0 and 10 seconds")]
     DampingOutOfRange,
+    #[error("the glide window must be 10, 20, 30 or 60 seconds")]
+    GlideWindowInvalid,
     #[error("settings must be finite numbers")]
     NotFinite,
     #[error("line {line} of the settings file is not `name = number`")]
@@ -49,6 +58,7 @@ impl VarioSettings {
             self.sink_threshold_mps,
             self.volume,
             self.damping_s,
+            self.glide_window_s,
         ];
         if values.iter().any(|value| !value.is_finite()) {
             return Err(SettingsError::NotFinite);
@@ -62,6 +72,9 @@ impl VarioSettings {
         if !(0.0..=10.0).contains(&self.damping_s) {
             return Err(SettingsError::DampingOutOfRange);
         }
+        if !GLIDE_WINDOWS_S.contains(&self.glide_window_s) {
+            return Err(SettingsError::GlideWindowInvalid);
+        }
         Ok(())
     }
 }
@@ -72,6 +85,7 @@ const KEY_CLIMB: &str = "climb_threshold_mps";
 const KEY_SINK: &str = "sink_threshold_mps";
 const KEY_VOLUME: &str = "volume";
 const KEY_DAMPING: &str = "damping_s";
+const KEY_GLIDE_WINDOW: &str = "glide_window_s";
 
 impl VarioSettings {
     /// The settings as the text of a settings file. Read it back with
@@ -79,8 +93,13 @@ impl VarioSettings {
     pub fn to_text(&self) -> String {
         format!(
             "# ZeroGrid Sky settings\n\
-             {KEY_CLIMB} = {}\n{KEY_SINK} = {}\n{KEY_VOLUME} = {}\n{KEY_DAMPING} = {}\n",
-            self.climb_threshold_mps, self.sink_threshold_mps, self.volume, self.damping_s
+             {KEY_CLIMB} = {}\n{KEY_SINK} = {}\n{KEY_VOLUME} = {}\n{KEY_DAMPING} = {}\n\
+             {KEY_GLIDE_WINDOW} = {}\n",
+            self.climb_threshold_mps,
+            self.sink_threshold_mps,
+            self.volume,
+            self.damping_s,
+            self.glide_window_s
         )
     }
 
@@ -104,6 +123,7 @@ impl VarioSettings {
                 KEY_SINK => settings.sink_threshold_mps = value,
                 KEY_VOLUME => settings.volume = value,
                 KEY_DAMPING => settings.damping_s = value,
+                KEY_GLIDE_WINDOW => settings.glide_window_s = value,
                 _ => {}
             }
         }
@@ -123,6 +143,7 @@ mod tests {
             sink_threshold_mps: -3.1,
             volume: 0.45,
             damping_s: 1.25,
+            glide_window_s: 60.0,
         };
         assert_eq!(VarioSettings::from_text(&settings.to_text()), Ok(settings));
     }
@@ -153,6 +174,23 @@ mod tests {
         assert_eq!(
             VarioSettings::from_text("volume = 2"),
             Err(SettingsError::VolumeOutOfRange)
+        );
+    }
+
+    #[test]
+    fn glide_window_must_be_one_of_the_choices() {
+        assert_eq!(VarioSettings::default().glide_window_s, 20.0);
+        let odd = VarioSettings {
+            glide_window_s: 15.0,
+            ..VarioSettings::default()
+        };
+        assert_eq!(odd.validate(), Err(SettingsError::GlideWindowInvalid));
+        // Older files without the entry keep the default.
+        assert_eq!(
+            VarioSettings::from_text("volume = 0.3")
+                .unwrap()
+                .glide_window_s,
+            20.0
         );
     }
 
