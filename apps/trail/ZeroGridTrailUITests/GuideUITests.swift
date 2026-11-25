@@ -9,7 +9,7 @@ final class GuideUITests: XCTestCase {
     }
 
     /// Needs routing data: the package of `isarwinkel-achensee` (`scripts/test.sh` names it).
-    private func launch() throws -> XCUIApplication {
+    private func launch(replay: String = "isarwinkel-deviation") throws -> XCUIApplication {
         guard let package = ProcessInfo.processInfo.environment["ISARWINKEL_PACKAGE"], !package.isEmpty else {
             throw XCTSkip("ISARWINKEL_PACKAGE is not set")
         }
@@ -19,7 +19,7 @@ final class GuideUITests: XCTestCase {
             "-startCenter", "47.6803,11.5741", "-startZoom", "14",
         ]
         let bundle = Bundle(for: GuideUITests.self)
-        if let track = bundle.url(forResource: "isarwinkel-deviation", withExtension: "gpx", subdirectory: "replay") {
+        if let track = bundle.url(forResource: replay, withExtension: "gpx", subdirectory: "replay") {
             app.launchArguments += ["-replayGPX", track.path]
         }
         app.launch()
@@ -58,6 +58,20 @@ final class GuideUITests: XCTestCase {
         app.buttons["guide-stop"].tap()
         XCTAssertTrue(app.otherElements["guide-bar"].waitForNonExistence(timeout: 5))
         app.waitForStatus("guidance off") { $0.values["guide"] == "off" }
+    }
+
+    /// A walk along the route through its first turn, a left one: the field
+    /// above the bar comes before the turn and goes after it.
+    func testTurnBannerAppearsAndGoes() throws {
+        let app = try launch(replay: "isarwinkel-turn")
+        app.buttons["guide-toggle"].tap()
+        XCTAssertTrue(app.otherElements["guide-bar"].waitForExistence(timeout: 10))
+        let banner = app.descendants(matching: .any)["turn-banner"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 60))
+        XCTAssertTrue(banner.label.contains("links"), banner.label)
+        XCTAssertTrue(banner.waitForNonExistence(timeout: 30))
+        XCTAssertNotEqual(app.mapStatus.values["guide"], "off")
+        XCTAssertEqual(app.mapStatus.values["guide"], "on_route")
     }
 
     /// The Isarwinkel package with the GPS replaced by a walk, without a route.

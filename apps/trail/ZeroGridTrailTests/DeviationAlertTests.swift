@@ -13,6 +13,7 @@ private final class FakeCenter: NotificationScheduling {
 private final class FakeHaptics: Haptics {
     var count = 0
     func deviation() { count += 1 }
+    func turn() {}
 }
 
 @MainActor
@@ -38,7 +39,8 @@ final class DeviationAlertTests: XCTestCase {
     private func info(next: UInt32?, wayBack: Double? = 650) -> GuidanceInfo {
         GuidanceInfo(
             phase: "off_route", alongM: 0, nextWaypoint: next, deviation: 1, wayBack: [], wayBackM: wayBack,
-            toStageEndM: nil, toStageEndS: nil, toDestinationM: 5000, toDestinationS: nil)
+            toStageEndM: nil, toStageEndS: nil, toDestinationM: 5000, toDestinationS: nil, turn: nil,
+            turnSeq: 0, hasTurns: true)
     }
 
     func testBackgroundDeviationSchedulesOneNotification() {

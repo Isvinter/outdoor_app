@@ -28,6 +28,13 @@ final class GuideController: ObservableObject {
     /// Shown for a while after the destination was reached.
     @Published private(set) var arrived = false
     @Published var message: String?
+    /// "Diese Route hat keine Abbiegehinweise", for a while after the start
+    /// when the route is from before the turns.
+    @Published private(set) var noTurnsNotice = false
+    /// How long that notice stays.
+    var noTurnsSeconds = 8.0
+    /// Vibrates at each new turn hint.
+    var haptics: Haptics?
     /// How many waypoints the planned route has; to tell the destination from the others.
     var waypointCount = 0
     /// Before the guidance first runs; to ask for the permission of notifications.
@@ -52,8 +59,14 @@ final class GuideController: ObservableObject {
     let overlay: GuideOverlay?
     private weak var camera: GuideCamera?
     private let deviations = PassthroughSubject<GuidanceInfo, Never>()
+    private let turns = PassthroughSubject<TurnInfo, Never>()
     /// The deviation counted last, so that each is told once.
     private var counted: UInt32 = 0
+    /// The turn hint counted last, so that each is told once.
+    private var countedTurns: UInt32 = 0
+    /// Whether "keine Abbiegehinweise" was told in this guidance.
+    private var noTurnsTold = false
+    private var noTurnsUntil = 0
     /// The deviation rerouted last, so that each is rerouted once.
     private var rerouted: UInt32 = 0
     private var watches: [AnyCancellable] = []
@@ -61,6 +74,8 @@ final class GuideController: ObservableObject {
 
     /// Fires once per deviation, when `deviation` grows.
     var newDeviation: AnyPublisher<GuidanceInfo, Never> { deviations.eraseToAnyPublisher() }
+    /// Fires once per turn hint, when `turnSeq` grows.
+    var newTurn: AnyPublisher<TurnInfo, Never> { turns.eraseToAnyPublisher() }
     var active: Bool { info != nil }
 
     init(
@@ -93,6 +108,7 @@ final class GuideController: ObservableObject {
             if was != nil {
                 location.release(.guidance)
                 following = false
+                hideNoTurns()
                 if was?.phase == "arrived" { showArrived() }
             }
             return
@@ -102,7 +118,9 @@ final class GuideController: ObservableObject {
             onFirstStart = nil
             // A fresh guide counts from zero.
             counted = 0
+            countedTurns = 0
             rerouted = 0
+            noTurnsTold = false
             arrived = false
             location.require(.guidance)
             following = true
@@ -113,6 +131,19 @@ final class GuideController: ObservableObject {
         if new.deviation > counted {
             counted = new.deviation
             deviations.send(new)
+        }
+        // As the deviations: a guide set anew counts from zero again.
+        if new.turnSeq < countedTurns { countedTurns = new.turnSeq }
+        if new.turnSeq > countedTurns {
+            countedTurns = new.turnSeq
+            if let turn = new.turn {
+                haptics?.turn()
+                turns.send(turn)
+            }
+        }
+        if !new.hasTurns, !noTurnsTold {
+            noTurnsTold = true
+            showNoTurns()
         }
         // The way back may come later than the deviation (a retry after "no way back").
         if new.deviation < rerouted { rerouted = new.deviation }
@@ -133,6 +164,23 @@ final class GuideController: ObservableObject {
             guard let self, self.arrivedUntil == mine else { return }
             self.arrived = false
         }
+    }
+
+    private func showNoTurns() {
+        noTurnsNotice = true
+        noTurnsUntil += 1
+        let mine = noTurnsUntil
+        let nanoseconds = UInt64(noTurnsSeconds * 1_000_000_000)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard let self, self.noTurnsUntil == mine else { return }
+            self.noTurnsNotice = false
+        }
+    }
+
+    private func hideNoTurns() {
+        noTurnsUntil += 1
+        noTurnsNotice = false
     }
 
     /// The switch "Führen".

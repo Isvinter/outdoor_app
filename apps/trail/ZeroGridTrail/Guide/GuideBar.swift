@@ -24,6 +24,12 @@ struct GuideBar: View {
                             .font(.callout.weight(.semibold))
                             .accessibilityIdentifier("guide-no-way-back")
                     }
+                    if guide.noTurnsNotice {
+                        Text("Diese Route hat keine Abbiegehinweise")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("guide-no-turns")
+                    }
                     if info.phase == "waiting" {
                         Text("Warte auf die Position …")
                             .font(.callout)

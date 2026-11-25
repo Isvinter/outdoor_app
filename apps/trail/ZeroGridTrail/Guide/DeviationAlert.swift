@@ -11,6 +11,8 @@ protocol NotificationScheduling: AnyObject {
 /// A short vibration.
 protocol Haptics: AnyObject {
     func deviation()
+    /// A new turn hint; lighter than a deviation.
+    func turn()
 }
 
 extension UNUserNotificationCenter: NotificationScheduling {
@@ -31,6 +33,12 @@ final class SystemHaptics: Haptics {
     func deviation() {
         DispatchQueue.main.async {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        }
+    }
+
+    func turn() {
+        DispatchQueue.main.async {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
     }
 }
