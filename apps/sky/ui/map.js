@@ -279,20 +279,12 @@ const FlightMap = (() => {
     });
   }
 
-  /** Initial bearing from one place to another, in degrees from north. */
-  function bearing(fromLat, fromLon, toLat, toLon) {
-    const rad = Math.PI / 180;
-    const dLon = (toLon - fromLon) * rad;
-    const y = Math.sin(dLon) * Math.cos(toLat * rad);
-    const x = Math.cos(fromLat * rad) * Math.sin(toLat * rad) -
-      Math.sin(fromLat * rad) * Math.cos(toLat * rad) * Math.cos(dLon);
-    return Math.atan2(y, x) / rad;
-  }
-
   /**
    * Shows the hint at the map edge while the landing point lies outside the visible map:
    * where the line from the map centre to the point crosses the edge (inset by
-   * EDGE_INSET), kept clear of the boxes at the top.
+   * EDGE_INSET), kept clear of the boxes at the top. The arrow points along that same
+   * line on the screen, so it still agrees with its place after panning; the distance is
+   * the one from the pilot.
    */
   function updateLandingHint() {
     const hint = document.getElementById("landing-hint");
@@ -312,17 +304,16 @@ const FlightMap = (() => {
       return;
     }
     document.getElementById("landing-hint-distance").textContent = formatDistance(landing.distanceM);
-    const toward = position
-      ? bearing(position.latitude, position.longitude, landing.latitudeDeg, landing.longitudeDeg)
-      : 0;
-    document.getElementById("landing-hint-arrow").style.transform =
-      `rotate(${(toward - map.getBearing()).toFixed(1)}deg)`;
-    hint.hidden = false;
-    // Scale the vector from the centre down until it touches the inset rectangle.
     const cx = width / 2;
     const cy = height / 2;
     const dx = point.x - cx;
     const dy = point.y - cy;
+    // Screen angle clockwise from "up" (screen y grows downwards, hence -dy).
+    const toward = Math.atan2(dx, -dy) * 180 / Math.PI;
+    document.getElementById("landing-hint-arrow").style.transform =
+      `rotate(${toward.toFixed(1)}deg)`;
+    hint.hidden = false;
+    // Scale the vector from the centre down until it touches the inset rectangle.
     const scale = Math.min(
       dx === 0 ? Infinity : (cx - EDGE_INSET) / Math.abs(dx),
       dy === 0 ? Infinity : (cy - EDGE_INSET) / Math.abs(dy),
