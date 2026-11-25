@@ -35,6 +35,8 @@ final class GuideController: ObservableObject {
     var noTurnsSeconds = 8.0
     /// Vibrates at each new turn hint.
     var haptics: Haptics?
+    /// Tells the hints as notification and by voice, after its switches.
+    var announcer: TurnAnnouncer?
     /// How many waypoints the planned route has; to tell the destination from the others.
     var waypointCount = 0
     /// Before the guidance first runs; to ask for the permission of notifications.
@@ -109,6 +111,7 @@ final class GuideController: ObservableObject {
                 location.release(.guidance)
                 following = false
                 hideNoTurns()
+                announcer?.cleared()
                 if was?.phase == "arrived" { showArrived() }
             }
             return
@@ -125,12 +128,16 @@ final class GuideController: ObservableObject {
             location.require(.guidance)
             following = true
         }
-        if new.phase == "arrived" { showArrived() }
+        if new.phase == "arrived" {
+            if was?.phase != "arrived" { announcer?.arrived() }
+            showArrived()
+        }
         // A guide set anew (another start, a changed route) counts from zero again.
         if new.deviation < counted { counted = new.deviation }
         if new.deviation > counted {
             counted = new.deviation
             deviations.send(new)
+            announcer?.deviation()
         }
         // As the deviations: a guide set anew counts from zero again.
         if new.turnSeq < countedTurns { countedTurns = new.turnSeq }
@@ -139,8 +146,10 @@ final class GuideController: ObservableObject {
             if let turn = new.turn {
                 haptics?.turn()
                 turns.send(turn)
+                announcer?.turn(turn, appActive: UIApplication.shared.applicationState == .active)
             }
         }
+        if was?.turn != nil, new.turn == nil { announcer?.cleared() }
         if !new.hasTurns, !noTurnsTold {
             noTurnsTold = true
             showNoTurns()

@@ -1,13 +1,15 @@
 import XCTest
 @testable import ZeroGridTrail
 
-private final class FakeCenter: NotificationScheduling {
+final class FakeCenter: NotificationScheduling {
     var asked = 0
-    var scheduled: [(title: String, body: String, sound: Bool)] = []
+    var scheduled: [(id: String, title: String, body: String, sound: Bool)] = []
+    var removed: [String] = []
     func requestAuthorization() { asked += 1 }
     func schedule(id: String, title: String, body: String, sound: Bool) {
-        scheduled.append((title, body, sound))
+        scheduled.append((id, title, body, sound))
     }
+    func remove(id: String) { removed.append(id) }
 }
 
 private final class FakeHaptics: Haptics {
@@ -67,6 +69,13 @@ final class DeviationAlertTests: XCTestCase {
     func testSoundSwitchOffSendsSilentNotification() {
         XCTAssertTrue(alert.sound, "on by default")
         alert.sound = false
+        alert.handle(info(next: 3), appActive: false, waypoints: 6)
+        XCTAssertEqual(center.scheduled.first?.sound, false)
+    }
+
+    /// With the turns spoken, the voice says it; the notification comes without sound.
+    func testSilentWhenTurnsAreSpoken() {
+        defaults.set(true, forKey: TurnAnnouncer.speechKey)
         alert.handle(info(next: 3), appActive: false, waypoints: 6)
         XCTAssertEqual(center.scheduled.first?.sound, false)
     }

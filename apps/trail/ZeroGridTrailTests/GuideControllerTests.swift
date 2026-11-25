@@ -239,6 +239,41 @@ final class GuideControllerTests: XCTestCase {
         watch.cancel()
     }
 
+    /// The announcer hears of each hint, of its end, of deviations and of the arrival.
+    func testAnnouncerIsTold() {
+        let changes = PassthroughSubject<GuidanceInfo?, Never>()
+        let location = LocationService(core: sandbox.host.core, manager: manager)
+        let guide = GuideController(
+            core: sandbox.host.core, location: location, changes: changes.eraseToAnyPublisher())
+        let center = FakeCenter()
+        let speaker = RecordingSpeaker()
+        let suite = "GuideControllerTests.announcer"
+        UserDefaults().removePersistentDomain(forName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let announcer = TurnAnnouncer(center: center, speaker: speaker, defaults: UserDefaults(suiteName: suite)!)
+        announcer.speech = true
+        announcer.notifications = true
+        guide.announcer = announcer
+
+        changes.send(Self.info(deviation: 0))
+        XCTAssertTrue(center.removed.isEmpty, "nothing to clear yet")
+        changes.send(Self.info(deviation: 0, turn: Self.turn(metres: 200), turnSeq: 1))
+        changes.send(Self.info(deviation: 0, turn: Self.turn(metres: 150), turnSeq: 1))
+        changes.send(Self.info(deviation: 0, turnSeq: 1))
+        XCTAssertEqual(speaker.spoken, ["In 200 m rechts"])
+        XCTAssertEqual(center.removed, ["turn"])
+        changes.send(Self.info(phase: "off_route", deviation: 1, turnSeq: 1))
+        changes.send(Self.info(phase: "off_route", deviation: 1, turnSeq: 1))
+        changes.send(Self.info(deviation: 1, turn: Self.turn(metres: 100), turnSeq: 2))
+        changes.send(Self.info(phase: "arrived", deviation: 1, turnSeq: 2))
+        changes.send(Self.info(phase: "arrived", deviation: 1, turnSeq: 2))
+        XCTAssertEqual(speaker.spoken, ["In 200 m rechts", "Abseits der Route", "In 100 m rechts", "Ziel erreicht"])
+        XCTAssertEqual(center.removed, ["turn", "turn"])
+        changes.send(nil)
+        XCTAssertEqual(center.removed, ["turn", "turn", "turn"], "the end clears too")
+        XCTAssertEqual(speaker.spoken.count, 4)
+    }
+
     /// A route from before the turns: the bar says so once, for a while.
     func testRouteWithoutTurnsIsToldOnce() async {
         let changes = PassthroughSubject<GuidanceInfo?, Never>()
@@ -273,4 +308,9 @@ final class CountingHaptics: Haptics {
     var turns = 0
     func deviation() { deviations += 1 }
     func turn() { turns += 1 }
+}
+
+final class RecordingSpeaker: Speaking {
+    var spoken: [String] = []
+    func speak(_ text: String) { spoken.append(text) }
 }

@@ -6,6 +6,8 @@ import UserNotifications
 protocol NotificationScheduling: AnyObject {
     func requestAuthorization()
     func schedule(id: String, title: String, body: String, sound: Bool)
+    /// Takes a notification away, shown or still to come.
+    func remove(id: String)
 }
 
 /// A short vibration.
@@ -27,6 +29,11 @@ extension UNUserNotificationCenter: NotificationScheduling {
         content.sound = sound ? .default : nil
         add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
+
+    func remove(id: String) {
+        removePendingNotificationRequests(withIdentifiers: [id])
+        removeDeliveredNotifications(withIdentifiers: [id])
+    }
 }
 
 final class SystemHaptics: Haptics {
@@ -44,7 +51,8 @@ final class SystemHaptics: Haptics {
 }
 
 /// Tells the user once per deviation: a vibration, and in the background or
-/// on the locked screen a notification, with sound after the switch.
+/// on the locked screen a notification, with sound after the switch; without
+/// when the turns are spoken, as the voice says it then.
 final class DeviationAlert {
     static let soundKey = "deviationSound"
     static let title = "Abseits der Route"
@@ -77,7 +85,8 @@ final class DeviationAlert {
         guard !appActive else { return }
         center.schedule(
             id: "deviation-\(info.deviation)-\(UUID().uuidString)", title: Self.title,
-            body: Self.body(info, waypoints: waypoints), sound: sound)
+            body: Self.body(info, waypoints: waypoints),
+            sound: sound && !defaults.bool(forKey: TurnAnnouncer.speechKey))
     }
 
     /// "Weg zurück zu Wegpunkt 4: 650 m." or "Weg zurück zum Ziel: 650 m."

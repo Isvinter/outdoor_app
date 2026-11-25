@@ -54,9 +54,10 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         NSLocationWhenInUseUsageDescription: Zeigt deine Position auf der Karte, zeichnet Touren auf und führt dich auf der Route.
-        # Recording and guidance go on while the screen is locked.
+        # Recording and guidance go on while the screen is locked; the turn hints are spoken there too.
         UIBackgroundModes:
           - location
+          - audio
         NSLocalNetworkUsageDescription: Lädt Karten und Routen von ZeroGrid Base im Heimnetz.
         NSCameraUsageDescription: Liest den QR-Code der Freigabe in ZeroGrid Base.
         # The desktop's share is plain HTTP in the home network.
