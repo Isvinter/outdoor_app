@@ -63,13 +63,15 @@ ausgeblendet.
   Nullschieber und ohne GPS: ausgeblendet bzw. „–“. Nach dem Kreisen erscheint sie wieder,
   sobald ein ganzer Zeitraum geradeaus geflogen wurde.
 - **Sperren gegen Fehlanzeigen am Boden** (Nutzerentscheidung): GZ und Landepunkt
-  erscheinen nur ab etwa **7 km/h über Grund** und mindestens etwa **30 m über dem
-  Gelände** (ohne bekanntes Gelände: nur die Geschwindigkeitssperre). Das hält Gehen heraus;
+  erscheinen nur ab etwa **5 km/h über Grund** und mindestens etwa **30 m über dem
+  Gelände** (ohne bekanntes Gelände: nur die Geschwindigkeitssperre). Am Boden hält vor
+  allem die Sperre über Gelände Gehen heraus;
   eine Talfahrt mit der Seilbahn hoch über dem Tal kann durchrutschen. Zuerst waren 15 km/h
   vorgeschlagen; beim Planen fiel auf, dass dann genau der Brauneck-Fall verschwindet
   (Trimmfahrt um 36 km/h gegen 25 km/h Wind ergibt etwa 11 km/h über Grund). Gehen
-  schließt schon die Sperre über Gelände aus, deshalb reicht eine niedrige
-  Geschwindigkeitssperre. Der Nutzer startet Sky ohnehin direkt vor dem Start und
+  schließt schon die Sperre über Gelände aus. Der Nutzer senkte die Sperre dann auf 5 km/h:
+  Am Brauneck-Sattel blieb in Böen über 30 km/h fast keine Fahrt über Grund, und auch bei
+  normalen Flügen gibt es am Landeplatz Phasen mit Schrittgeschwindigkeit über Grund. Der Nutzer startet Sky ohnehin direkt vor dem Start und
   nutzt Sky nur zum Fliegen; eine echte Start-/Landeerkennung kommt später als eigenes
   Feature und ersetzt dann diese Sperren.
 - Anzeige mit einer Nachkommastelle (`6,8`), sehr große Werte gedeckelt (Wert für die
@@ -178,7 +180,7 @@ weg, weil die Leiste unten mit dem Luftraum-Warnbanner kollidiert.
 
 ## Dem Builder überlassen
 
-- Genaue Werte der Sperren (um 7 km/h, um 30 m über Gelände).
+- Genaue Werte der Sperren (um 5 km/h, um 30 m über Gelände).
 - Gewichtung der Kreise und Schwelle für „weicht stark ab“.
 - Genaue Erkennung von Geradeausflug und Kreis (Schwellen für Drehrate/Kursänderung).
 - Mindesthöhenverlust und Deckel für die GZ; Verhalten bei Nullschieber.

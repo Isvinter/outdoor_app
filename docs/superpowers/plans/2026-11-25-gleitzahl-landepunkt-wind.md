@@ -17,7 +17,7 @@
 - Units SI inside (m, m/s, s, degrees); km/h only in the UI.
 - No new external dependencies.
 - Glide window choices exactly **10, 20, 30, 60 s**, default **20 s**.
-- Gates: mean ground speed over the window ≥ **2.0 m/s (≈7 km/h)**; height above terrain ≥ **30 m** when terrain is known.
+- Gates: mean ground speed over the window ≥ **1.4 m/s (≈5 km/h)**; height above terrain ≥ **30 m** when terrain is known.
 - Wind direction internally "from" (aviation); UI arrow points where the wind blows **to**; speed in km/h.
 - Show nothing rather than something wrong: circling, climbing, no GPS, unknown terrain → hidden.
 - Before every commit (exit status must not be hidden by pipes):
@@ -159,7 +159,7 @@ fn glide_window_must_be_one_of_the_choices() {
       pub fn push(&mut self, sample: GlideSample);
       pub fn glide(&self) -> Option<Glide>;
   }
-  pub const MIN_GROUND_SPEED_MPS: f64 = 2.0;
+  pub const MIN_GROUND_SPEED_MPS: f64 = 1.4;
   pub const MAX_RATIO: f64 = 40.0;
   ```
   All four structs `#[derive(Debug, Clone, Copy, PartialEq)]` (estimator: `Debug, Clone`).
@@ -179,7 +179,7 @@ Rules (pin these):
   - `circling_gives_nothing`: positions on a 20 s circle of radius 25 m, sinking → `None`.
   - `climbing_and_zero_sink_give_nothing`: +0.5 m/s → `None`; −0.05 m/s → `None`.
   - `very_flat_glides_are_capped`: 10 m/s, −0.2 m/s (ratio 50) → `Some(ratio == 40.0)`.
-  - `walking_speed_gives_nothing`: 1.4 m/s, −0.5 m/s → `None`.
+  - `below_the_speed_gate_gives_nothing`: 1.0 m/s, −0.5 m/s → `None`; 2.0 m/s, −0.5 m/s → `Some` (ratio ≈ 4).
   - `drifting_backwards_points_backwards`: heading north but displacement 2 m/s south, −1 m/s → `ratio` ≈ 2.0, `course_deg` ≈ 180.
   - `a_gps_gap_starts_over`: 25 samples, then a 5 s jump, then 5 samples → `None`.
   - `changing_the_window_applies_at_once`: 60 s of straight glide at GZ 8, then 20 s at GZ 4 (sink doubled); window 60 → ratio between 4 and 8; `set_window(10.0)` → ≈4.0 immediately.
