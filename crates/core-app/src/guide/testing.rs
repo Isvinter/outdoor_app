@@ -40,6 +40,7 @@ pub fn leg(profile: Profile, line: Vec<LatLon>) -> Leg {
         time_s: Some(60.0),
         region: None,
         max_mtb_scale: None,
+        turns: None,
         error: None,
     }
 }

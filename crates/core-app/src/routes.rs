@@ -525,3 +525,44 @@ impl App {
         plan_gpx(&plan, &name)
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_2_plan_loads_without_turns() {
+        let value = serde_json::json!({
+            "format": 2,
+            "request": {
+                "waypoints": [{"lat": 48.0, "lon": 11.0}, {"lat": 48.0, "lon": 11.01}],
+                "legs": [{"profile": "hike"}],
+                "stage_ends": []
+            },
+            "legs": [{
+                "profile": "hike",
+                "options": {},
+                "line": [{"lat": 48.0, "lon": 11.0}, {"lat": 48.0, "lon": 11.01}],
+                "distance_m": 745.0,
+                "duration_s": null,
+                "ascent_m": null,
+                "descent_m": null,
+                "time_s": null,
+                "region": null,
+                "max_mtb_scale": null,
+                "error": null
+            }],
+            "elevation": [],
+            "stages": [],
+            "total": {
+                "distance_m": 745.0, "ascent_m": null, "descent_m": null, "time_s": null,
+                "min_ele_m": null, "max_ele_m": null, "failed_legs": 0
+            }
+        });
+        let ReadPlan::Current(plan) = read_plan(&value).unwrap() else {
+            panic!("a plan with a format is a current one");
+        };
+        assert_eq!(plan.legs[0].turns, None);
+    }
+}
