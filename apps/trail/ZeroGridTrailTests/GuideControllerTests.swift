@@ -30,7 +30,15 @@ final class GuideControllerTests: XCTestCase {
             toStageEndM: nil, toStageEndS: nil, toDestinationM: 1000, toDestinationS: nil)
     }
 
-    func testToggleRequiresAndReleasesGuidanceLocation() throws {
+    private func wait(_ what: String, _ condition: @MainActor () -> Bool) async {
+        for _ in 0..<400 where !condition() {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertTrue(condition(), what)
+    }
+
+    /// The controller follows the listener, which tells about start and stop a moment later.
+    func testToggleRequiresAndReleasesGuidanceLocation() async throws {
         try planStraightRoute()
         let location = LocationService(core: sandbox.host.core, manager: manager)
         let guide = GuideController(
@@ -39,19 +47,21 @@ final class GuideControllerTests: XCTestCase {
         guide.onFirstStart = { asked += 1 }
 
         guide.toggle()
-        XCTAssertTrue(guide.active)
+        XCTAssertNotNil(sandbox.host.core.guidanceStatus())
+        await wait("started") { guide.active }
         XCTAssertTrue(guide.following)
         XCTAssertTrue(manager.updating)
         XCTAssertTrue(manager.allowsBackgroundLocationUpdates)
-        XCTAssertNotNil(sandbox.host.core.guidanceStatus())
 
         guide.toggle()
-        XCTAssertFalse(guide.active)
-        XCTAssertFalse(manager.updating)
         XCTAssertNil(sandbox.host.core.guidanceStatus())
+        await wait("stopped") { !guide.active }
+        XCTAssertFalse(manager.updating)
 
         guide.toggle()
+        await wait("started again") { guide.active }
         guide.toggle()
+        await wait("stopped again") { !guide.active }
         XCTAssertEqual(asked, 1, "the permission is asked for once")
     }
 
@@ -182,5 +192,16 @@ final class GuideControllerTests: XCTestCase {
         changes.send(status("off_route", 1, back: true, next: 1))
         XCTAssertEqual(asked.count, 2)
         XCTAssertEqual(asked[1].1, 1)
+    }
+
+    /// The way from the position is routed as the core's way back, never straight.
+    func testRerouteLegIsRouted() {
+        let hike = LegInput(profile: "hike", options: [])
+        let mtb = LegInput(profile: "mtb", options: [])
+        let manual = LegInput(profile: "manual", options: [])
+        XCTAssertEqual(PlanController.rerouteLeg([hike, manual, mtb], replacing: 2).profile, "mtb")
+        XCTAssertEqual(PlanController.rerouteLeg([hike, manual, mtb], replacing: 1).profile, "hike")
+        XCTAssertEqual(PlanController.rerouteLeg([manual, manual, mtb], replacing: 0).profile, "mtb")
+        XCTAssertEqual(PlanController.rerouteLeg([manual], replacing: 0).profile, "manual")
     }
 }

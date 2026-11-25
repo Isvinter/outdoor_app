@@ -150,8 +150,9 @@ final class PlanController: ObservableObject {
     var onRouteDrawn: ((_ legs: [[CLLocationCoordinate2D]], _ waypoints: Int) -> Void)?
 
     private static let lastProfileKey = "lastRouteProfile"
-    /// Runs once the route being computed is there; dropped if it fails.
-    private var afterPlanned: (() -> Void)?
+    /// Runs once the route being computed is there, with the number of its
+    /// computation; dropped if it fails or a newer request takes its place.
+    private var afterPlanned: (number: Int, action: () -> Void)?
 
     init(core: CoreApp, map: MapController) {
         self.core = core
@@ -317,8 +318,9 @@ final class PlanController: ObservableObject {
 
     /// Off the route during the guidance: the route goes on from `from` to
     /// waypoint `index` and on as before; the part before is dropped without
-    /// asking. The leg keeps the profile of the one it replaces. The route no
-    /// longer stands for a saved one: "save" stores a new route.
+    /// asking. The new leg is routed like the core's way back: with the leg it
+    /// replaces, else the last routed one before, else the first after; never
+    /// straight. The route no longer stands for a saved one: "save" stores a new route.
     func reroute(from: LatLon, toWaypoint index: Int) {
         let old = request
         guard !replacing, old.waypoints.indices.contains(index), old.legs.count == old.waypoints.count - 1,
@@ -327,7 +329,7 @@ final class PlanController: ObservableObject {
         let count = old.waypoints.count - index + 1
         var new = old
         new.waypoints = [from] + Array(old.waypoints[index...])
-        new.legs = [old.legs[max(index - 1, 0)]] + Array(old.legs[index...])
+        new.legs = [Self.rerouteLeg(old.legs, replacing: max(index - 1, 0))] + Array(old.legs[index...])
         new.stageEnds = old.stageEnds
             .map { Int($0) - index + 1 }
             .filter { $0 > 0 && $0 < count - 1 }
@@ -338,6 +340,13 @@ final class PlanController: ObservableObject {
         let core = core
         queue.async { core.detachPlannedRoute() }
         compute()
+    }
+
+    /// The leg for the way from the position: as `way_back_spec` in the core.
+    static func rerouteLeg(_ legs: [LegInput], replacing index: Int) -> LegInput {
+        let routed = { (leg: LegInput) in leg.profile != "manual" }
+        if routed(legs[index]) { return legs[index] }
+        return legs[..<index].last(where: routed) ?? legs[(index + 1)...].first(where: routed) ?? legs[index]
     }
 
     /// `to` becomes the next destination of the route on the map.
@@ -570,12 +579,12 @@ final class PlanController: ObservableObject {
 
     /// `action` runs once the route being computed is on the map, not if it fails.
     func whenPlanned(_ action: @escaping () -> Void) {
-        afterPlanned = action
+        afterPlanned = (newest.current, action)
     }
 
     private func computed(_ result: Result<PlanResult, Error>, started: Date) {
         planning = false
-        var after = afterPlanned
+        var after = afterPlanned.flatMap { $0.number == newest.current ? $0.action : nil }
         afterPlanned = nil
         switch result {
         case .success(let plan):

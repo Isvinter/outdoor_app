@@ -14,8 +14,9 @@
 //! The listener is told after `guide` is released, but in the order `guide`
 //! saw the changes: `guide_told` is taken while `guide` is still held and kept
 //! until the listener returns. A listener must therefore not call into the
-//! guidance (start, stop, a fix) from inside `on_guidance`; asking for
-//! `guidance_status` is fine.
+//! guidance from inside `on_guidance`, not even `guidance_status`: another
+//! thread may hold `guide` and wait for `guide_told`. The status comes with
+//! the call; a listener that needs more hands it to another thread.
 
 use std::sync::atomic::Ordering;
 use std::sync::{MutexGuard, PoisonError};

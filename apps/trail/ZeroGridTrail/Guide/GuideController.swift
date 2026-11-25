@@ -30,8 +30,7 @@ final class GuideController: ObservableObject {
     @Published var message: String?
     /// How many waypoints the planned route has; to tell the destination from the others.
     var waypointCount = 0
-    /// Before the guidance first runs, also when a recording starts it; to
-    /// ask for the permission of notifications.
+    /// Before the guidance first runs; to ask for the permission of notifications.
     var onFirstStart: (() -> Void)?
     /// Off the route with a way back found: the route should go on from
     /// `from` to waypoint `toWaypoint` (from 0), in place of the old one.
@@ -78,11 +77,14 @@ final class GuideController: ObservableObject {
             self.camera?.follow(last)
         })
         camera?.onUserMove = { [weak self] in self?.following = false }
-        // Running already: guidance during a recording that went on after a restart.
+        // Running already, as when the controller is made anew.
         if let running = core.guidanceStatus() { changed(running) }
     }
 
-    /// From the core, and from the calls that start it.
+    /// From the core's listener only, which tells the changes in their order.
+    /// The return values of start and stop are not taken: the listener's news
+    /// lag behind them, and a status queued before a stop would look like a
+    /// new start after it.
     private func changed(_ new: GuidanceInfo?) {
         let was = info
         info = new
@@ -137,7 +139,6 @@ final class GuideController: ObservableObject {
     func toggle() {
         if active {
             core.stopGuidance()
-            changed(nil)
         } else {
             start { try $0.startGuidance() }
         }
@@ -155,8 +156,8 @@ final class GuideController: ObservableObject {
 
     private func start(_ call: (CoreApp) throws -> GuidanceInfo) {
         do {
-            // The listener tells the same a moment later.
-            changed(try call(core))
+            // The listener tells about it.
+            _ = try call(core)
         } catch {
             message = "Führen geht nicht: \(describe(error))"
         }

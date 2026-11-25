@@ -346,33 +346,3 @@ fn listener_hears_the_end_last() {
     assert_eq!(told.last(), Some(&None), "{told:?}");
     assert_eq!(told[told.len() - 2], Some(GuidePhase::OnRoute), "{told:?}");
 }
-
-/// Asking for the status from inside the listener does not block.
-#[test]
-fn listener_may_ask_for_the_status() {
-    struct Asking(Mutex<Option<Arc<App>>>);
-    impl AppListener for Asking {
-        fn on_position(&self, _: &Fix) {}
-        fn on_recording(&self, _: &RecordingStatus) {}
-        fn on_source_status(&self, _: &SourceStatus) {}
-        fn on_error(&self, _: &str) {}
-        fn on_guidance(&self, _: Option<&GuideStatus>) {
-            if let Some(app) = self.0.lock().unwrap().as_ref() {
-                let _ = app.guidance_status();
-            }
-        }
-    }
-    let router = Arc::new(StraightRouter::default());
-    let listener = Arc::new(Asking(Mutex::new(None)));
-    let app = Arc::new(app_on(
-        &ramp_routing_dir("told-ask"),
-        &router,
-        listener.clone(),
-    ));
-    *listener.0.lock().unwrap() = Some(app.clone());
-    app.plan_route(&route_east()).unwrap();
-    app.start_guidance().unwrap();
-    app.handle_fix(fix(position(12.0, 32.0), start_ms(), 0, 8.0));
-    app.stop_guidance();
-    *listener.0.lock().unwrap() = None;
-}

@@ -137,6 +137,7 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
             locating = true
             location.require(.map)
             if let last = location.last {
+                locationAccuracy = last.horizontalAccuracy >= 0 ? last.horizontalAccuracy : nil
                 centre(on: last)
             } else {
                 waitForFix()
@@ -150,6 +151,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         locating = false
         centreWhenLocated = false
         fixRequest += 1
+        // The GPS may go on for a recording or the guidance; the button's figure goes.
+        locationAccuracy = nil
         location.release(.map)
     }
 
@@ -187,7 +190,9 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
             },
             location.$last.sink { [weak self] last in
                 guard let self, let last else { return }
-                self.locationAccuracy = last.horizontalAccuracy >= 0 ? last.horizontalAccuracy : nil
+                if self.locating {
+                    self.locationAccuracy = last.horizontalAccuracy >= 0 ? last.horizontalAccuracy : nil
+                }
                 if self.centreWhenLocated && self.locating {
                     self.centre(on: last)
                 }

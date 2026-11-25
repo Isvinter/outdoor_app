@@ -65,7 +65,7 @@ impl CoreApp {
         ))
     }
 
-    /// Ends the guidance; during a recording it stays off for that recording.
+    /// Ends the guidance; a recording goes on.
     pub fn stop_guidance(&self) {
         self.app.stop_guidance();
     }

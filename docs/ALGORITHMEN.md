@@ -217,7 +217,10 @@ echten Tracks nachgestellt werden.
   Führung neu auf, startet aber keine.
 - **Meldungen an die App:** Der Listener erfährt die Änderungen der Führung in der Reihenfolge,
   in der sie geschehen; das Ende kommt nie vor einem Status, der davor entstand. Aus
-  `on_guidance` heraus darf er die Führung weder starten noch stoppen und keinen Fix einspeisen.
+  `on_guidance` heraus darf er die Führung nicht aufrufen, auch nicht nach dem Status fragen (das
+  kann sich mit einem anderen Thread verklemmen); der Status kommt mit dem Aufruf. Trail folgt nur
+  diesen Meldungen, nicht den Rückgabewerten von Start und Stopp: Die Meldungen hängen auf dem
+  Hauptthread hinterher, und ein Status nach dem Stopp sähe sonst wie ein neuer Start aus.
 - **Hinweis in Trail:** Je Abweichung (wenn `deviation` wächst) eine Vibration, im Hintergrund dazu
   eine Mitteilung „Abseits der Route“ mit „Weg zurück zu Wegpunkt {n}: {Distanz}.“ bzw. „Weg zurück
   zum Ziel: {Distanz}.“. Scheitert der Weg zurück schon bei der Abweichung, lautet der Text „Kein
