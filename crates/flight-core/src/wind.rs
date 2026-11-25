@@ -99,12 +99,24 @@ impl WindEstimator {
         let rate = diff / dt;
         let strong = rate.abs() >= MIN_TURN_RATE_DEG_S;
 
+        // A circle that has already taken longer than the longest accepted one can never be
+        // accepted; dropping it keeps course jitter from growing the sample list forever.
+        let too_long = self
+            .progress
+            .as_ref()
+            .is_some_and(|p| sample.time_s - p.samples[0].time_s > MAX_CIRCLE_S);
+        if too_long {
+            self.progress = None;
+        }
+
+        // A strong turn the other way is no weak sample: it ends the circle and (below)
+        // starts one in the new direction, so zigzag jitter cannot keep a circle alive.
         let continues = match self.progress.as_mut() {
             Some(p) if strong && rate.signum() == p.sign => {
                 p.weak = 0;
                 true
             }
-            Some(p) if p.weak < MAX_WEAK_SAMPLES => {
+            Some(p) if !strong && p.weak < MAX_WEAK_SAMPLES => {
                 p.weak += 1;
                 true
             }
@@ -222,6 +234,11 @@ impl WindEstimator {
     #[cfg(test)]
     fn turned_deg(&self) -> f64 {
         self.progress.as_ref().map_or(0.0, |p| p.turned_deg)
+    }
+
+    #[cfg(test)]
+    fn samples_in_progress(&self) -> usize {
+        self.progress.as_ref().map_or(0, |p| p.samples.len())
     }
 
     #[cfg(test)]
@@ -474,6 +491,44 @@ mod tests {
         assert_eq!(l.stars, r.stars);
         assert!(angle_diff(l.from_deg, r.from_deg) <= 1.0, "{l:?} {r:?}");
         assert!((l.speed_mps - r.speed_mps).abs() <= 0.1, "{l:?} {r:?}");
+    }
+
+    #[test]
+    fn zigzag_jitter_does_not_swallow_the_next_circle() {
+        // Straight flight with the course jumping 42° <-> 48° (±6°/s) every second.
+        let zigzag = straight(0.0, (0..120).map(|i| if i % 2 == 0 { 42.0 } else { 48.0 }));
+        let mut e = WindEstimator::new();
+        for s in &zigzag {
+            e.push(*s);
+            assert!(e.samples_in_progress() <= 3, "{}", e.samples_in_progress());
+        }
+        assert_eq!(e.estimate(last_time(&zigzag)), None);
+
+        let circle = circles(last_time(&zigzag) + 1.0, 1, 20.0, 8.0, 270.0, 4.0, None);
+        for s in &circle {
+            e.push(*s);
+        }
+        let w = e.estimate(last_time(&circle)).unwrap();
+        assert_eq!(w.stars, 1, "{w:?}");
+        assert!(angle_diff(w.from_deg, 270.0) <= 3.0, "{w:?}");
+        assert!((w.speed_mps - 4.0).abs() <= 0.3, "{w:?}");
+    }
+
+    #[test]
+    fn slow_drifting_turns_stay_bounded() {
+        // 4.5°/s with one weak sample in every three never completes 360° within 60 s.
+        let mut course = 0.0;
+        let drift = (0..300).map(|i| {
+            course += if i % 3 == 2 { 1.0 } else { 4.5 };
+            course % 360.0
+        });
+        let s = straight(0.0, drift);
+        let mut e = WindEstimator::new();
+        for sample in &s {
+            e.push(*sample);
+            assert!(e.samples_in_progress() <= 62, "{}", e.samples_in_progress());
+        }
+        assert_eq!(e.estimate(last_time(&s)), None);
     }
 
     #[test]

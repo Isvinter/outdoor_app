@@ -274,7 +274,9 @@ Mittelpunkt der Windvektor ist (die Fluggeschwindigkeit dreht sich, der Wind ble
 - **Punkte:** Je GPS-Punkt `x = v·sin(Kurs)` (Ost), `y = v·cos(Kurs)` (Nord).
 - **Vollkreis:** Kursänderung je Punkt (gefaltet auf −180°..180°) durch die Zeit. Ein Kreis läuft,
   solange die Drehrate mindestens 4°/s in gleicher Richtung beträgt; bis zu 2 schwächere Punkte
-  in Folge sind erlaubt, der dritte bricht ab, ebenso eine Lücke über 3 s. Bei 360° Summe ist der
+  in Folge sind erlaubt, der dritte bricht ab, ebenso eine Lücke über 3 s oder eine Dauer über
+  60 s. Eine starke Drehung in Gegenrichtung beendet den Kreis und beginnt einen neuen in der
+  neuen Richtung (sonst hielte Zickzack-Rauschen einen Kreis ewig offen). Bei 360° Summe ist der
   Kreis fertig, der nächste beginnt an diesem Punkt.
 - **Anpassung:** Algebraischer Kleinste-Quadrate-Kreis (Kåsa, 3×3-Normalgleichungen). Gültig nur
   mit mindestens 8 Punkten, höchstens 60 s Dauer, Radius mindestens 3 m/s und RMS-Rest / Radius
