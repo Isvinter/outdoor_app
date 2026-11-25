@@ -3,8 +3,8 @@
 
 use core_routing::TurnKind;
 
-/// How near a turn is when its hint is told.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How near a turn is when its hint is told; `Ahead` comes before `Now`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HintStage {
     /// The announcement ahead of the turn: "In 200 m rechts".
     Ahead,

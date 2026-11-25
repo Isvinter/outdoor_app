@@ -4,6 +4,7 @@
 use core_location::Fix;
 use core_routing::LatLon;
 
+use super::hints::{Announcer, TurnHint};
 use super::line::{LegKind, RouteLine};
 use crate::error::AppError;
 use crate::plan::LegSpec;
@@ -122,6 +123,13 @@ pub struct GuideStatus {
     pub way_back: Option<WayBack>,
     pub to_stage_end: Option<Remaining>,
     pub to_destination: Remaining,
+    /// The hint for the next turn, only while on the route.
+    pub turn: Option<TurnHint>,
+    /// Counts up with every hint told; Trail tells the user when it grows.
+    pub turn_seq: u32,
+    /// Whether the planned route has its turns; `false` for routes stored
+    /// before turns existed.
+    pub has_turns: bool,
 }
 
 /// A way back being followed.
@@ -168,6 +176,9 @@ pub struct Guide {
     /// Where ways back lead until the user has been on the route once:
     /// the waypoint the guide was placed at.
     start_target: Option<usize>,
+    announcer: Announcer,
+    /// The hint after the last fix on the route.
+    turn: Option<TurnHint>,
 }
 
 impl Guide {
@@ -185,6 +196,8 @@ impl Guide {
         target_rule: Box<dyn WayBackTarget + Send>,
     ) -> Guide {
         Guide {
+            announcer: Announcer::new(&line.turns),
+            turn: None,
             line,
             params,
             target_rule,
@@ -331,6 +344,15 @@ impl Guide {
         {
             self.phase = GuidePhase::Arrived;
         }
+        self.turn = None;
+        if self.phase == GuidePhase::OnRoute
+            && let Some(leg) = self.current_leg()
+        {
+            let profile = self.line.legs[leg].spec.profile;
+            self.turn = self
+                .announcer
+                .update(self.along_m, fix.speed_mps, fix.time_ms, profile);
+        }
         self.status()
     }
 
@@ -385,6 +407,12 @@ impl Guide {
             way_back: self.way_back.as_ref().map(|wb| wb.way.clone()),
             to_stage_end,
             to_destination,
+            turn: self
+                .turn
+                .clone()
+                .filter(|_| self.phase == GuidePhase::OnRoute),
+            turn_seq: self.announcer.seq(),
+            has_turns: self.line.has_turns,
         }
     }
 
@@ -539,10 +567,11 @@ fn heading(fix: &Fix) -> Option<f32> {
 mod tests {
     use std::cell::{Cell, RefCell};
 
-    use core_routing::{Profile, RoutingError};
+    use core_routing::{Profile, RoutingError, TurnKind};
 
     use super::*;
     use crate::guide::testing::*;
+    use crate::guide::{HintStage, LineTurn};
 
     const A: LatLon = LatLon {
         lat: 47.6,
@@ -1065,6 +1094,134 @@ mod tests {
         assert_eq!(status.next_waypoint, Some(1));
         assert_eq!(router.count(), 1);
         assert!(router.calls.borrow()[0].to.distance_m(&wp1) < 1.0);
+    }
+
+    /// [`two_legs`] with turns at `turns` (metres, kind).
+    fn two_legs_with_turns(turns: &[(f64, TurnKind)]) -> RouteLine {
+        let mut line = two_legs();
+        line.turns = turns
+            .iter()
+            .map(|&(at_m, kind)| LineTurn {
+                at_m,
+                kind,
+                exit: None,
+                leg: usize::from(at_m >= 1000.0),
+            })
+            .collect();
+        line.has_turns = true;
+        line
+    }
+
+    #[test]
+    fn hint_hidden_off_route() {
+        let mut guide = Guide::new(
+            two_legs_with_turns(&[(330.0, TurnKind::Right)]),
+            GuideParams::default(),
+        );
+        let router = FakeRouter::default();
+        let status = walk(&mut guide, &router, along(0.0, 300.0, 0.0));
+        assert!(status.has_turns);
+        assert_eq!(status.turn_seq, 1);
+        assert_eq!(status.turn.unwrap().spoken, "In 30 m rechts");
+
+        // Off to the north, as in `deviate`.
+        let off = [
+            (320.0, 45.0, 10.0),
+            (330.0, 45.0, 12.0),
+            (335.0, 45.0, 14.0),
+            (340.0, 45.0, 20.0),
+        ];
+        let status = walk(&mut guide, &router, off);
+        assert_eq!(status.phase, GuidePhase::OffRoute);
+        assert_eq!(status.turn, None);
+        assert_eq!(status.turn_seq, 1);
+        // Following the way back, which has no turns of its own.
+        assert!(status.has_turns);
+
+        // Back on the route before the turn: its hint goes on.
+        let status = walk(&mut guide, &router, [(320.0, 0.0, 30.0)]);
+        assert_eq!(status.phase, GuidePhase::OnRoute);
+        let turn = status.turn.as_ref().unwrap();
+        assert_eq!(turn.stage, HintStage::Now, "{status:?}");
+        assert_eq!(status.turn_seq, 2);
+    }
+
+    #[test]
+    fn old_plan_reports_no_turns() {
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        assert!(!guide.status().has_turns);
+        for step in along(0.0, 2000.0, 0.0) {
+            let status = walk(&mut guide, &router, [step]);
+            assert!(!status.has_turns);
+            assert_eq!(status.turn, None);
+            assert_eq!(status.turn_seq, 0);
+        }
+        assert_eq!(guide.status().phase, GuidePhase::Arrived);
+    }
+
+    #[test]
+    fn replayed_track_tells_turns_once() {
+        let points = track_points(SYLVENSTEIN);
+        let n = points.len();
+        let mut line = RouteLine::from_plan(&plan_along(&points, &[n / 3, 2 * n / 3], Vec::new()));
+        // Three clear bends, well apart.
+        let mut at_m = 0.0;
+        let mut bends: Vec<LineTurn> = Vec::new();
+        for i in 1..n {
+            at_m += points[i - 1].distance_m(&points[i]);
+            let kind = core_routing::turns::angle_at(&points, i, core_routing::turns::TURN_REACH_M)
+                .filter(|a| a.abs() >= 60.0)
+                .and_then(core_routing::turns::kind_for_angle);
+            let apart = bends.last().map_or(at_m > 200.0, |b| at_m - b.at_m > 500.0);
+            if let Some(kind) = kind.filter(|_| apart && bends.len() < 3) {
+                let leg = line.legs.iter().position(|l| at_m <= l.to_m).unwrap();
+                bends.push(LineTurn {
+                    at_m,
+                    kind,
+                    exit: None,
+                    leg,
+                });
+            }
+        }
+        assert_eq!(bends.len(), 3, "{bends:?}");
+        line.turns = bends.clone();
+        let mut guide = Guide::new(line, GuideParams::default());
+        let router = FakeRouter::default();
+        let doc = core_gpx::parse_gpx(SYLVENSTEIN).unwrap();
+        let recorded = doc
+            .tracks
+            .iter()
+            .flat_map(|t| &t.segments)
+            .flat_map(|s| &s.points);
+        // Stages told for each bend, in order.
+        let mut told: Vec<Vec<HintStage>> = vec![Vec::new(); bends.len()];
+        let mut seq = 0;
+        for (i, point) in recorded.enumerate() {
+            let fix = Fix {
+                time_ms: point.time_ms.unwrap(),
+                ..fix(points[i], 0.0)
+            };
+            let status = guide.update(&fix, &router);
+            assert!(status.turn_seq >= seq);
+            if status.turn_seq > seq {
+                assert_eq!(status.turn_seq, seq + 1, "fix {i}");
+                seq = status.turn_seq;
+                let bend = bends
+                    .iter()
+                    .position(|b| status.along_m < b.at_m + 10.0)
+                    .unwrap();
+                told[bend].push(status.turn.unwrap().stage);
+            }
+        }
+        for (i, stages) in told.iter().enumerate() {
+            let expected: &[HintStage] = if i == 0 && stages.len() == 1 {
+                &[HintStage::Now]
+            } else {
+                &[HintStage::Ahead, HintStage::Now]
+            };
+            assert_eq!(stages, expected, "bend {i}: {told:?}");
+        }
     }
 
     #[test]
