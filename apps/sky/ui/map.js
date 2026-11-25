@@ -329,10 +329,11 @@ const FlightMap = (() => {
     );
     const edgeX = cx + dx * scale;
     const edgeY = cy + dy * scale;
-    // Below the wind box (or "Folgen" if it is hidden), so that nothing at the top is covered.
-    const above = [document.getElementById("wind-box"), document.getElementById("follow")]
-      .find((element) => element && !element.hidden);
-    const minTop = above ? above.offsetTop + above.offsetHeight + 8 : EDGE_INSET;
+    // Below all boxes at the top (readout, "Folgen", wind box), so that none is covered.
+    const minTop = ["map-readout", "follow", "wind-box"]
+      .map((id) => document.getElementById(id))
+      .filter((element) => element && !element.hidden)
+      .reduce((lowest, element) => Math.max(lowest, element.offsetTop + element.offsetHeight + 8), EDGE_INSET);
     // Above the scale and the attribution at the bottom.
     const maxTop = height - hint.offsetHeight - 36;
     const left = Math.min(Math.max(edgeX - hint.offsetWidth / 2, 10), width - hint.offsetWidth - 10);
