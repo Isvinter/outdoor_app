@@ -141,9 +141,14 @@ impl WindEstimator {
             p.samples.push(sample);
             p.turned_deg += diff;
         } else if strong {
-            // A strong turn the other way right after a real turn (an S-turn, or the course
-            // swinging to and fro while circling in strong wind) is still turning.
-            let reversal = self.progress.as_ref().is_some_and(|p| p.turning);
+            // A strong turn the other way right after a segment that itself turned at least
+            // TURNING_DEG (an S-turn, or the course swinging to and fro while circling in
+            // strong wind) is still turning. Only inheriting from such a segment matters:
+            // otherwise small jitter reversals would pass the flag on forever.
+            let reversal = self
+                .progress
+                .as_ref()
+                .is_some_and(|p| p.turning && p.turned_deg.abs() >= TURNING_DEG);
             self.progress = Some(Progress {
                 samples: vec![previous, sample],
                 turned_deg: diff,
@@ -258,7 +263,7 @@ impl WindEstimator {
 
     /// Time of the last sample that belonged to a real turn: a turn in progress of at least
     /// 60°, the circle after a completed one, or a strong turn the other way right after a
-    /// real turn. The engine hides the glide ratio until a whole window has passed since
+    /// segment that itself turned at least 60°. The engine hides the glide ratio until a whole window has passed since
     /// then. Course jitter in straight flight never gets that far; a glider circling in
     /// wind stronger than its airspeed swings its course by more than 60° to and fro
     /// although it never turns a full circle.
@@ -616,6 +621,26 @@ mod tests {
             e.push(s);
         }
         assert!(e.last_turn_s().unwrap() <= after + 3.0);
+    }
+
+    #[test]
+    fn jitter_after_circling_does_not_keep_the_turn_alive() {
+        let circling = circles(0.0, 3, 20.0, 8.0, 270.0, 4.0, None);
+        let end = last_time(&circling);
+        let mut e = fed(&circling);
+        // Straight flight with the course jumping 42° <-> 48° (±6°/s) every second.
+        let zigzag = straight(
+            end + 1.0,
+            (0..120).map(|i| if i % 2 == 0 { 42.0 } else { 48.0 }),
+        );
+        for s in &zigzag {
+            e.push(*s);
+        }
+        let turn = e.last_turn_s().unwrap();
+        assert!(
+            turn <= end + 3.0,
+            "last turn {turn}, circling ended at {end}"
+        );
     }
 
     #[test]

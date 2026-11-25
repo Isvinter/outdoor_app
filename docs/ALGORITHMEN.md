@@ -292,9 +292,11 @@ Mittelpunkt der Windvektor ist (die Fluggeschwindigkeit dreht sich, der Wind ble
   Unter 1 Stern nichts.
 - **Letzte Drehung:** `last_turn_s` ist die Zeit des letzten Punkts einer echten Drehung: eines
   laufenden Kreises ab 60° Kursänderung, des Kreises nach einem fertigen Kreis oder einer starken
-  Gegendrehung direkt nach einer echten Drehung. Kurs-Zickzack im Geradeausflug kommt nie so
-  weit. Kreist der Schirm in Wind stärker als seine Fahrt, pendelt der Kurs nur hin und her
-  (bei 8 m/s Fahrt und 12 m/s Wind um ±42°), zählt so aber durchgehend als Drehung.
+  Gegendrehung direkt nach einem Stück, das selbst mindestens 60° gedreht hat. Kurs-Zickzack im
+  Geradeausflug kommt nie so weit, auch nicht direkt nach dem Kreisen (kleine Gegendrehungen
+  geben die Drehung nicht weiter). Kreist der Schirm in Wind stärker als seine Fahrt, pendelt der
+  Kurs nur hin und her (bei 8 m/s Fahrt und 12 m/s Wind um ±42°), zählt so aber durchgehend als
+  Drehung.
 
 ### Anzeige-Sperren (`vario-engine`)
 

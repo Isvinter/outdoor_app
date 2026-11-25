@@ -1382,6 +1382,44 @@ mod tests {
     }
 
     #[test]
+    fn course_jitter_after_circling_does_not_hide_the_glide_ratio_for_long() {
+        use sensor_sim::synthetic::Segment;
+        // After the circles the GPS course jumps ±3° every second (6°/s, above the turn
+        // rate of the wind estimator); the positions stay those of a straight glide.
+        let (mut processor, _control) = processor();
+        let mut shown = Vec::new();
+        let mut jitter = 3.0;
+        glide_flight(
+            vec![
+                Segment::circling(60.0, 2.0, 20.0),
+                Segment::straight(60.0, -1.25),
+            ],
+            None,
+        )
+        .run_fast(|event| {
+            let event = match event {
+                SensorEvent::Gps(fix) if fix.time.as_secs() > 61.0 => {
+                    jitter = -jitter;
+                    SensorEvent::Gps(GpsFix {
+                        course_deg: fix.course_deg.map(|c| (c + jitter).rem_euclid(360.0)),
+                        ..fix
+                    })
+                }
+                other => other,
+            };
+            processor.handle(&event);
+            if let SensorEvent::Gps(fix) = event {
+                shown.push((fix.time.as_secs(), processor.status(0.0, true).glide_ratio));
+            }
+        });
+        // One window (20 s) after the circling plus a few seconds, the glide is back.
+        for (time_s, ratio) in shown.into_iter().filter(|(t, _)| *t >= 85.0) {
+            let ratio = ratio.unwrap_or_else(|| panic!("nothing at {time_s} s"));
+            assert!((ratio - 8.0).abs() < 0.5, "at {time_s} s: {ratio}");
+        }
+    }
+
+    #[test]
     fn circling_while_sinking_in_strong_wind_hides_the_glide_ratio() {
         use sensor_sim::synthetic::Segment;
         // The wind is stronger than the airspeed: the ground track hardly curls up.
