@@ -6,8 +6,11 @@
 //!
 //! * [`processor`] holds the actual logic, without threads, so it can be tested directly.
 //! * [`Engine`] wraps it in a thread.
+//! * `landing_worker` searches the landing point on a second thread, so a slow terrain
+//!   search never delays the tone.
 
 pub mod flights;
+mod landing_worker;
 pub mod processor;
 
 use std::io;
@@ -27,6 +30,7 @@ use flight_core::time::UtcDateTime;
 use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
 
+use crate::landing_worker::LandingWorker;
 pub use crate::processor::{
     AirspaceWarning, FixInfo, LandingInfo, Processor, RecordingInfo, SensorStats, Status,
     TrackPoint, WindInfo,
@@ -86,9 +90,11 @@ impl Engine {
 
         let shared = Arc::new(Shared::default());
         let thread_shared = Arc::clone(&shared);
+        // Moved into the engine thread; it stops when that thread ends.
+        let landing = LandingWorker::start()?;
         let thread = std::thread::Builder::new()
             .name("vario-engine".to_owned())
-            .spawn(move || run(processor, events, &thread_shared))?;
+            .spawn(move || run(processor, events, &thread_shared, &landing))?;
 
         Ok(Engine {
             shared,
@@ -134,8 +140,11 @@ impl Engine {
         *lock(&self.shared.pending_airspaces) = Some(airspaces);
     }
 
-    /// Sets where the ground elevation for AGL limits comes from. `Terrain` requires
-    /// `Send`, so the value may move to the engine thread.
+    /// Sets where the ground elevation comes from (AGL limits, glide gate, landing
+    /// point). The engine thread hands the same `Arc` to the processor and to the
+    /// landing thread: one elevation model, shared without copying. This is why
+    /// `Terrain` requires `Send + Sync`: `Send` lets the model move to another thread,
+    /// `Sync` lets both threads use it at the same time.
     pub fn set_terrain(&self, terrain: Arc<dyn Terrain>) {
         *lock(&self.shared.pending_terrain) = Some(terrain);
     }
@@ -171,7 +180,12 @@ impl Drop for Engine {
     }
 }
 
-fn run(mut processor: Processor, events: Receiver<SensorEvent>, shared: &Shared) {
+fn run(
+    mut processor: Processor,
+    events: Receiver<SensorEvent>,
+    shared: &Shared,
+    landing: &LandingWorker,
+) {
     let started = Instant::now();
     let mut last_summary = Instant::now();
 
@@ -180,7 +194,7 @@ fn run(mut processor: Processor, events: Receiver<SensorEvent>, shared: &Shared)
         if let Some(settings) = lock(&shared.pending_settings).take() {
             processor.set_settings(&settings);
         }
-        apply_airspace_changes(&mut processor, shared);
+        apply_airspace_changes(&mut processor, shared, landing);
         processor.set_test_alert(*lock(&shared.test_alert));
         // Covers the case that no sensor delivers at all any more.
         processor.expire_warnings(processor.gps_age_s());
@@ -208,7 +222,17 @@ fn run(mut processor: Processor, events: Receiver<SensorEvent>, shared: &Shared)
         if !new_points.is_empty() {
             lock(&shared.track).extend(new_points);
         }
-        *lock(&shared.status) = processor.status(started.elapsed().as_secs_f64(), true);
+        if let Some(query) = processor.take_landing_query() {
+            landing.submit(query);
+        }
+        let mut status = processor.status(started.elapsed().as_secs_f64(), true);
+        // The landing point belongs to the shown glide: no glide, no point.
+        if status.glide_ratio.is_none() {
+            landing.clear();
+        } else {
+            status.landing = landing.result().map(LandingInfo::from);
+        }
+        *lock(&shared.status) = status;
     }
 
     processor.summarize(last_summary.elapsed().as_secs_f64(), &utc_clock_label());
@@ -216,11 +240,12 @@ fn run(mut processor: Processor, events: Receiver<SensorEvent>, shared: &Shared)
     *lock(&shared.status) = processor.status(started.elapsed().as_secs_f64(), false);
 }
 
-fn apply_airspace_changes(processor: &mut Processor, shared: &Shared) {
+fn apply_airspace_changes(processor: &mut Processor, shared: &Shared, landing: &LandingWorker) {
     if let Some(airspaces) = lock(&shared.pending_airspaces).take() {
         processor.set_airspaces(airspaces);
     }
     if let Some(terrain) = lock(&shared.pending_terrain).take() {
+        landing.set_terrain(Arc::clone(&terrain));
         processor.set_terrain(terrain);
     }
     if let Some(settings) = lock(&shared.pending_warning_settings).take() {
@@ -317,6 +342,41 @@ mod tests {
         let status = wait_for(&engine, |status| status.test_tone);
         assert!(status.test_tone);
 
+        engine.stop();
+    }
+
+    #[test]
+    fn engine_reports_the_landing_point_of_a_glide() {
+        use flight_core::terrain::FlatTerrain;
+        use flight_core::time::{Date, TimeOfDay};
+        use sensor_sim::synthetic::{Segment, SyntheticFlight};
+        use sensor_sim::{SimConfig, Simulation};
+
+        let (sender, receiver) = mpsc::channel();
+        let settings = VarioSettings::default();
+        let engine =
+            Engine::start(receiver, ToneControl::new(&settings), &settings, None, None).unwrap();
+        engine.set_terrain(Arc::new(FlatTerrain(700.0)));
+
+        let flight = SyntheticFlight::builder()
+            .start(47.665, 11.526, 1700.0)
+            .segment(Segment::straight(60.0, -1.25))
+            .build();
+        let utc = UtcDateTime::new(
+            Date::new(2026, 7, 28).unwrap(),
+            TimeOfDay::new(10, 0, 0).unwrap(),
+        );
+        // `sender` stays alive until the end: a closed channel would stop the engine.
+        Simulation::synthetic(flight, utc, &SimConfig::default())
+            .run_fast(|event| sender.send(event).unwrap());
+
+        let status = wait_for(&engine, |status| status.landing.is_some());
+        let expected = (status.fix.as_ref().unwrap().altitude_m - 700.0) * 8.0;
+        let distance = status.landing.unwrap().distance_m;
+        assert!(
+            (distance - expected).abs() < expected * 0.1,
+            "distance {distance}, expected {expected}"
+        );
         engine.stop();
     }
 
