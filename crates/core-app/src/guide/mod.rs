@@ -8,6 +8,8 @@ mod guide;
 mod line;
 #[cfg(test)]
 mod testing;
+#[allow(dead_code)] // used by the announcer (next task)
+mod turn_text;
 
 pub(crate) use app::ActiveGuide;
 pub use guide::{
@@ -15,3 +17,5 @@ pub use guide::{
     WayBackTarget,
 };
 pub use line::{LegKind, LegSpan, Projection, RouteLine};
+#[allow(unused_imports)] // used by the announcer (next task)
+pub(crate) use turn_text::{HintStage, distance_text, label, spoken};
