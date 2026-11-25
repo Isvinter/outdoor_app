@@ -70,6 +70,19 @@ fn hike_from_the_station_to_the_neureuth_hut() {
 }
 
 #[test]
+fn route_has_turns() {
+    let route = router()
+        .route(&request(Profile::Hike, STATION, NEUREUTH))
+        .unwrap();
+    let turns = route.turns.expect("turns are computed");
+    assert!(!turns.is_empty());
+    assert!(
+        turns.iter().all(|turn| turn.at < route.line.len()),
+        "{turns:?}"
+    );
+}
+
+#[test]
 fn bike_profiles_reach_the_hut_and_cars_do_not() {
     let router = router();
     for profile in [Profile::RoadBike, Profile::Trekking, Profile::Mtb] {
