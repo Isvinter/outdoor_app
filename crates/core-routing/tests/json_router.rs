@@ -47,6 +47,7 @@ fn request() -> RouteRequest {
         waypoints: vec![ll(47.7128, 11.758), ll(47.7294, 11.7797)],
         profile: Profile::Hike,
         options: RouteOptions::default(),
+        heading_deg: None,
     }
 }
 

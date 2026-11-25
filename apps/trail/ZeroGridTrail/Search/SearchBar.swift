@@ -6,6 +6,7 @@ import SwiftUI
 struct SearchBar: View {
     @ObservedObject var search: SearchController
     @ObservedObject var flow: RouteHereFlow
+    @ObservedObject var location: LocationService
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -26,10 +27,7 @@ struct SearchBar: View {
                 }
             }
             if let hit = search.selected {
-                ResultCard(hit: hit, search: search, action: cardAction(hit))
-            }
-            if flow.step != .idle {
-                RouteHereBanner(flow: flow)
+                ResultCard(hit: hit, search: search, flow: flow, location: location)
             }
         }
         .padding(10)
@@ -41,11 +39,6 @@ struct SearchBar: View {
         .onChange(of: search.selected) { selected in
             if selected != nil { focused = false }
         }
-    }
-
-    private func cardAction(_ hit: SearchHit) -> String? {
-        guard flow.step.picksStart else { return "Route hierher" }
-        return flow.isTarget(CLLocationCoordinate2D(latitude: hit.lat, longitude: hit.lon)) ? nil : "Hier starten"
     }
 
     private var field: some View {
@@ -128,60 +121,3 @@ struct SearchBar: View {
 }
 
 /// What "Route hierher" asks at the moment.
-private struct RouteHereBanner: View {
-    @ObservedObject var flow: RouteHereFlow
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(text)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("route-here-text")
-            switch flow.step {
-            case .choosing:
-                button("Neue Route", identifier: "route-here-new", primary: true) { flow.chooseNewRoute() }
-                button("Als nächstes Ziel anhängen", identifier: "route-here-append") { flow.chooseAppend() }
-            case .waiting:
-                button("Start selbst wählen", identifier: "route-here-choose-start", primary: true) {
-                    flow.chooseStartMyself()
-                }
-            case .pickStart(_, true):
-                button("Mein Standort", identifier: "route-here-my-position", primary: true) {
-                    flow.chooseMyPosition()
-                }
-            default:
-                EmptyView()
-            }
-            button("Abbrechen", identifier: "route-here-cancel") { flow.cancel() }
-        }
-    }
-
-    private var text: String {
-        switch flow.step {
-        case .choosing(let unsaved):
-            return unsaved ? "Nicht gespeichert: Bei „Neue Route“ geht die alte verloren." : "Route hierher"
-        case .waiting:
-            return "Standort wird gesucht …"
-        case .pickStart(let otherMap, _):
-            return otherMap
-                ? "Dein Standort liegt nicht auf derselben Karte wie das Ziel. Tippe auf die Karte oder suche oben, wo die Route beginnen soll."
-                : "Wo soll die Route beginnen? Tippe auf die Karte oder suche oben einen Ort."
-        case .idle:
-            return ""
-        }
-    }
-
-    @ViewBuilder private func button(
-        _ title: String, identifier: String, primary: Bool = false, action: @escaping () -> Void
-    ) -> some View {
-        if primary {
-            Button(title, action: action)
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier(identifier)
-        } else {
-            Button(title, action: action)
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier(identifier)
-        }
-    }
-}

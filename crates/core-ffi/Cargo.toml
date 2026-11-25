@@ -24,6 +24,7 @@ core-location.workspace = true
 core-maps.workspace = true
 core-routing.workspace = true
 core-storage.workspace = true
+core-track.workspace = true
 uniffi.workspace = true
 uuid.workspace = true
 

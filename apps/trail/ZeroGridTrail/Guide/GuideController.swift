@@ -1,0 +1,165 @@
+import Combine
+import CoreLocation
+import UIKit
+
+/// Where the map is moved while guiding; the map itself in the app.
+@MainActor
+protocol GuideCamera: AnyObject {
+    /// Centres on the position, keeping the zoom (at least 15).
+    func follow(_ location: CLLocation)
+    /// Called when the user moves the map by hand.
+    var onUserMove: (() -> Void)? { get set }
+}
+
+/// The guidance along the planned route: switches it in the core, holds the
+/// GPS while it runs, lets the map follow the position, and tells about each
+/// new deviation once.
+@MainActor
+final class GuideController: ObservableObject {
+    /// Where the guidance stands; nil while it is off.
+    @Published private(set) var info: GuidanceInfo?
+    /// The map follows the position. On when the guidance starts; moving the
+    /// map ends it, the button in the bar brings it back.
+    @Published var following = false {
+        didSet {
+            if following, let last = location.last { camera?.follow(last) }
+        }
+    }
+    /// Shown for a while after the destination was reached.
+    @Published private(set) var arrived = false
+    @Published var message: String?
+    /// How many waypoints the planned route has; to tell the destination from the others.
+    var waypointCount = 0
+    /// Before the guidance first runs; to ask for the permission of notifications.
+    var onFirstStart: (() -> Void)?
+    /// Off the route with a way back found: the route should go on from
+    /// `from` to waypoint `toWaypoint` (from 0), in place of the old one.
+    var onReroute: ((_ from: LatLon, _ toWaypoint: Int) -> Void)?
+    /// Tells the user about each new deviation.
+    var alert: DeviationAlert? {
+        didSet {
+            alerting = newDeviation.sink { [weak self] info in
+                guard let self else { return }
+                self.alert?.handle(
+                    info, appActive: UIApplication.shared.applicationState == .active, waypoints: self.waypointCount)
+            }
+        }
+    }
+    private var alerting: AnyCancellable?
+
+    private let core: CoreApp
+    private let location: LocationService
+    let overlay: GuideOverlay?
+    private weak var camera: GuideCamera?
+    private let deviations = PassthroughSubject<GuidanceInfo, Never>()
+    /// The deviation counted last, so that each is told once.
+    private var counted: UInt32 = 0
+    /// The deviation rerouted last, so that each is rerouted once.
+    private var rerouted: UInt32 = 0
+    private var watches: [AnyCancellable] = []
+    private var arrivedUntil = 0
+
+    /// Fires once per deviation, when `deviation` grows.
+    var newDeviation: AnyPublisher<GuidanceInfo, Never> { deviations.eraseToAnyPublisher() }
+    var active: Bool { info != nil }
+
+    init(
+        core: CoreApp, location: LocationService, changes: AnyPublisher<GuidanceInfo?, Never>,
+        overlay: GuideOverlay? = nil, camera: GuideCamera? = nil
+    ) {
+        self.core = core
+        self.location = location
+        self.overlay = overlay
+        self.camera = camera
+        watches.append(changes.sink { [weak self] info in self?.changed(info) })
+        watches.append(location.$last.compactMap { $0 }.sink { [weak self] last in
+            guard let self, self.following, UIApplication.shared.applicationState == .active else { return }
+            self.camera?.follow(last)
+        })
+        camera?.onUserMove = { [weak self] in self?.following = false }
+        // Running already, as when the controller is made anew.
+        if let running = core.guidanceStatus() { changed(running) }
+    }
+
+    /// From the core's listener only, which tells the changes in their order.
+    /// The return values of start and stop are not taken: the listener's news
+    /// lag behind them, and a status queued before a stop would look like a
+    /// new start after it.
+    private func changed(_ new: GuidanceInfo?) {
+        let was = info
+        info = new
+        overlay?.show(new)
+        guard let new else {
+            if was != nil {
+                location.release(.guidance)
+                following = false
+                if was?.phase == "arrived" { showArrived() }
+            }
+            return
+        }
+        if was == nil {
+            onFirstStart?()
+            onFirstStart = nil
+            // A fresh guide counts from zero.
+            counted = 0
+            rerouted = 0
+            arrived = false
+            location.require(.guidance)
+            following = true
+        }
+        if new.phase == "arrived" { showArrived() }
+        // A guide set anew (another start, a changed route) counts from zero again.
+        if new.deviation < counted { counted = new.deviation }
+        if new.deviation > counted {
+            counted = new.deviation
+            deviations.send(new)
+        }
+        // The way back may come later than the deviation (a retry after "no way back").
+        if new.deviation < rerouted { rerouted = new.deviation }
+        if new.phase == "off_route", new.deviation > rerouted, let from = new.wayBack.first,
+            let next = new.nextWaypoint
+        {
+            rerouted = new.deviation
+            onReroute?(from, Int(next))
+        }
+    }
+
+    private func showArrived() {
+        arrived = true
+        arrivedUntil += 1
+        let mine = arrivedUntil
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard let self, self.arrivedUntil == mine else { return }
+            self.arrived = false
+        }
+    }
+
+    /// The switch "Führen".
+    func toggle() {
+        if active {
+            core.stopGuidance()
+        } else {
+            start { try $0.startGuidance() }
+        }
+    }
+
+    /// Starts the guidance along the planned route, unless it runs.
+    func startIfIdle() {
+        if !active { start { try $0.startGuidance() } }
+    }
+
+    /// "Ab hier führen": the guidance starts at waypoint `index` (from 0).
+    func startFromWaypoint(_ index: Int) {
+        start { try $0.guideFromWaypoint(index: UInt32(index)) }
+    }
+
+    private func start(_ call: (CoreApp) throws -> GuidanceInfo) {
+        do {
+            // The listener tells about it.
+            _ = try call(core)
+        } catch {
+            message = "Führen geht nicht: \(describe(error))"
+        }
+    }
+}

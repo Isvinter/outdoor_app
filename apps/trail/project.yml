@@ -53,7 +53,10 @@ targets:
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
-        NSLocationWhenInUseUsageDescription: Zeigt deine Position auf der Karte.
+        NSLocationWhenInUseUsageDescription: Zeigt deine Position auf der Karte, zeichnet Touren auf und führt dich auf der Route.
+        # Recording and guidance go on while the screen is locked.
+        UIBackgroundModes:
+          - location
         NSLocalNetworkUsageDescription: Lädt Karten und Routen von ZeroGrid Base im Heimnetz.
         NSCameraUsageDescription: Liest den QR-Code der Freigabe in ZeroGrid Base.
         # The desktop's share is plain HTTP in the home network.
@@ -89,6 +92,9 @@ targets:
         type: folder
         buildPhase: resources
       - path: ../../fixtures/regions/mini-contours
+        type: folder
+        buildPhase: resources
+      - path: ../../fixtures/gpx/replay
         type: folder
         buildPhase: resources
     dependencies:

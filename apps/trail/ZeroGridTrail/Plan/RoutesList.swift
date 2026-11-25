@@ -49,12 +49,46 @@ struct SaveButtons: View {
     }
 }
 
+/// The saved routes or the recorded tracks, switched in the header.
+struct SavedLists: View {
+    @ObservedObject var plan: PlanController
+    @ObservedObject var regions: RegionsController
+    @ObservedObject var tracks: TracksController
+    let fromDesktop: () -> Void
+
+    var body: some View {
+        if tracks.listShown {
+            TracksList(tracks: tracks) { header }
+        } else {
+            RoutesList(plan: plan, regions: regions, fromDesktop: fromDesktop) { header }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Picker("Liste", selection: $tracks.listShown) {
+                Text("Routen").tag(false)
+                Text("Tracks").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 220)
+            .accessibilityIdentifier("saved-lists")
+            Spacer()
+            Button("Regionen") { regions.showing = true }
+                .font(.callout)
+                .textCase(nil)
+                .accessibilityIdentifier("regions-open")
+        }
+    }
+}
+
 /// The saved routes. A tap loads one; swiping offers to rename or delete it.
-struct RoutesList: View {
+struct RoutesList<Header: View>: View {
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
     /// Opens the list of the desktop's routes.
     let fromDesktop: () -> Void
+    @ViewBuilder let header: () -> Header
     @State private var renaming: SavedRoute?
     @State private var name = ""
 
@@ -85,14 +119,7 @@ struct RoutesList: View {
                 }
             }
         } header: {
-            HStack {
-                Text("Routen")
-                Spacer()
-                Button("Regionen") { regions.showing = true }
-                    .font(.callout)
-                    .textCase(nil)
-                    .accessibilityIdentifier("regions-open")
-            }
+            header()
         }
         .alert(
             "Route umbenennen",

@@ -7,12 +7,15 @@ struct MapScreen: View {
     @ObservedObject var regions: RegionsController
     @ObservedObject var search: SearchController
     @ObservedObject var routeHere: RouteHereFlow
+    @ObservedObject var recording: RecordingController
+    @ObservedObject var tracks: TracksController
+    @ObservedObject var guide: GuideController
     let start: AppStart.Ready
     @State private var detent = PlanSheet.collapsed
 
     /// The search takes the room of the toolbar while it shows more than its field.
     private var searchIsOpen: Bool {
-        search.open || search.results != nil || search.selected != nil || routeHere.step != .idle
+        search.open || search.results != nil || search.selected != nil
     }
 
     var body: some View {
@@ -20,7 +23,7 @@ struct MapScreen: View {
             MapView(controller: controller)
                 .ignoresSafeArea()
             VStack(spacing: 8) {
-                SearchBar(search: search, flow: routeHere)
+                SearchBar(search: search, flow: routeHere, location: controller.location)
                     .background(GeometryReader { geometry in
                         let bottom = geometry.frame(in: .global).maxY
                         Color.clear
@@ -29,6 +32,34 @@ struct MapScreen: View {
                     })
                 if !searchIsOpen {
                     MapToolbar(controller: controller)
+                }
+                if let point = routeHere.point {
+                    MapPointCard(flow: routeHere, location: controller.location, point: point)
+                }
+                LocationBlockedNotice(location: controller.location)
+                GuideBar(guide: guide)
+                if let message = guide.message {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { guide.message = nil }
+                }
+                if recording.active {
+                    RecordingBar(recording: recording)
+                } else if let track = recording.ended {
+                    SaveTrackPanel(recording: recording, track: track)
+                        .id(track.id)
+                }
+                if let notice = recording.notice {
+                    Notice(text: notice)
+                        .accessibilityIdentifier("recording-notice")
+                        .onTapGesture { recording.notice = nil }
+                }
+                if let message = recording.message {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { recording.message = nil }
+                }
+                if let message = tracks.message {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { tracks.message = nil }
                 }
                 if let leg = plan.straightLineLeg {
                     StraightLineOffer(plan: plan, leg: leg)
@@ -59,13 +90,18 @@ struct MapScreen: View {
                 }
             }
             .padding()
-            LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) { controller.toggleLocation() }
+            VStack(alignment: .trailing, spacing: 12) {
+                MapSideButtons(record: recording.active || recording.ended != nil ? nil : { recording.start() })
+                LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) {
+                    controller.toggleLocation()
+                }
+            }
                 .padding(.trailing, 12)
                 // Above the collapsed sheet.
                 .padding(.bottom, 108)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             if start.options.selftest {
-                SelfTestStatus(controller: controller, plan: plan, regions: regions, start: start)
+                SelfTestStatus(controller: controller, plan: plan, regions: regions, guide: guide, start: start)
             }
         }
         // The hits and the chosen one must not end up behind a raised sheet.
@@ -77,7 +113,7 @@ struct MapScreen: View {
         }
         // Always there, like the sheet of Apple Maps; the map stays usable beside it.
         .sheet(isPresented: .constant(true)) {
-            PlanSheet(plan: plan, regions: regions, detent: $detent)
+            PlanSheet(plan: plan, regions: regions, tracks: tracks, guide: guide, detent: $detent)
                 .presentationDetents(PlanSheet.detents, selection: $detent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
@@ -127,6 +163,18 @@ private struct NoRegionHint: View {
     }
 }
 
+/// Recording or guiding without the permission to locate: nothing would come in.
+private struct LocationBlockedNotice: View {
+    @ObservedObject var location: LocationService
+
+    var body: some View {
+        if location.blocked {
+            Notice(text: LocationService.blockedHint, warning: true)
+                .accessibilityIdentifier("location-blocked")
+        }
+    }
+}
+
 /// A short text over the map.
 struct Notice: View {
     let text: String
@@ -156,6 +204,7 @@ private struct SelfTestStatus: View {
     @ObservedObject var controller: MapController
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
+    @ObservedObject var guide: GuideController
     let start: AppStart.Ready
 
     var body: some View {
@@ -207,9 +256,18 @@ private struct SelfTestStatus: View {
             parts.append(String(format: "rendered_ms=%.0f", rendered * 1000))
         }
         parts += plan.status
+        if let info = guide.info {
+            parts.append("guide=\(info.phase)")
+            parts.append("deviation=\(info.deviation)")
+            parts.append("way_back=\(controller.guide.wayBackDrawn ? 1 : 0)")
+        } else {
+            parts.append("guide=off")
+        }
+        parts.append("following=\(guide.following ? 1 : 0)")
         let waypoints = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-        if !waypoints.isEmpty {
+        if let first = waypoints.first {
             parts.append("waypoint_xy=\(controller.screenPoints(of: waypoints))")
+            parts.append(String(format: "start=%.5f,%.5f", first.latitude, first.longitude))
         }
         if !start.options.project.isEmpty {
             let places = start.options.project.map { CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) }

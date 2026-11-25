@@ -4,12 +4,31 @@ import SwiftUI
 /// plan mode, undo and clear.
 struct PlanBar: View {
     @ObservedObject var plan: PlanController
+    @ObservedObject var guide: GuideController
 
     var body: some View {
         HStack(spacing: 8) {
             ProfileMenu(plan: plan)
 
             Spacer(minLength: 0)
+
+            // Only with a route to guide along.
+            if plan.plan != nil || guide.active {
+                Button {
+                    guide.toggle()
+                } label: {
+                    Text("Führen")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(guide.active ? Color.white : Color.accentColor)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 40)
+                        .background(
+                            guide.active ? Color.accentColor : Color(.secondarySystemFill),
+                            in: RoundedRectangle(cornerRadius: 10))
+                }
+                .accessibilityIdentifier("guide-toggle")
+                .accessibilityValue(guide.active ? "an" : "aus")
+            }
 
             Button {
                 plan.picking.toggle()
@@ -49,6 +68,7 @@ struct PlanBar: View {
 /// The menu of a waypoint: end a stage here, or take the waypoint away.
 struct WaypointMenu: ViewModifier {
     @ObservedObject var plan: PlanController
+    @ObservedObject var guide: GuideController
 
     func body(content: Content) -> some View {
         let index = plan.menuWaypoint ?? 0
@@ -61,6 +81,9 @@ struct WaypointMenu: ViewModifier {
                 Button(plan.endsStage(index) ? "Kein Etappenende mehr" : "Etappenende hier") {
                     plan.toggleStageEnd(index)
                 }
+            }
+            if plan.plan != nil {
+                Button("Ab hier führen") { guide.startFromWaypoint(index) }
             }
             Button("Entfernen", role: .destructive) { plan.removeWaypoint(index) }
             Button("Abbrechen", role: .cancel) {}

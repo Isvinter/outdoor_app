@@ -19,6 +19,10 @@ enum AppStart {
         var project: [[Double]] = []
         /// `-catalogSource <url>`: the address of the desktop's share.
         var catalogSource: String?
+        /// `-replayGPX <path>`: the points of this GPX file stand in for the GPS.
+        var replayGPX: String?
+        /// `-route <lat>,<lon>;<lat>,<lon>`: a route to plan at the start.
+        var route: [[Double]] = []
 
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             guard arguments.contains("-selftest") else { return }
@@ -32,6 +36,9 @@ enum AppStart {
             if let flag = arguments.firstIndex(of: "-catalogSource"), flag + 1 < arguments.count {
                 catalogSource = arguments[flag + 1]
             }
+            if let flag = arguments.firstIndex(of: "-replayGPX"), flag + 1 < arguments.count {
+                replayGPX = arguments[flag + 1]
+            }
             if let flag = arguments.firstIndex(of: "-startZoom"), flag + 1 < arguments.count {
                 startZoom = Double(arguments[flag + 1])
             }
@@ -44,6 +51,9 @@ enum AppStart {
             }
             if let flag = arguments.firstIndex(of: "-project"), flag + 1 < arguments.count {
                 project = places(arguments[flag + 1])
+            }
+            if let flag = arguments.firstIndex(of: "-route"), flag + 1 < arguments.count {
+                route = places(arguments[flag + 1])
             }
             #endif
         }

@@ -686,6 +686,7 @@ dependencies = [
  "core-routing",
  "core-share",
  "core-storage",
+ "core-track",
  "serde_json",
  "sha2 0.11.1",
  "uniffi",

@@ -140,9 +140,7 @@ final class SearchController: ObservableObject {
     /// Where the panel ends on the screen, so that the map fits the hits below it.
     var topInset = 0.0
 
-    /// "Route hierher" was pressed.
-    var onRouteHere: ((SearchHit) -> Void)?
-    /// The chosen hit is gone: a route to it is no longer being set up.
+    /// A hit was chosen or the chosen one is gone.
     var onSelectionCleared: (() -> Void)?
 
     private struct Anchor {
@@ -298,10 +296,6 @@ final class SearchController: ObservableObject {
         open = false
         drawDots()
         map.showSearchResult(Self.coordinate(hit), topInset: topInset)
-    }
-
-    func routeHere() {
-        if let selected { onRouteHere?(selected) }
     }
 
     /// From the chosen hit back to the list and the view it was opened from, without searching.

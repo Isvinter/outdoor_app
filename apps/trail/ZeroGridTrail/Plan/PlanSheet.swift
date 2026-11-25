@@ -6,6 +6,8 @@ import SwiftUI
 struct PlanSheet: View {
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
+    @ObservedObject var tracks: TracksController
+    @ObservedObject var guide: GuideController
     @Environment(\.colorScheme) private var colorScheme
     @Binding var detent: PresentationDetent
     @State private var showingRemoteRoutes = false
@@ -16,7 +18,7 @@ struct PlanSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             totals
-            PlanBar(plan: plan)
+            PlanBar(plan: plan, guide: guide)
             if let notice = plan.notice, detent != Self.collapsed {
                 Text(notice)
                     .font(.footnote)
@@ -26,13 +28,18 @@ struct PlanSheet: View {
             if detent != Self.collapsed {
                 // A list, for the swipe actions of the saved routes.
                 List {
-                    Section {
-                        details
+                    if let track = tracks.selected {
+                        TrackDetailView(tracks: tracks, track: track)
                             .listRowSeparator(.hidden)
-                    }
-                    // The saved routes show when the sheet is pulled up all the way.
-                    if detent == .large {
-                        RoutesList(plan: plan, regions: regions) { showingRemoteRoutes = true }
+                    } else {
+                        Section {
+                            details
+                                .listRowSeparator(.hidden)
+                        }
+                        // The saved routes show when the sheet is pulled up all the way.
+                        if detent == .large {
+                            SavedLists(plan: plan, regions: regions, tracks: tracks) { showingRemoteRoutes = true }
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -42,7 +49,7 @@ struct PlanSheet: View {
         .padding(.horizontal, 12)
         .padding(.top, 22)
         .frame(maxHeight: .infinity, alignment: .top)
-        .modifier(WaypointMenu(plan: plan))
+        .modifier(WaypointMenu(plan: plan, guide: guide))
         // From here, because the map already presents this sheet.
         .sheet(isPresented: $regions.showing) {
             RegionsScreen(regions: regions)
@@ -51,9 +58,17 @@ struct PlanSheet: View {
             RemoteRoutesList(plan: plan)
         }
         .onAppear {
-            plan.onLoaded = { detent = Self.collapsed }
+            plan.onLoaded = {
+                detent = Self.collapsed
+                // The map shows the loaded route; following would take it away again.
+                guide.following = false
+            }
         }
         .onChange(of: plan.request) { _ in plan.notice = nil }
+        // The map shows the track above the sheet at its middle step; then back to the list.
+        .onChange(of: tracks.selected?.summary.id) { id in
+            detent = id == nil ? .large : .medium
+        }
     }
 
     /// Distance, ascent and time; before there is a route, what to do.

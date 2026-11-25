@@ -2,8 +2,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type Activity = "bike" | "mtb" | "hike" | "ski_tour";
-export const ACTIVITIES: Activity[] = ["bike", "mtb", "hike", "ski_tour"];
+export type Activity = "bike" | "mtb" | "hike" | "ski_tour" | "other";
+export const ACTIVITIES: Activity[] = ["bike", "mtb", "hike", "ski_tour", "other"];
 
 export interface Fix {
   lat: number;

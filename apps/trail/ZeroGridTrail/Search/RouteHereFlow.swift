@@ -2,209 +2,146 @@ import Combine
 import CoreLocation
 import Foundation
 
-/// Where "Route hierher" stands.
-enum RouteHereStep: Equatable {
-    case idle
-    case choosing(unsaved: Bool)
-    case waiting
-    /// The user chooses the start: a tap on the map, a search hit or, if
-    /// offered, the own position.
-    case pickStart(otherMap: Bool, offersPosition: Bool)
-
-    var picksStart: Bool {
-        if case .pickStart = self { return true }
-        return false
-    }
-}
-
-/// What "Route hierher" needs from the planning, the core and the position.
+/// What "Route hierher" needs from the planning, the core and the GPS.
 @MainActor
 protocol RouteHereHost: AnyObject {
     var hasRoute: Bool { get }
     /// A saved route is being loaded or taken over; nothing may change it now.
     var isReplacingRoute: Bool { get }
-    var lastPosition: CLLocation? { get }
-    func routeIsUnsaved() async -> Bool
-    func routeStart(position: KnownPosition?, target: CLLocationCoordinate2D) async -> RouteStart
-    /// False if the planning cannot take the route now.
+    /// The own position, if the GPS runs and knows it; from the one GPS of the app.
+    var position: CLLocation? { get }
+    func routeStart(position: KnownPosition, target: CLLocationCoordinate2D) async -> RouteStart
+    /// A new route; false if the planning cannot take it now.
     func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool
     func appendTarget(_ to: CLLocationCoordinate2D) -> Bool
-    func requestPosition(_ onUpdate: @escaping (CLLocation) -> Void, denied: @escaping () -> Void)
-    func stopRequestingPosition()
-    func stopPicking()
+    /// A new route that begins at `at`; the user sets the next points.
+    func beginRoute(at: CLLocationCoordinate2D) -> Bool
+    /// Taps on the map set waypoints until the user is done.
+    func keepPicking()
 }
 
-/// From a search hit to a route: asks if a route is open, then lets the user
-/// choose the start: the own position (waiting for it if needed), a tap on the
-/// map or another search hit.
+/// A place tapped on the map, waiting for an answer on its card.
+struct MapPoint: Equatable {
+    let lat: Double
+    let lon: Double
+    /// Set as the first waypoint with "+ Punkt": the card offers the way from the own position.
+    let placed: Bool
+
+    var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+}
+
+/// From a chosen place, a search hit or a tap on the map, to a route. With the
+/// position known: "Route hierher" (from there) and "Hierher führen" (and the
+/// guidance). Without: "Route planen", which begins the route at the place.
+/// With a route on the map the place may also become its next destination.
+/// Afterwards further taps add points until "Fertig".
 @MainActor
 final class RouteHereFlow: ObservableObject {
-    @Published private(set) var step = RouteHereStep.idle
-    /// A route to the target is on the map.
+    /// The tapped place whose card shows; search hits have their own card.
+    @Published private(set) var point: MapPoint?
+    /// Planning from the position is under way.
+    @Published private(set) var busy = false
+    /// Why the route could not be made, in German.
+    @Published var message: String?
+    /// A route to the place is on the map.
     var onDone: (() -> Void)?
+    /// "Hierher führen": the guidance should start once the route is computed.
+    var onGuide: (() -> Void)?
+    /// The tapped place to mark on the map, or nil to take the mark away.
+    var onPoint: ((CLLocationCoordinate2D?) -> Void)?
+
+    static let noPosition = "Dein Standort ist nicht bekannt."
+    static let otherMap = "Dein Standort liegt nicht auf derselben Karte wie das Ziel."
 
     private let host: RouteHereHost
-    private let positionWait: Double
-    private var target: CLLocationCoordinate2D?
-    /// Counts the runs, so that an answer of an ended run does nothing.
+    /// Counts the places, so that a late answer about an earlier one does nothing.
     private var run = 0
-    private var waitTask: Task<Void, Never>?
-    private var requesting = false
 
-    init(host: RouteHereHost, positionWait: Double = 30) {
+    init(host: RouteHereHost) {
         self.host = host
-        self.positionWait = positionWait
     }
 
-    func begin(target: CLLocationCoordinate2D) {
+    var hasRoute: Bool { host.hasRoute }
+
+    /// A tap on the map away from search hits; `placed` if it set the first waypoint.
+    func offer(_ at: CLLocationCoordinate2D, placed: Bool = false) {
         guard !host.isReplacingRoute else { return }
-        cancel()
-        self.target = target
-        let number = run
-        guard host.hasRoute else {
-            askForStart(otherMap: false, offersPosition: true)
+        run += 1
+        busy = false
+        message = nil
+        point = MapPoint(lat: at.latitude, lon: at.longitude, placed: placed)
+        // A placed point is a waypoint already and shows as one.
+        onPoint?(placed ? nil : at)
+    }
+
+    func dismiss() {
+        run += 1
+        busy = false
+        message = nil
+        guard point != nil else { return }
+        point = nil
+        onPoint?(nil)
+    }
+
+    /// "Route hierher": a new route from the own position.
+    func routeHere(to at: CLLocationCoordinate2D) {
+        fromPosition(to: at, guide: false)
+    }
+
+    /// "Hierher führen": a new route from the own position, then the guidance.
+    func guideHere(to at: CLLocationCoordinate2D) {
+        fromPosition(to: at, guide: true)
+    }
+
+    /// "Als nächstes Ziel anhängen".
+    func append(_ at: CLLocationCoordinate2D) {
+        finish(guide: false) { host.appendTarget(at) }
+    }
+
+    /// "Route planen" without a position: the route begins here.
+    func planFrom(_ at: CLLocationCoordinate2D) {
+        finish(guide: false) { host.beginRoute(at: at) }
+    }
+
+    private func fromPosition(to at: CLLocationCoordinate2D, guide: Bool) {
+        guard !busy else { return }
+        guard let position = host.position else {
+            message = Self.noPosition
             return
         }
+        busy = true
+        message = nil
+        let number = run
+        let known = KnownPosition(
+            lat: position.coordinate.latitude, lon: position.coordinate.longitude,
+            ageS: max(0, -position.timestamp.timeIntervalSinceNow))
         Task { [weak self] in
             guard let self else { return }
-            let unsaved = await self.host.routeIsUnsaved()
+            let start = await self.host.routeStart(position: known, target: at)
             guard number == self.run else { return }
-            self.step = .choosing(unsaved: unsaved)
-        }
-    }
-
-    func chooseNewRoute() {
-        guard case .choosing = step else { return }
-        askForStart(otherMap: false, offersPosition: true)
-    }
-
-    /// The own position as the start; waits for it if it is not known yet.
-    func chooseMyPosition() {
-        guard case .pickStart(_, true) = step else { return }
-        startFromPosition(run, location: host.lastPosition)
-    }
-
-    /// Is this the target of the route being set up?
-    func isTarget(_ at: CLLocationCoordinate2D) -> Bool {
-        guard let target else { return false }
-        return target.latitude == at.latitude && target.longitude == at.longitude
-    }
-
-    /// "Route hierher" or, while the start is chosen, "Hier starten" on a search hit.
-    func hitChosen(_ at: CLLocationCoordinate2D) {
-        if step.picksStart {
-            if let target, !isTarget(at) { finish(made: host.startRoute(from: at, to: target)) }
-        } else {
-            begin(target: at)
-        }
-    }
-
-    /// The chosen search hit is gone. While the start is chosen the search
-    /// looks for the start, so the flow goes on.
-    func selectionCleared() {
-        if !step.picksStart { cancel() }
-    }
-
-    func chooseAppend() {
-        guard case .choosing = step, let target else { return }
-        finish(made: host.appendTarget(target))
-    }
-
-    func chooseStartMyself() {
-        guard step == .waiting else { return }
-        askForStart(otherMap: false, offersPosition: true)
-    }
-
-    /// Ends the flow where it stands; later answers and positions do nothing.
-    func cancel() {
-        run += 1
-        stopWaiting()
-        step = .idle
-        target = nil
-    }
-
-    /// The route on the map changed: what was asked or waited for no longer holds.
-    func routeChanged() {
-        if target != nil { cancel() }
-    }
-
-    /// A new position while waiting for one.
-    func received(_ location: CLLocation) {
-        guard step == .waiting else { return }
-        startFromPosition(run, location: location)
-    }
-
-    /// A tap on the map; true if it was the start of the route.
-    func tapped(_ at: CLLocationCoordinate2D) -> Bool {
-        guard step.picksStart, let target else { return false }
-        finish(made: host.startRoute(from: at, to: target))
-        return true
-    }
-
-    private func startFromPosition(_ number: Int, location: CLLocation?) {
-        guard let target else { return }
-        let known = location.map {
-            KnownPosition(
-                lat: $0.coordinate.latitude, lon: $0.coordinate.longitude,
-                ageS: max(0, -$0.timestamp.timeIntervalSinceNow))
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            let start = await self.host.routeStart(position: known, target: target)
-            // The user chose the start meanwhile: a position no longer decides it.
-            guard number == self.run else { return }
+            self.busy = false
             switch start {
             case .ready:
-                if let location {
-                    self.finish(made: self.host.startRoute(from: location.coordinate, to: target))
-                } else {
-                    self.askForStart(otherMap: false, offersPosition: false)
-                }
+                self.finish(guide: guide) { self.host.startRoute(from: position.coordinate, to: at) }
             case .otherMap:
-                self.askForStart(otherMap: true, offersPosition: false)
+                self.message = Self.otherMap
             case .noPosition:
-                self.waitForPosition(number)
+                self.message = Self.noPosition
             }
         }
     }
 
-    private func waitForPosition(_ number: Int) {
-        guard step != .waiting else { return }
-        step = .waiting
-        let wait = positionWait
-        waitTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
-            guard !Task.isCancelled, let self, number == self.run, self.step == .waiting else { return }
-            self.askForStart(otherMap: false, offersPosition: true)
+    /// `make` puts the route on the map; then the card goes, and either the
+    /// guidance follows or taps add further points.
+    private func finish(guide: Bool, _ make: () -> Bool) {
+        guard !host.isReplacingRoute else { return }
+        dismiss()
+        guard make() else { return }
+        onDone?()
+        if guide {
+            onGuide?()
+        } else {
+            host.keepPicking()
         }
-        requesting = true
-        host.requestPosition({ [weak self] location in
-            self?.received(location)
-        }, denied: { [weak self] in
-            guard let self, number == self.run, self.step == .waiting else { return }
-            self.askForStart(otherMap: false, offersPosition: false)
-        })
-    }
-
-    /// A new run: an answer about the position asked for before does nothing.
-    private func askForStart(otherMap: Bool, offersPosition: Bool) {
-        run += 1
-        stopWaiting()
-        host.stopPicking()
-        step = .pickStart(otherMap: otherMap, offersPosition: offersPosition)
-    }
-
-    private func stopWaiting() {
-        waitTask?.cancel()
-        waitTask = nil
-        if requesting {
-            requesting = false
-            host.stopRequestingPosition()
-        }
-    }
-
-    private func finish(made: Bool) {
-        cancel()
-        if made { onDone?() }
     }
 }

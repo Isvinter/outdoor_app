@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,12 +13,16 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::AppError;
+use crate::guide::{ActiveGuide, GuideStatus};
 
 /// Recording updates are sent to the listener at most this often.
 const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 /// A fix is recorded if it follows the previous one after at least this share of
 /// the activity's interval; receivers do not tick with millisecond precision.
 const INTERVAL_TOLERANCE: f64 = 0.8;
+/// After this long without a fix kept, the recording goes on in a new
+/// segment: the gap counts neither as distance nor as time moving.
+const GAP_MS: i64 = 120_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -76,6 +81,10 @@ pub trait AppListener: Send + Sync {
     fn on_error(&self, message: &str);
     /// Download progress of a map region.
     fn on_region_progress(&self, _progress: &core_maps::Progress) {}
+    /// Guidance along the planned route: its status on start and whenever a
+    /// fix changes it; `None` when it ends. Told in the order of the changes;
+    /// must not start or stop the guidance or take in a fix (see `guide/app.rs`).
+    fn on_guidance(&self, _status: Option<&GuideStatus>) {}
 }
 
 /// The application. One instance per database.
@@ -91,11 +100,21 @@ pub(crate) struct Shared {
     /// waiting for `inner` to deliver a fix.
     source: Mutex<Option<Box<dyn LocationSource>>>,
     pub(crate) listener: Arc<dyn AppListener>,
+    /// Guidance along the planned route; see `guide/app.rs` for the locking.
+    pub(crate) guide: Mutex<Option<ActiveGuide>>,
+    /// Held while a fix is taken in by the guide, so that fixes are taken in
+    /// one after the other; `guide` stays free meanwhile.
+    pub(crate) guide_turn: Mutex<()>,
+    /// Taken while `guide` is still held and kept until the listener was
+    /// told, so that it hears of the guides in the order `guide` saw them.
+    pub(crate) guide_told: Mutex<()>,
+    /// Numbers the guides started; a fix taken in by an older one is dropped.
+    pub(crate) guide_generation: AtomicU64,
 }
 
 pub(crate) struct Inner {
     pub(crate) storage: Storage,
-    last_fix: Option<Fix>,
+    pub(crate) last_fix: Option<Fix>,
     recording: Option<ActiveRecording>,
 }
 
@@ -186,10 +205,16 @@ impl Shared {
         if let Some(message) = error {
             self.listener.on_error(&message);
         }
+        self.guide_fix(&fix);
     }
 }
 
 impl Inner {
+    /// The track being recorded, if any.
+    pub(crate) fn recording_track(&self) -> Option<Uuid> {
+        self.recording.as_ref().map(|rec| rec.track_id)
+    }
+
     /// Adds a fix to the active recording. Returns a status if one is due.
     fn record(&mut self, fix: Fix) -> Result<Option<RecordingStatus>, AppError> {
         let Some(rec) = &mut self.recording else {
@@ -201,6 +226,12 @@ impl Inner {
             .is_some_and(|last| ((fix.time_ms - last) as f64) < min_gap)
         {
             return Ok(None);
+        }
+        if rec
+            .last_recorded_ms
+            .is_some_and(|last| fix.time_ms - last > GAP_MS)
+        {
+            rec.recorder.break_segment();
         }
         let point = fix.to_track_point();
         if !rec.recorder.add_point(point) {
@@ -280,6 +311,10 @@ impl App {
                 routing: crate::routes::Routing::default(),
                 source: Mutex::new(None),
                 listener,
+                guide: Mutex::new(None),
+                guide_turn: Mutex::new(()),
+                guide_told: Mutex::new(()),
+                guide_generation: AtomicU64::new(0),
             }),
         })
     }
@@ -476,6 +511,7 @@ impl App {
 
     // --- tracks -----------------------------------------------------------
 
+    /// The finished tracks; the one being recorded and an interrupted one are not among them.
     pub fn list_tracks(&self) -> Result<Vec<TrackRecord>, AppError> {
         Ok(self.shared.inner().storage.list_tracks()?)
     }
@@ -514,6 +550,25 @@ impl App {
         Ok(Some(compute_stats(&corrected, &params)))
     }
 
+    /// Sets the activity of a finished track, such as the one chosen after
+    /// recording, and computes its statistics anew with that activity's values.
+    pub fn set_track_activity(
+        &self,
+        id: Uuid,
+        activity: Activity,
+    ) -> Result<TrackRecord, AppError> {
+        let mut inner = self.shared.inner();
+        if inner.recording_track() == Some(id) {
+            return Err(AppError::RecordingActive);
+        }
+        let track = inner.storage.load_track(id)?;
+        let stats = compute_stats(&track, &StatsParams::for_activity(activity));
+        inner
+            .storage
+            .set_track_activity(id, activity, &stats, now_ms())?;
+        Ok(inner.storage.track(id)?)
+    }
+
     pub fn rename_track(&self, id: Uuid, name: &str) -> Result<(), AppError> {
         Ok(self
             .shared
@@ -522,8 +577,13 @@ impl App {
             .rename_track(id, name, now_ms())?)
     }
 
+    /// Deletes a track; not the one being recorded, which would be lost on stopping.
     pub fn delete_track(&self, id: Uuid) -> Result<(), AppError> {
-        Ok(self.shared.inner().storage.delete_track(id, now_ms())?)
+        let mut inner = self.shared.inner();
+        if inner.recording_track() == Some(id) {
+            return Err(AppError::RecordingActive);
+        }
+        Ok(inner.storage.delete_track(id, now_ms())?)
     }
 
     /// Imports every track of a GPX document. `activity` overrides the type named

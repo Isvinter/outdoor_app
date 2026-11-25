@@ -75,3 +75,38 @@ struct MapToolbar: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
+
+/// Above the location button: start a recording, and the settings of the guidance.
+struct MapSideButtons: View {
+    /// Starts a recording; nil while one runs.
+    var record: (() -> Void)?
+    @AppStorage(DeviationAlert.soundKey) private var deviationSound = true
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Menu {
+                Toggle("Signalton bei Abweichung", isOn: $deviationSound)
+                    .accessibilityIdentifier("deviation-sound")
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.title3)
+                    .foregroundStyle(Color.primary)
+                    .frame(width: 48, height: 48)
+                    .panelBackground(in: Circle())
+            }
+            .accessibilityIdentifier("map-settings")
+            .accessibilityLabel("Einstellungen")
+            if let record {
+                Button(action: record) {
+                    Image(systemName: "record.circle")
+                        .font(.title2)
+                        .foregroundStyle(Color(TrackOverlay.recordingColor))
+                        .frame(width: 48, height: 48)
+                        .panelBackground(in: Circle())
+                }
+                .accessibilityIdentifier("record")
+                .accessibilityLabel("Aufzeichnen")
+            }
+        }
+    }
+}

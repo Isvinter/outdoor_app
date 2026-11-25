@@ -427,6 +427,12 @@ impl CoreApp {
         self.app.clear_planned_route();
     }
 
+    /// After rerouting: the next "save" stores a new route; the saved one and
+    /// the plan stay.
+    pub fn detach_planned_route(&self) {
+        self.app.detach_planned_route();
+    }
+
     /// "Leeren": no planned route, and the next "save" stores a new route.
     pub fn start_new_route(&self) {
         self.app.start_new_route();

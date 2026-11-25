@@ -1,17 +1,22 @@
+import Combine
 import CoreLocation
 import MapLibre
 import SwiftUI
 
 /// The map and what the screen needs to know about it.
 @MainActor
-final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapViewDelegate,
-    @preconcurrency CLLocationManagerDelegate
-{
+final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapViewDelegate, GuideCamera {
     let mapView: MLNMapView
     /// The planned route on this map.
     let route: RouteOverlay
     /// The search hits on this map.
     let searchOverlay: SearchOverlay
+    /// The recording that runs and a stored track being looked at.
+    let tracks: TrackOverlay
+    /// The part of the route behind the user and the way back.
+    let guide: GuideOverlay
+    /// The user moved the map by hand.
+    var onUserMove: (() -> Void)?
     private let core: CoreApp
 
     @Published private(set) var base: MapBase = .summer
@@ -48,8 +53,9 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     private var styleLoaded = false
     /// West, south, east, north of the active regions; nil if there is none.
     private(set) var bounds: [Double]?
-    /// Only asks for the permission and tells when it changes; the map locates by itself.
-    private let locationManager = CLLocationManager()
+    /// The one GPS of the app; the dot on the map shows its positions.
+    let location: LocationService
+    private var locationWatch: [AnyCancellable] = []
     /// The user asked for their position and it is not known yet.
     private var centreWhenLocated = false
     /// Counts the waits for a position, so that an old wait cannot end a newer one.
@@ -73,15 +79,22 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
     /// Where the map starts while no region is installed (as on the desktop).
     private static let fallbackCentre = CLLocationCoordinate2D(latitude: 47.68, longitude: 11.57)
 
-    init(core: CoreApp, bounds: [Double]?, zoom: Double = 11, centre start: [Double]? = nil) {
+    init(
+        core: CoreApp, location: LocationService, bounds: [Double]?, zoom: Double = 11, centre start: [Double]? = nil
+    ) {
         self.core = core
+        self.location = location
         mapView = MLNMapView(frame: .zero)
         route = RouteOverlay(mapView: mapView)
         searchOverlay = SearchOverlay(mapView: mapView)
+        tracks = TrackOverlay(mapView: mapView)
+        guide = GuideOverlay(mapView: mapView)
         dark = UserDefaults.standard.bool(forKey: Self.darkKey)
         reliefStrength = UserDefaults.standard.double(forKey: Self.reliefKey)
         super.init()
         route.dark = dark
+        tracks.dark = dark
+        guide.dark = dark
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.maximumZoomLevel = 19
         mapView.delegate = self
@@ -91,16 +104,14 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
             centre = CLLocationCoordinate2D(latitude: start[0], longitude: start[1])
         }
         mapView.setCenter(centre, zoomLevel: zoom, animated: false)
+        mapView.locationManager = MapLocationManager(service: location)
         show(.summer)
-        locationManager.delegate = self
+        watchLocation()
     }
 
     // MARK: Own position
 
-    private var mayLocate: Bool {
-        let status = locationManager.authorizationStatus
-        return status == .authorizedWhenInUse || status == .authorizedAlways
-    }
+    private var mayLocate: Bool { location.mayLocate }
 
     /// The location button: switches the own position on and centres on it,
     /// or switches it off again.
@@ -112,35 +123,37 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         }
     }
 
-    /// Shows the own position and centres on it, at zoom 14 or closer. Asks for
-    /// the permission the first time; says so if there is no permission or no position.
-    /// The map draws the dot itself; without the permission it would ask at once,
-    /// so it is only switched on when the permission is there.
+    /// Shows the own position and centres on it, at zoom 14 or closer. The
+    /// service asks for the permission the first time; says so if there is
+    /// no permission or no position.
     private func startLocating() {
         locationHint = nil
-        if locationManager.authorizationStatus == .notDetermined {
+        if location.authorization == .notDetermined {
             centreWhenLocated = true
-            locationManager.requestWhenInUseAuthorization()
+            location.require(.map)
         } else if !mayLocate {
             locationHint = Self.noPermissionHint
         } else {
             locating = true
-            mapView.showsUserLocation = true
-            if let location = mapView.userLocation?.location {
-                centre(on: location)
+            location.require(.map)
+            if let last = location.last {
+                locationAccuracy = last.horizontalAccuracy >= 0 ? last.horizontalAccuracy : nil
+                centre(on: last)
             } else {
                 waitForFix()
             }
         }
     }
 
-    /// Switches the GPS of the map off; the dot goes away.
+    /// Releases the GPS of the map; the dot stays while a recording or the
+    /// guidance still needs the GPS.
     private func stopLocating() {
         locating = false
         centreWhenLocated = false
         fixRequest += 1
-        mapView.showsUserLocation = false
+        // The GPS may go on for a recording or the guidance; the button's figure goes.
         locationAccuracy = nil
+        location.release(.map)
     }
 
     /// Centres as soon as a position arrives; says so if none comes within 10 s.
@@ -163,25 +176,42 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         mapView.setCenter(location.coordinate, zoomLevel: max(mapView.zoomLevel, 14), animated: true)
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        if centreWhenLocated && mayLocate && !locating {
-            locating = true
-            mapView.showsUserLocation = true
-            waitForFix()
-        } else if centreWhenLocated && manager.authorizationStatus != .notDetermined && !mayLocate {
-            centreWhenLocated = false
-            locationHint = Self.noPermissionHint
-        } else if locating && !mayLocate && manager.authorizationStatus != .notDetermined {
-            // Taken away in the settings while shown.
-            stopLocating()
-        }
+    /// Follows the service: the dot shows while the GPS runs for anyone.
+    private func watchLocation() {
+        locationWatch = [
+            location.$running.removeDuplicates().sink { [weak self] running in
+                guard let self else { return }
+                self.mapView.showsUserLocation = running
+                if !running { self.locationAccuracy = nil }
+            },
+            location.$authorization.dropFirst().sink { [weak self] _ in
+                // Published before the value changes; look once it has.
+                DispatchQueue.main.async { self?.authorizationChanged() }
+            },
+            location.$last.sink { [weak self] last in
+                guard let self, let last else { return }
+                if self.locating {
+                    self.locationAccuracy = last.horizontalAccuracy >= 0 ? last.horizontalAccuracy : nil
+                }
+                if self.centreWhenLocated && self.locating {
+                    self.centre(on: last)
+                }
+            },
+        ]
     }
 
-    func mapView(_ mapView: MLNMapView, didUpdate userLocation: MLNUserLocation?) {
-        let accuracy = userLocation?.location?.horizontalAccuracy ?? -1
-        locationAccuracy = accuracy >= 0 ? accuracy : nil
-        if centreWhenLocated, let location = userLocation?.location {
-            centre(on: location)
+    private func authorizationChanged() {
+        let status = location.authorization
+        if centreWhenLocated && mayLocate && !locating {
+            locating = true
+            waitForFix()
+        } else if centreWhenLocated && status != .notDetermined && !mayLocate {
+            centreWhenLocated = false
+            location.release(.map)
+            locationHint = Self.noPermissionHint
+        } else if locating && !mayLocate && status != .notDetermined {
+            // Taken away in the settings while shown.
+            stopLocating()
         }
     }
 
@@ -229,6 +259,8 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         self.dark = dark
         UserDefaults.standard.set(dark, forKey: Self.darkKey)
         route.dark = dark
+        tracks.dark = dark
+        guide.dark = dark
         show(base)
     }
 
@@ -289,12 +321,24 @@ final class MapController: NSObject, ObservableObject, @preconcurrency MLNMapVie
         styleLoaded = true
         applySlopeOpacity()
         applyRelief()
+        tracks.styleLoaded(style)
         route.styleLoaded(style)
+        guide.styleLoaded(style)
         searchOverlay.styleLoaded(style)
     }
 
     func mapView(_ mapView: MLNMapView, regionWillChangeWith reason: MLNCameraChangeReason, animated: Bool) {
         searchOverlay.mapWillMove(reason: reason)
+        let gestures: MLNCameraChangeReason = [
+            .gesturePan, .gesturePinch, .gestureRotate, .gestureZoomIn, .gestureZoomOut, .gestureOneFingerZoom,
+            .gestureTilt,
+        ]
+        if !reason.isDisjoint(with: gestures) { onUserMove?() }
+    }
+
+    /// Keeps the position in the middle while guiding.
+    func follow(_ location: CLLocation) {
+        mapView.setCenter(location.coordinate, zoomLevel: max(mapView.zoomLevel, 15), animated: true)
     }
 
     func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {

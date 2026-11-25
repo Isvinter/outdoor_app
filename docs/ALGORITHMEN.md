@@ -165,3 +165,66 @@ Beurteilung im Gelände.
   atomares Umbenennen des Verzeichnisses – eine Region ist ganz da oder gar nicht.
 - Kacheln liest ein eigener PMTiles-v3-Leser; die Karte holt sie über das Schema `tiles://`
   direkt aus dem Rust-Kern.
+
+## 6b. Aufzeichnung in Trail (`core-app`, `Inner::record`)
+
+- **Ohne Sportart:** Trail startet jede Aufnahme als `other` („Keine Angabe“); die Sportart kommt
+  beim Speichern (`set_track_activity`), danach wird die Statistik mit deren Werten neu gerechnet.
+  `other` speichert einen Punkt je Sekunde wie Rad und MTB, denn es kann alles sein. Die
+  Statistik nimmt ab 1 km/h Bewegung an und hält bis 110 km/h für plausibel.
+- **GPS-Lücke:** Liegt ein Fix mehr als 120 s hinter dem letzten gespeicherten, beginnt ein neues
+  Teilstück. Die Lücke zählt weder als Strecke noch als Bewegungszeit; ein Tunnel fehlt dadurch
+  in der Strecke, dafür zählt keine Autofahrt mit ausgeschaltetem GPS. Importierte Tracks mit
+  langen Pausen ohne Punkte werden beim Abspielen genauso geteilt.
+
+## 7. Live-Routing (`core-app`, Modul `guide`)
+
+Der Guide folgt der geplanten Route Fix für Fix: Fortschritt entlang der Linie, Abweichung,
+Weg zurück, Rest. Er selbst ändert die Route nie; das tut Trail (siehe „Umplanen“). Alle Werte (`GuideParams`) sind erste Werte, die mit
+echten Tracks nachgestellt werden.
+
+- **Fixes:** Genauigkeit über 50 m wird ignoriert. Abweichung: mehr als 40 m von der Linie, bei
+  mindestens 3 Fixes in Folge und mindestens 10 s. Zurück auf der Route ist man unter 20 m.
+  Angekommen: Fortschritt am Ende und höchstens 30 m von der Linie (Ziel in 30 m).
+- **Suchfenster:** Der Fortschritt wird nur in einem Stück der Linie gesucht, damit Schleifen und
+  nahe Parallelwege nicht springen: 200 m zurück, mindestens 500 m voraus. Nach einer Pause
+  zwischen Fixes wächst es nach vorn um 20 m/s × 3 × Zeit seit dem letzten Fix, abseits der
+  Route um dasselbe seit dem Verlassen. Bei Streckenabschnitten ohne Routing (Luftlinie, fehlend)
+  reicht es bis hinter deren Ende.
+- **Gleichstand:** Liegen zwei Stellen innerhalb von 1 m gleich nah (hin und zurück auf demselben
+  Weg), gilt die, die dem bisherigen Fortschritt am nächsten liegt.
+- **Gerade und fehlende Abschnitte** gelten nie als Abweichung: dort gibt es keinen Weg, dem man
+  folgen könnte.
+- **Weg zurück:** Bei einer Abweichung fragt der Kern das Routing nach einem Weg vom Fix zum
+  Zielpunkt. Zielpunkt ist der nächste Wegpunkt voraus. Solange man noch nie auf der Route war,
+  ist es der Wegpunkt, an dem der Guide platziert wurde: aus der Ferne also der Start; bei „Ab
+  hier führen“ (`guide_from_waypoint`) genau dieser Wegpunkt. Das Profil ist das des Abschnitts
+  am Fortschritt, sonst das des letzten gerouteten davor, sonst des ersten danach; nie eine
+  Luftlinie. Die Fahrtrichtung (Kurs) wird nur ab 1,5 m/s übergeben, darunter ist sie zu
+  verrauscht. Schlägt es fehl (`no_way_back`), wird nach 60 s oder 200 m Bewegung neu versucht.
+- **Umplanen (Trail, nach dem Test draußen vom Nutzer gewünscht):** Ist ein Weg zurück gefunden,
+  ersetzt Trail die Route ohne Rückfrage: von der Position (Anfang des Wegs zurück) zum Zielpunkt
+  des Wegs zurück und von dort wie bisher. Der gefahrene Teil und die erreichten Wegpunkte
+  verschwinden; wer ihn sehen will, zeichnet auf. Das neue erste Teilstück behält das Profil des
+  ersetzten, die übrigen kommen aus dem Zwischenspeicher. Einmal je Abweichung. Die Führung wird
+  auf der neuen Route neu angesetzt und läuft weiter. Die Route gilt danach nicht mehr als die
+  gespeicherte (`detach_planned_route`): „Speichern“ legt eine neue an, die gespeicherte bleibt.
+  Ohne Weg zurück bleibt die Route, und die Leiste sagt „Kein Weg zurück gefunden“.
+- **Rest:** Strecke und Zeit bis zum Etappenende und zum Ziel, mit dem Rest des Wegs zurück
+  eingerechnet. Die Zeit ist `None`, sobald ein Abschnitt voraus keine Zeit hat.
+- **Aufzeichnung:** Führung und Aufzeichnung sind unabhängig (Entscheidung des Nutzers nach dem
+  ersten Test): Keine startet oder beendet die andere. Eine neue Route setzt eine laufende
+  Führung neu auf, startet aber keine.
+- **Meldungen an die App:** Der Listener erfährt die Änderungen der Führung in der Reihenfolge,
+  in der sie geschehen; das Ende kommt nie vor einem Status, der davor entstand. Aus
+  `on_guidance` heraus darf er die Führung nicht aufrufen, auch nicht nach dem Status fragen (das
+  kann sich mit einem anderen Thread verklemmen); der Status kommt mit dem Aufruf. Trail folgt nur
+  diesen Meldungen, nicht den Rückgabewerten von Start und Stopp: Die Meldungen hängen auf dem
+  Hauptthread hinterher, und ein Status nach dem Stopp sähe sonst wie ein neuer Start aus.
+- **Hinweis in Trail:** Je Abweichung (wenn `deviation` wächst) eine Vibration, im Hintergrund dazu
+  eine Mitteilung „Abseits der Route“ mit „Weg zurück zu Wegpunkt {n}: {Distanz}.“ bzw. „Weg zurück
+  zum Ziel: {Distanz}.“. Scheitert der Weg zurück schon bei der Abweichung, lautet der Text „Kein
+  Weg zurück gefunden.“: Auch dann soll der Nutzer merken, dass er abseits ist. Die Distanz ist die
+  ganze Länge des Wegs zurück im Moment der Abweichung; die Leiste zeigt sie unverändert, bis die
+  Abweichung endet. Den gefahrenen Teil der Route misst Trail wie der Kern (Haversine,
+  `EARTH_RADIUS_M`).

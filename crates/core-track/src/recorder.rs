@@ -77,6 +77,12 @@ impl Recorder {
         &self.track
     }
 
+    /// The next point starts a new segment, as after a resume; for a long
+    /// gap without fixes.
+    pub fn break_segment(&mut self) {
+        self.segment_break = !self.track.segments.is_empty();
+    }
+
     /// Index of the segment the most recently added point belongs to.
     pub fn current_segment(&self) -> usize {
         self.track.segments.len().saturating_sub(1)

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 
@@ -8,13 +9,17 @@ enum ImportResult {
 }
 
 /// Background failures of the core end up in the log; the progress of a
-/// download goes to whoever watches it.
+/// download goes to whoever watches it. Recording and guidance go to the
+/// main thread, always later than the call that caused them.
 private final class Listener: CoreListener, @unchecked Sendable {
     typealias Progress = @Sendable (_ region: String, _ done: UInt64, _ total: UInt64) -> Void
 
     private let log = Logger(subsystem: "de.zeibig.zerogrid.trail", category: "core")
     private let lock = NSLock()
     private var watcher: Progress?
+    /// Only sent to on the main thread.
+    let recording = PassthroughSubject<RecordingInfo, Never>()
+    let guidance = PassthroughSubject<GuidanceInfo?, Never>()
 
     var progress: Progress? {
         get { lock.withLock { watcher } }
@@ -28,6 +33,17 @@ private final class Listener: CoreListener, @unchecked Sendable {
     /// Called on the thread that runs `installRegion`.
     func onRegionProgress(region: String, done: UInt64, total: UInt64) {
         progress?(region, done, total)
+    }
+
+    func onRecording(status: RecordingInfo) {
+        DispatchQueue.main.async { self.recording.send(status) }
+    }
+
+    /// Comes in the order of the changes, while the core holds a lock that
+    /// keeps that order: asynchronous on purpose, so that nothing starts or
+    /// stops the guidance or feeds a fix back from inside it.
+    func onGuidance(status: GuidanceInfo?) {
+        DispatchQueue.main.async { self.guidance.send(status) }
     }
 }
 
@@ -94,6 +110,13 @@ final class CoreHost {
     func watchRegionProgress(_ watcher: (@Sendable (_ region: String, _ done: UInt64, _ total: UInt64) -> Void)?) {
         listener.progress = watcher
     }
+
+    /// Every change of the recording, on the main thread. `appended` holds
+    /// the points since the change before, so a subscriber sees each point once.
+    var recordingChanges: AnyPublisher<RecordingInfo, Never> { listener.recording.eraseToAnyPublisher() }
+
+    /// Every change of the guidance on the main thread; nil when it ended.
+    var guidanceChanges: AnyPublisher<GuidanceInfo?, Never> { listener.guidance.eraseToAnyPublisher() }
 
     /// The routing data of a region, as the core names it to the engine
     /// (`<regions>/<id>/routing.tar`).

@@ -219,8 +219,10 @@ fn records_a_gpx_file_into_a_database() {
         file.to_str().unwrap(),
     ]);
     assert!(o.status.success(), "{}", stderr(&o));
+    // 1.56 km less than `stats` on the same file: recording starts a new
+    // segment after the 996 s gap without fixes, and the gap does not count.
     assert!(
-        stdout(&o).contains("Distance:      27.60 km"),
+        stdout(&o).contains("Distance:      26.04 km"),
         "{}",
         stdout(&o)
     );
@@ -254,8 +256,8 @@ fn recording_survives_the_process_being_killed() {
 
     let app = core_app::App::open(&db, std::sync::Arc::new(Quiet)).unwrap();
     assert!(
-        app.list_tracks().unwrap()[0].stats.is_none(),
-        "track was never finished"
+        app.list_tracks().unwrap().is_empty(),
+        "an unfinished track is not listed"
     );
     let interrupted = app
         .interrupted_recording()

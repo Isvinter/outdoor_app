@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use core_maps::ProfilePoint;
+use core_maps::{ProfilePoint, RoutingTiles};
 use core_routing::{
     DinParams, LatLon, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError,
     din_time_s, manual_route,
@@ -14,7 +14,7 @@ use core_track::elevation_gain;
 use serde::{Deserialize, Serialize};
 
 use crate::AppError;
-use crate::app::App;
+use crate::app::{App, Shared};
 
 /// Largest distance between two samples of the elevation profile, in metres.
 const PROFILE_STEP_M: f64 = 25.0;
@@ -195,7 +195,7 @@ impl RoutePlan {
 /// A computed leg with its elevation samples (distances from the leg's start).
 #[derive(Clone)]
 pub(crate) struct CachedLeg {
-    leg: Leg,
+    pub(crate) leg: Leg,
     elevation: Vec<ProfilePoint>,
 }
 
@@ -443,82 +443,94 @@ impl App {
             }
         }
         let plan = assemble(request, legs, &samples);
-        self.shared.routing.finish_plan(generation, plan.clone());
+        if self.shared.routing.finish_plan(generation, plan.clone()) {
+            self.shared.plan_changed();
+        }
         Ok(plan)
     }
 
     fn leg(&self, from: LatLon, to: LatLon, spec: &LegSpec) -> Result<CachedLeg, AppError> {
-        let tiles = if spec.profile == Profile::Manual {
-            None
-        } else {
-            Some(
-                self.shared
-                    .maps
-                    .store()
-                    .routing_tiles(&[(from.lat, from.lon), (to.lat, to.lon)])
-                    .ok_or_else(|| {
-                        RoutingError::Unavailable(
-                            "no installed region with routing data covers this leg".into(),
-                        )
-                    })?,
-            )
-        };
+        let shared = &self.shared;
+        let tiles = shared.leg_tiles(from, to, spec)?;
         let key = leg_key(tiles.as_ref().map(|t| t.region.as_str()), from, to, spec);
-        if let Some(cached) = self.shared.routing.legs().get(&key) {
+        if let Some(cached) = shared.routing.legs().get(&key) {
             return Ok(cached);
         }
-        let route = match &tiles {
-            None => manual_route(&[from, to])?,
-            Some(tiles) => {
-                let engine = self
-                    .shared
-                    .routing
-                    .factory()
-                    .and_then(|factory| factory.engine_version());
-                if let (Some(info), Some(engine)) = (&tiles.info, engine)
-                    && info.valhalla != engine
-                {
-                    return Err(RoutingError::Incompatible {
-                        data: info.valhalla.clone(),
-                        engine,
-                    }
-                    .into());
-                }
-                let router = self.shared.routing.router(&tiles.region, &tiles.path)?;
-                router.route(&RouteRequest {
-                    waypoints: vec![from, to],
-                    profile: spec.profile,
-                    options: spec.options,
-                })?
-            }
-        };
-        let cached = self.measure(
-            route,
-            spec,
-            tiles.as_ref().map(|t| t.region.clone()),
-            tiles
-                .as_ref()
-                .and_then(|t| t.info.as_ref())
-                .map(|i| i.max_mtb_scale),
-        )?;
-        self.shared.routing.legs().insert(key, cached.clone());
+        let route = shared.route_on(tiles.as_ref(), from, None, to, spec)?;
+        let cached = shared.measure(route, spec, tiles.as_ref())?;
+        shared.routing.legs().insert(key, cached.clone());
         Ok(cached)
+    }
+}
+
+impl Shared {
+    /// The routing data a leg is routed on: `None` for a leg joined by hand.
+    pub(crate) fn leg_tiles(
+        &self,
+        from: LatLon,
+        to: LatLon,
+        spec: &LegSpec,
+    ) -> Result<Option<RoutingTiles>, AppError> {
+        if spec.profile == Profile::Manual {
+            return Ok(None);
+        }
+        let tiles = self
+            .maps
+            .store()
+            .routing_tiles(&[(from.lat, from.lon), (to.lat, to.lon)])
+            .ok_or_else(|| {
+                RoutingError::Unavailable(
+                    "no installed region with routing data covers this leg".into(),
+                )
+            })?;
+        Ok(Some(tiles))
+    }
+
+    /// The way from `from` to `to` on `tiles` (straight without), leaving in
+    /// direction `heading_deg` if given. Routing data of another Valhalla
+    /// version than the engine's is not routed.
+    pub(crate) fn route_on(
+        &self,
+        tiles: Option<&RoutingTiles>,
+        from: LatLon,
+        heading_deg: Option<f32>,
+        to: LatLon,
+        spec: &LegSpec,
+    ) -> Result<Route, AppError> {
+        let Some(tiles) = tiles else {
+            return Ok(manual_route(&[from, to])?);
+        };
+        let engine = self
+            .routing
+            .factory()
+            .and_then(|factory| factory.engine_version());
+        if let (Some(info), Some(engine)) = (&tiles.info, engine)
+            && info.valhalla != engine
+        {
+            return Err(RoutingError::Incompatible {
+                data: info.valhalla.clone(),
+                engine,
+            }
+            .into());
+        }
+        let router = self.routing.router(&tiles.region, &tiles.path)?;
+        Ok(router.route(&RouteRequest {
+            waypoints: vec![from, to],
+            profile: spec.profile,
+            options: spec.options,
+            heading_deg,
+        })?)
     }
 
     /// Elevation, ascent and time of a computed leg.
-    fn measure(
+    pub(crate) fn measure(
         &self,
         route: Route,
         spec: &LegSpec,
-        region: Option<String>,
-        max_mtb_scale: Option<u8>,
+        tiles: Option<&RoutingTiles>,
     ) -> Result<CachedLeg, AppError> {
         let line: Vec<(f64, f64)> = route.line.iter().map(|p| (p.lat, p.lon)).collect();
-        let elevation = self
-            .shared
-            .maps
-            .store()
-            .elevation_profile(&line, PROFILE_STEP_M)?;
+        let elevation = self.maps.store().elevation_profile(&line, PROFILE_STEP_M)?;
         let known: Vec<(f64, f64)> = elevation
             .iter()
             .filter_map(|point| Some((point.distance_m, f64::from(point.ele?))))
@@ -553,8 +565,8 @@ impl App {
                 ascent_m,
                 descent_m,
                 time_s,
-                region,
-                max_mtb_scale,
+                region: tiles.map(|t| t.region.clone()),
+                max_mtb_scale: tiles.and_then(|t| t.info.as_ref()).map(|i| i.max_mtb_scale),
                 error: None,
             },
             elevation,

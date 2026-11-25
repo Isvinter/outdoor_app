@@ -139,14 +139,20 @@ final class PlanController: ObservableObject {
     private let newest = Newest()
     /// From the user's input to the drawn route, per computed plan; for the self-test.
     private(set) var planTimes: [TimeInterval] = []
-    /// Asked first about a tap on the map; true means it has been dealt with.
-    var interceptTap: ((CLLocationCoordinate2D) -> Bool)?
     /// A tap on the map that sets no waypoint.
     var onFreeTap: ((CLLocationCoordinate2D) -> Void)?
+    /// A tap that set a waypoint; whether it was the first of the route.
+    var onPickedTap: ((CLLocationCoordinate2D, Bool) -> Void)?
     /// The waypoints or legs of the planned route changed.
     var onRouteChanged: (() -> Void)?
+    /// A route was drawn: its legs as the guidance measures them (a failed
+    /// one straight), and its number of waypoints. Empty without a route.
+    var onRouteDrawn: ((_ legs: [[CLLocationCoordinate2D]], _ waypoints: Int) -> Void)?
 
     private static let lastProfileKey = "lastRouteProfile"
+    /// Runs once the route being computed is there, with the number of its
+    /// computation; dropped if it fails or a newer request takes its place.
+    private var afterPlanned: (number: Int, action: () -> Void)?
 
     init(core: CoreApp, map: MapController) {
         self.core = core
@@ -155,19 +161,18 @@ final class PlanController: ObservableObject {
         self.profiles = profiles
         profile = profiles.first { $0.profile == "hike" }?.available == true ? "hike" : "manual"
         overlay.onTap = { [weak self] at in
-            guard let self, self.interceptTap?(at) != true else { return }
+            guard let self else { return }
             if self.picking {
+                let first = self.request.waypoints.isEmpty
                 self.addWaypoint(at)
+                self.onPickedTap?(at, first)
             } else {
                 self.onFreeTap?(at)
             }
         }
         overlay.onWaypointTap = { [weak self] index in
             guard let self, self.request.waypoints.indices.contains(index) else { return }
-            let point = self.request.waypoints[index]
-            // While a route start is being chosen, a waypoint is a place like any other.
-            let at = CLLocationCoordinate2D(latitude: point.lat, longitude: point.lon)
-            if self.interceptTap?(at) != true { self.menuWaypoint = index }
+            self.menuWaypoint = index
         }
         overlay.onWaypointMove = { [weak self] index, to in self?.moveWaypoint(index, to: to) }
         routes = (try? core.savedRoutes()) ?? []
@@ -297,6 +302,51 @@ final class PlanController: ObservableObject {
         queue.async { core.startNewRoute() }
         compute()
         return true
+    }
+
+    /// A new route that begins at `at`, in place of the one on the map.
+    func beginRoute(at: CLLocationCoordinate2D) -> Bool {
+        guard !replacing else { return false }
+        useRouteHereProfile()
+        loaded = nil
+        request = planAddWaypoint(request: planEmpty(), at: LatLon(lat: at.latitude, lon: at.longitude), leg: formLeg)
+        let core = core
+        queue.async { core.startNewRoute() }
+        compute()
+        return true
+    }
+
+    /// Off the route during the guidance: the route goes on from `from` to
+    /// waypoint `index` and on as before; the part before is dropped without
+    /// asking. The new leg is routed like the core's way back: with the leg it
+    /// replaces, else the last routed one before, else the first after; never
+    /// straight. The route no longer stands for a saved one: "save" stores a new route.
+    func reroute(from: LatLon, toWaypoint index: Int) {
+        let old = request
+        guard !replacing, old.waypoints.indices.contains(index), old.legs.count == old.waypoints.count - 1,
+            !old.legs.isEmpty
+        else { return }
+        let count = old.waypoints.count - index + 1
+        var new = old
+        new.waypoints = [from] + Array(old.waypoints[index...])
+        new.legs = [Self.rerouteLeg(old.legs, replacing: max(index - 1, 0))] + Array(old.legs[index...])
+        new.stageEnds = old.stageEnds
+            .map { Int($0) - index + 1 }
+            .filter { $0 > 0 && $0 < count - 1 }
+            .map { UInt32($0) }
+        picking = false
+        loaded = nil
+        request = new
+        let core = core
+        queue.async { core.detachPlannedRoute() }
+        compute()
+    }
+
+    /// The leg for the way from the position: as `way_back_spec` in the core.
+    static func rerouteLeg(_ legs: [LegInput], replacing index: Int) -> LegInput {
+        let routed = { (leg: LegInput) in leg.profile != "manual" }
+        if routed(legs[index]) { return legs[index] }
+        return legs[..<index].last(where: routed) ?? legs[(index + 1)...].first(where: routed) ?? legs[index]
     }
 
     /// `to` becomes the next destination of the route on the map.
@@ -527,8 +577,15 @@ final class PlanController: ObservableObject {
         }
     }
 
+    /// `action` runs once the route being computed is on the map, not if it fails.
+    func whenPlanned(_ action: @escaping () -> Void) {
+        afterPlanned = (newest.current, action)
+    }
+
     private func computed(_ result: Result<PlanResult, Error>, started: Date) {
         planning = false
+        var after = afterPlanned.flatMap { $0.number == newest.current ? $0.action : nil }
+        afterPlanned = nil
         switch result {
         case .success(let plan):
             self.plan = plan
@@ -542,9 +599,11 @@ final class PlanController: ObservableObject {
         case .failure(let error):
             plan = nil
             message = PlanTexts.error(error)
+            after = nil
         }
         drawLegs()
         planTimes.append(Date().timeIntervalSince(started))
+        after?()
     }
 
     // MARK: Drawing
@@ -565,10 +624,13 @@ final class PlanController: ObservableObject {
     private func drawLegs() {
         // The cursor belonged to the route before.
         showCursor(nil)
-        guard let plan else { return overlay.show([]) }
+        guard let plan else {
+            onRouteDrawn?([], 0)
+            return overlay.show([])
+        }
         let points = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         let failedColor = failedLegColor()
-        overlay.show(plan.legs.enumerated().map { index, leg in
+        let drawn = plan.legs.enumerated().map { index, leg in
             if leg.errorCode != nil {
                 let ends = index + 1 < points.count ? [points[index], points[index + 1]] : []
                 return RouteOverlay.Leg(line: ends, color: failedColor, failed: true)
@@ -576,7 +638,9 @@ final class PlanController: ObservableObject {
             return RouteOverlay.Leg(
                 line: leg.line.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) },
                 color: leg.color, failed: false)
-        })
+        }
+        overlay.show(drawn)
+        onRouteDrawn?(drawn.map(\.line), points.count)
     }
 
     // MARK: Self-test

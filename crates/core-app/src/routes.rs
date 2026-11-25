@@ -127,15 +127,22 @@ impl Routing {
     }
 
     /// Keeps the result of the plan begun as `generation`, unless a newer plan
-    /// was begun or the planned route was replaced since.
-    pub(crate) fn finish_plan(&self, generation: u64, plan: RoutePlan) {
+    /// was begun or the planned route was replaced since. True if it was
+    /// kept: the planned route changed, and the caller tells the guide
+    /// ([`Shared::plan_changed`](crate::app::Shared::plan_changed)).
+    #[must_use]
+    pub(crate) fn finish_plan(&self, generation: u64, plan: RoutePlan) -> bool {
         let mut planned = self.planned();
-        if self.generation.load(Ordering::SeqCst) == generation {
+        let current = self.generation.load(Ordering::SeqCst) == generation;
+        if current {
             *planned = Some(plan);
         }
+        current
     }
 
     /// Replaces the planned route; plans still being computed no longer count.
+    /// The caller tells the guide of the change
+    /// ([`Shared::plan_changed`](crate::app::Shared::plan_changed)).
     pub(crate) fn set_planned(&self, plan: Option<RoutePlan>) {
         let mut planned = self.planned();
         self.generation.fetch_add(1, Ordering::SeqCst);
@@ -319,11 +326,19 @@ impl App {
     /// route it belongs to stays: "save" still overwrites it.
     pub fn clear_planned_route(&self) {
         self.shared.routing.set_planned(None);
+        self.shared.plan_changed();
     }
 
     /// Starts afresh: no planned route, and "save" stores a new one.
     pub fn start_new_route(&self) {
         self.clear_planned_route();
+        *self.shared.routing.loaded() = None;
+    }
+
+    /// The planned route no longer stands for the saved one it came from, as
+    /// after rerouting during the guidance: "save" stores a new route and the
+    /// saved one stays as it was. The plan and a running guidance stay.
+    pub fn detach_planned_route(&self) {
         *self.shared.routing.loaded() = None;
     }
 
@@ -469,6 +484,7 @@ impl App {
         let plan = self.load_plan(id)?;
         self.shared.routing.set_planned(Some(plan.clone()));
         *self.shared.routing.loaded() = Some(id);
+        self.shared.plan_changed();
         Ok(plan)
     }
 

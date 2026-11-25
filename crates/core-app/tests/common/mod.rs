@@ -64,7 +64,12 @@ pub fn temp_dir(name: &str) -> PathBuf {
 }
 
 pub fn open(dir: &Path) -> App {
-    App::open(&dir.join("app.sqlite"), Arc::new(Listener)).unwrap()
+    open_with(dir, Arc::new(Listener))
+}
+
+/// Like [`open`], telling `listener` what happens.
+pub fn open_with(dir: &Path, listener: Arc<dyn AppListener>) -> App {
+    App::open(&dir.join("app.sqlite"), listener).unwrap()
 }
 
 /// An app whose only region covers tile X/Y with the elevation ramp.
@@ -83,6 +88,12 @@ pub fn app_with_ramp_routing(name: &str) -> App {
 #[allow(dead_code)]
 pub fn app_with_ramp_valhalla(name: &str, version: &str) -> App {
     open(&ramp_region_with(name, true, Some(version)))
+}
+
+/// The app data directory of [`app_with_ramp_routing`], for opening the app
+/// with [`open_with`] or opening it again.
+pub fn ramp_routing_dir(name: &str) -> PathBuf {
+    ramp_region(name, true)
 }
 
 fn ramp_region(name: &str, routing: bool) -> PathBuf {

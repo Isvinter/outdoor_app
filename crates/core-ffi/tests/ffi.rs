@@ -3,14 +3,19 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use outdoor_core::{CoreApp, CoreError, CoreListener};
+use outdoor_core::{
+    CoreApp, CoreError, CoreListener, FixInput, GuidanceInfo, LegInput, RecordingInfo,
+    plan_add_waypoint, plan_empty,
+};
 
 struct Quiet;
 impl CoreListener for Quiet {
     fn on_error(&self, _message: String) {}
     fn on_region_progress(&self, _region: String, _done: u64, _total: u64) {}
+    fn on_recording(&self, _status: RecordingInfo) {}
+    fn on_guidance(&self, _status: Option<GuidanceInfo>) {}
 }
 
 fn repo() -> PathBuf {
@@ -169,4 +174,128 @@ fn style_uses_contour_tiles_when_installed() {
         style["sources"]["contours"]["tiles"][0],
         "outdoor-tiles://localhost/contours/{z}/{x}/{y}"
     );
+}
+
+fn fix(i: i64) -> FixInput {
+    FixInput {
+        lat: 47.572 + i as f64 * 0.0002,
+        lon: 11.543 + i as f64 * 0.0002,
+        ele: Some(800.0 + i as f64),
+        time_ms: 1_700_000_000_000 + i * 4000,
+        h_accuracy_m: Some(5.0),
+        speed_mps: Some(1.4),
+        course_deg: Some(45.0),
+    }
+}
+
+#[test]
+fn recording_round_trip_over_ffi() {
+    let (data, _) = setup("recording");
+    let core = open(&data);
+    let started = core.start_recording("hike".into()).unwrap();
+    assert_eq!(started.phase, "recording");
+    assert_eq!(started.activity.as_deref(), Some("hike"));
+    for i in 0..20 {
+        core.handle_fix(fix(i));
+    }
+    let status = core.recording_status();
+    assert_eq!(status.phase, "recording");
+    assert!(status.distance_m > 100.0, "{status:?}");
+    assert_eq!(
+        core.recording_line().iter().map(Vec::len).sum::<usize>(),
+        20
+    );
+    let summary = core.stop_recording().unwrap().unwrap();
+    assert_eq!(summary.activity, "hike");
+    let tracks = core.list_tracks().unwrap();
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].id, summary.id);
+    let view = core.track_detail(summary.id.clone()).unwrap();
+    assert_eq!(view.segments.iter().map(Vec::len).sum::<usize>(), 20);
+    assert!(view.elapsed_s > 70.0);
+    core.rename_track(summary.id.clone(), "Morning".into())
+        .unwrap();
+    assert_eq!(
+        core.list_tracks().unwrap()[0].name.as_deref(),
+        Some("Morning")
+    );
+    assert!(
+        core.export_track_gpx(summary.id.clone())
+            .unwrap()
+            .contains("<trkpt")
+    );
+    core.delete_track(summary.id).unwrap();
+    assert!(core.list_tracks().unwrap().is_empty());
+}
+
+#[test]
+fn unknown_activity_is_an_error() {
+    let (data, _) = setup("activity");
+    let core = open(&data);
+    let CoreError::Failed { code, .. } = core.start_recording("swim".into()).unwrap_err();
+    assert_eq!(code, "unknown_activity");
+    assert_eq!(core.recording_status().phase, "idle");
+}
+
+#[derive(Default)]
+struct Counting {
+    recording: Mutex<u32>,
+    guidance: Mutex<Vec<Option<String>>>,
+}
+
+impl CoreListener for Counting {
+    fn on_error(&self, _message: String) {}
+    fn on_region_progress(&self, _region: String, _done: u64, _total: u64) {}
+    fn on_recording(&self, _status: RecordingInfo) {
+        *self.recording.lock().unwrap() += 1;
+    }
+    fn on_guidance(&self, status: Option<GuidanceInfo>) {
+        self.guidance.lock().unwrap().push(status.map(|s| s.phase));
+    }
+}
+
+#[test]
+fn listener_gets_recording_and_guidance() {
+    let (data, package) = setup("listener");
+    let listener = Arc::new(Counting::default());
+    let core = CoreApp::open(data.display().to_string(), listener.clone()).unwrap();
+    core.install_local_region(package.display().to_string())
+        .unwrap();
+    let waypoints = [fix(0), fix(10)].map(|f| outdoor_core::LatLon {
+        lat: f.lat,
+        lon: f.lon,
+    });
+    let request = waypoints.iter().fold(plan_empty(), |request, at| {
+        plan_add_waypoint(
+            request,
+            *at,
+            LegInput {
+                profile: "manual".into(),
+                options: Vec::new(),
+            },
+        )
+    });
+    core.plan_route(request).unwrap();
+
+    core.start_recording("hike".into()).unwrap();
+    for i in 0..5 {
+        core.handle_fix(fix(i));
+    }
+    assert!(*listener.recording.lock().unwrap() > 0);
+    // A recording does not start the guidance; it is started on its own.
+    assert!(core.guidance_status().is_none());
+    core.start_guidance().unwrap();
+    assert!(core.guidance_status().is_some());
+    assert!(
+        listener
+            .guidance
+            .lock()
+            .unwrap()
+            .iter()
+            .any(Option::is_some)
+    );
+
+    core.stop_guidance();
+    assert_eq!(core.guidance_status(), None);
+    assert_eq!(listener.guidance.lock().unwrap().last(), Some(&None));
 }

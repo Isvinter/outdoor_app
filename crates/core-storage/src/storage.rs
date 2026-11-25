@@ -230,6 +230,22 @@ impl Storage {
         )
     }
 
+    /// Sets the activity of a track and the statistics computed for it.
+    pub fn set_track_activity(
+        &mut self,
+        track: Uuid,
+        activity: Activity,
+        stats: &TrackStats,
+        now_ms: i64,
+    ) -> Result<(), StorageError> {
+        self.update_track(
+            track,
+            "UPDATE tracks SET activity = ?2, stats_json = ?3, updated_at = ?4, rev = rev + 1
+             WHERE id = ?1 AND deleted_at IS NULL",
+            params![track, activity.as_str(), stats_to_json(stats)?, now_ms],
+        )
+    }
+
     pub fn rename_track(
         &mut self,
         track: Uuid,
@@ -274,7 +290,7 @@ impl Storage {
     /// All tracks that are not deleted, newest first.
     pub fn list_tracks(&self) -> Result<Vec<TrackRecord>, StorageError> {
         let sql = format!(
-            "SELECT {TRACK_COLUMNS} FROM tracks t WHERE t.deleted_at IS NULL
+            "SELECT {TRACK_COLUMNS} FROM tracks t WHERE t.deleted_at IS NULL AND t.state = 'finished'
              ORDER BY t.created_at DESC, t.id DESC"
         );
         let mut stmt = self.conn.prepare(&sql)?;
