@@ -144,6 +144,10 @@ impl Announcer {
     /// An announcer for `turns`, sorted by where they lie.
     #[must_use]
     pub fn new(turns: &[LineTurn]) -> Announcer {
+        debug_assert!(
+            turns.windows(2).all(|w| w[0].at_m <= w[1].at_m),
+            "turns are sorted by where they lie"
+        );
         Announcer {
             turns: turns.to_vec(),
             reached: vec![None; turns.len()],
@@ -170,11 +174,7 @@ impl Announcer {
         profile: Profile,
     ) -> Option<TurnHint> {
         let speed = self.speed_mps(along_m, speed_mps, time_ms);
-        while self
-            .turns
-            .get(self.next)
-            .is_some_and(|turn| along_m >= turn.at_m + PASSED_M)
-        {
+        while self.is_passed(self.next, along_m) {
             self.next += 1;
         }
         if self.told.as_ref().is_some_and(|t| t.turn != self.next) {
@@ -201,9 +201,19 @@ impl Announcer {
                 .turns
                 .get(index + 1)
                 .filter(|after| after.at_m - turn.at_m <= now_m);
-            if then.is_some() {
-                let after = &mut self.reached[index + 1];
-                *after = (*after).max(Some(HintStage::Ahead));
+            if let Some(after) = then {
+                // Within the distance for "passed", its "now" is this one;
+                // a stage end is still told on its own.
+                let with = if stage == HintStage::Now
+                    && after.at_m - turn.at_m < PASSED_M
+                    && after.kind != TurnKind::StageEnd
+                {
+                    HintStage::Now
+                } else {
+                    HintStage::Ahead
+                };
+                let reached = &mut self.reached[index + 1];
+                *reached = (*reached).max(Some(with));
             }
             let then = then.map(|after| (after.kind, after.exit));
             self.seq += 1;
@@ -214,17 +224,17 @@ impl Announcer {
                 spoken: spoken(stage, distance_m, (turn.kind, turn.exit), then),
             });
         }
-        let told = match &self.told {
-            Some(told) => told.clone(),
-            // Announced together with the turn before: shown, but not told
-            // again.
-            None => Told {
+        // Announced ahead together with the turn before: shown until its
+        // own "now", but not told again.
+        if self.told.is_none() && self.reached[index] == Some(HintStage::Ahead) {
+            self.told = Some(Told {
                 turn: index,
-                stage: self.reached[index]?,
+                stage: HintStage::Ahead,
                 then: None,
                 spoken: spoken(HintStage::Ahead, distance_m, (turn.kind, turn.exit), None),
-            },
-        };
+            });
+        }
+        let told = self.told.clone()?;
         let distance_m = distance_m.max(0.0);
         Some(TurnHint {
             kind: turn.kind,
@@ -238,12 +248,36 @@ impl Announcer {
         })
     }
 
+    /// Whether the user has passed turn `index` at `along_m`: 10 m behind
+    /// it, or at it once its "now" is told and a stage end follows right
+    /// behind, so that the stage end is told in time.
+    fn is_passed(&self, index: usize, along_m: f64) -> bool {
+        let Some(turn) = self.turns.get(index) else {
+            return false;
+        };
+        let stage_end_follows = self.turns.get(index + 1).is_some_and(|after| {
+            after.kind == TurnKind::StageEnd && after.at_m - turn.at_m < PASSED_M
+        });
+        along_m >= turn.at_m + PASSED_M
+            || (stage_end_follows
+                && self.reached[index] == Some(HintStage::Now)
+                && along_m >= turn.at_m)
+    }
+
     /// The mean speed over the fixes of the last [`SPEED_WINDOW_MS`], with
     /// the fix at `time_ms`; `None` without any.
     fn speed_mps(&mut self, along_m: f64, speed_mps: Option<f32>, time_ms: i64) -> Option<f64> {
         let measured = speed_mps
             .map(f64::from)
             .filter(|s| s.is_finite() && *s >= 0.0);
+        while self
+            .samples
+            .front()
+            .is_some_and(|s| s.time_ms < time_ms - SPEED_WINDOW_MS)
+        {
+            self.samples.pop_front();
+        }
+        // Only from a fix inside the window, not across a gap.
         let derived = self.samples.back().and_then(|last| {
             let dt_s = (time_ms - last.time_ms) as f64 / 1000.0;
             (dt_s > 0.0).then(|| ((along_m - last.along_m) / dt_s).max(0.0))
@@ -253,13 +287,6 @@ impl Announcer {
             along_m,
             speed_mps: measured.or(derived),
         });
-        while self
-            .samples
-            .front()
-            .is_some_and(|s| s.time_ms < time_ms - SPEED_WINDOW_MS)
-        {
-            self.samples.pop_front();
-        }
         let speeds: Vec<f64> = self.samples.iter().filter_map(|s| s.speed_mps).collect();
         (!speeds.is_empty()).then(|| speeds.iter().sum::<f64>() / speeds.len() as f64)
     }
@@ -513,6 +540,56 @@ mod tests {
         assert!(events[2].along_m > 310.0, "{events:?}");
         let shown = hint_at(&hints, 310.0).unwrap();
         assert_eq!((shown.kind, shown.stage), (Left, HintStage::Ahead));
+    }
+
+    #[test]
+    fn turn_within_passed_distance_is_told_with_the_one_before() {
+        let mut announcer = Announcer::new(&[turn(300.0, Right), turn(305.0, Left)]);
+        let (events, hints) = feed(
+            &mut announcer,
+            Profile::Trekking,
+            ride(0.0, 330.0, 3.0, 0.0),
+        );
+        assert_eq!(
+            events,
+            [
+                event(
+                    200.0,
+                    HintStage::Ahead,
+                    "In 100 m rechts, dann gleich links"
+                ),
+                event(270.0, HintStage::Now, "Jetzt rechts, dann gleich links"),
+            ]
+        );
+        assert_eq!(announcer.seq(), 2);
+        assert_eq!(hint_at(&hints, 312.0), None);
+    }
+
+    #[test]
+    fn stage_end_at_a_turn_is_told_after_it() {
+        let mut announcer = Announcer::new(&[turn(300.0, Right), turn(300.0, StageEnd)]);
+        let (events, _) = feed(&mut announcer, Profile::Hike, ride(0.0, 330.0, 1.2, 0.0));
+        assert_eq!(
+            events,
+            [
+                event(250.0, HintStage::Ahead, "In 50 m rechts"),
+                event(288.0, HintStage::Now, "Jetzt rechts"),
+                event(300.0, HintStage::Now, "Etappenziel erreicht"),
+            ]
+        );
+    }
+
+    #[test]
+    fn speed_after_a_gap_is_not_derived_across_it() {
+        // Without GPS speed, after a gap of 60 s the profile default applies.
+        for (along_m, told) in [(188.0, true), (187.0, false)] {
+            let mut announcer = Announcer::new(&[turn(300.0, Right)]);
+            announcer.update(0.0, None, 0, Profile::RoadBike);
+            // 60 s later, far ahead: derived across the gap it would be
+            // about 3 m/s, so the announcement would wait for 100 m.
+            let hint = announcer.update(along_m, None, 60_000, Profile::RoadBike);
+            assert_eq!(hint.is_some(), told, "{along_m}");
+        }
     }
 
     #[test]

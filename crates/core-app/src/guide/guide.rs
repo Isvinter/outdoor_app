@@ -1139,7 +1139,7 @@ mod tests {
         assert!(status.has_turns);
 
         // Back on the route before the turn: its hint goes on.
-        let status = walk(&mut guide, &router, [(320.0, 0.0, 30.0)]);
+        let status = walk(&mut guide, &router, [(322.0, 0.0, 30.0)]);
         assert_eq!(status.phase, GuidePhase::OnRoute);
         let turn = status.turn.as_ref().unwrap();
         assert_eq!(turn.stage, HintStage::Now, "{status:?}");
