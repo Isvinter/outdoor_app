@@ -9,6 +9,7 @@ pub mod airspace_warning;
 pub mod atmosphere;
 pub mod flightlog;
 pub mod geo;
+pub mod glide;
 pub mod igc;
 pub mod openaip;
 pub mod sensor;

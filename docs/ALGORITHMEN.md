@@ -228,3 +228,26 @@ echten Tracks nachgestellt werden.
   ganze Länge des Wegs zurück im Moment der Abweichung; die Leiste zeigt sie unverändert, bis die
   Abweichung endet. Den gefahrenen Teil der Route misst Trail wie der Kern (Haversine,
   `EARTH_RADIUS_M`).
+
+## 8. Gleitzahl, Landepunkt, Wind (`flight-core`)
+
+### Gleitzahl
+
+Modul `glide`. Die Gleitzahl über Grund ist Strecke geteilt durch verlorene Höhe im
+Gleitflug, gemessen über ein gleitendes Fenster (Einstellung 10, 20, 30 oder 60 s, Standard 20 s).
+
+- **Puffer:** Es bleiben immer die letzten 62 s an Messpunkten, egal welches Fenster gilt;
+  ein neues Fenster wirkt so sofort. Eine Lücke über 3 s zwischen zwei Punkten leert den Puffer.
+- **Auswertung:** Über die Punkte im Fenster (vom neuesten aus zurück). Das Fenster muss
+  mindestens `Fenster - 1 s` abdecken, sonst gibt es nichts.
+- **Geradeaus:** Verschiebung `d` (Großkreis erster bis letzter Punkt) geteilt durch den
+  gesamten Weg `p` (Summe der Teilstrecken) muss mindestens 0,8 sein. Kreisen liefert viel
+  weniger. Es zählen Positionen, nicht der GPS-Kurs; dessen Rauschen stört nicht.
+- **Tore:** Mittlere Grundgeschwindigkeit `d / Spanne` mindestens 1,4 m/s (ca. 5 km/h).
+  Mittlere Sinkrate (`Höhenverlust / Spanne`) mindestens 0,1 m/s; sonst (Steigen, Nullschieber)
+  gibt es nichts.
+- **Ergebnis:** `Gleitzahl = d / Höhenverlust`, gedeckelt bei 40. Der Kurs ist die Peilung vom
+  ersten zum letzten Punkt über Grund; er zeigt also nach hinten, wenn der Wind rückwärts
+  versetzt.
+- Lieber nichts anzeigen als etwas Falsches: Kreisen, Steigen, zu langsam oder ein noch nicht
+  volles Fenster (auch nach einer GPS-Lücke) ergeben `None`.
