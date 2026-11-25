@@ -19,6 +19,9 @@ const FlightMap = (() => {
   const TRACK_SOURCE = "track";
   const SAVED_SOURCE = "saved-flight";
   const AIRSPACE_SOURCE = "airspace";
+  const LANDING_SOURCE = "landing";
+  // How far inside the map edge a landing point must lie to count as visible, in px.
+  const EDGE_INSET = 20;
 
   // Airspace colours by category (set in Rust, see airspace.rs), after the usual chart
   // conventions: red for restricted and control zones, blue for controlled airspace,
@@ -116,6 +119,8 @@ const FlightMap = (() => {
   let onMessage = () => {};
   let onTap = () => {};
   let tapMarker = null;
+  let landing = null; // { latitudeDeg, longitudeDeg, distanceM } or null
+  let formatDistance = (metres) => Math.round(metres) + " m";
 
   /** Map symbols by name, drawn on a canvas; `null` for unknown names. */
   function drawSymbol(name) {
@@ -204,6 +209,19 @@ const FlightMap = (() => {
         c.arc(16, 24, color === "#fff" ? 4.5 : 3, 0, 2 * Math.PI);
         c.fill();
       }
+    } else if (name === "cross") {
+      // Landing point: black X with a white edge.
+      c.lineCap = "round";
+      for (const color of ["#fff", "#000"]) {
+        c.strokeStyle = color;
+        c.lineWidth = color === "#fff" ? 8 : 4;
+        c.beginPath();
+        c.moveTo(7, 7);
+        c.lineTo(25, 25);
+        c.moveTo(25, 7);
+        c.lineTo(7, 25);
+        c.stroke();
+      }
     } else {
       return null;
     }
@@ -227,7 +245,100 @@ const FlightMap = (() => {
     // Airspaces first: the track goes on top of them.
     addAirspaceLayers();
     addTrackLayers();
+    // Above the track; the own position is an HTML marker and stays on top of all.
+    addLandingLayer();
     applyRelief();
+  }
+
+  function landingData() {
+    return {
+      type: "FeatureCollection",
+      features: landing
+        ? [{
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Point", coordinates: [landing.longitudeDeg, landing.latitudeDeg] },
+        }]
+        : [],
+    };
+  }
+
+  function addLandingLayer() {
+    if (map.getSource(LANDING_SOURCE)) return;
+    if (!map.hasImage("cross")) map.addImage("cross", drawSymbol("cross"), { pixelRatio: 2 });
+    map.addSource(LANDING_SOURCE, { type: "geojson", data: landingData() });
+    map.addLayer({
+      id: LANDING_SOURCE,
+      type: "symbol",
+      source: LANDING_SOURCE,
+      layout: {
+        "icon-image": "cross",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    });
+  }
+
+  /** Initial bearing from one place to another, in degrees from north. */
+  function bearing(fromLat, fromLon, toLat, toLon) {
+    const rad = Math.PI / 180;
+    const dLon = (toLon - fromLon) * rad;
+    const y = Math.sin(dLon) * Math.cos(toLat * rad);
+    const x = Math.cos(fromLat * rad) * Math.sin(toLat * rad) -
+      Math.sin(fromLat * rad) * Math.cos(toLat * rad) * Math.cos(dLon);
+    return Math.atan2(y, x) / rad;
+  }
+
+  /**
+   * Shows the hint at the map edge while the landing point lies outside the visible map:
+   * where the line from the map centre to the point crosses the edge (inset by
+   * EDGE_INSET), kept clear of the boxes at the top.
+   */
+  function updateLandingHint() {
+    const hint = document.getElementById("landing-hint");
+    if (!hint) return;
+    const container = map && map.getContainer();
+    if (!landing || !container || container.clientWidth === 0) {
+      hint.hidden = true;
+      return;
+    }
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const point = map.project([landing.longitudeDeg, landing.latitudeDeg]);
+    const inside = point.x >= EDGE_INSET && point.x <= width - EDGE_INSET &&
+      point.y >= EDGE_INSET && point.y <= height - EDGE_INSET;
+    if (inside) {
+      hint.hidden = true;
+      return;
+    }
+    document.getElementById("landing-hint-distance").textContent = formatDistance(landing.distanceM);
+    const toward = position
+      ? bearing(position.latitude, position.longitude, landing.latitudeDeg, landing.longitudeDeg)
+      : 0;
+    document.getElementById("landing-hint-arrow").style.transform =
+      `rotate(${(toward - map.getBearing()).toFixed(1)}deg)`;
+    hint.hidden = false;
+    // Scale the vector from the centre down until it touches the inset rectangle.
+    const cx = width / 2;
+    const cy = height / 2;
+    const dx = point.x - cx;
+    const dy = point.y - cy;
+    const scale = Math.min(
+      dx === 0 ? Infinity : (cx - EDGE_INSET) / Math.abs(dx),
+      dy === 0 ? Infinity : (cy - EDGE_INSET) / Math.abs(dy),
+    );
+    const edgeX = cx + dx * scale;
+    const edgeY = cy + dy * scale;
+    // Below the wind box (or "Folgen" if it is hidden), so that nothing at the top is covered.
+    const above = [document.getElementById("wind-box"), document.getElementById("follow")]
+      .find((element) => element && !element.hidden);
+    const minTop = above ? above.offsetTop + above.offsetHeight + 8 : EDGE_INSET;
+    // Above the scale and the attribution at the bottom.
+    const maxTop = height - hint.offsetHeight - 36;
+    const left = Math.min(Math.max(edgeX - hint.offsetWidth / 2, 10), width - hint.offsetWidth - 10);
+    const top = Math.min(Math.max(edgeY - hint.offsetHeight / 2, minTop), Math.max(maxTop, minTop));
+    hint.style.left = left.toFixed(0) + "px";
+    hint.style.top = top.toFixed(0) + "px";
   }
 
   /** Shows or hides the relief of a dark offline style; the light one keeps its own. */
@@ -436,6 +547,7 @@ const FlightMap = (() => {
     map.once("load", fitSavedFlight);
     // Moving the map by hand stops following; the "Folgen" button turns it back on.
     map.on("dragstart", () => setFollow(false));
+    map.on("move", updateLandingHint);
     // A tap (not a drag) asks for the airspaces at that place.
     map.on("click", (event) => onTap(event.lngLat.lat, event.lngLat.lng));
     map.on("error", (event) => {
@@ -465,6 +577,7 @@ const FlightMap = (() => {
       onFollowChange = options.onFollowChange;
       onMessage = options.onMessage;
       onTap = options.onTap ?? (() => {});
+      formatDistance = options.formatDistance ?? formatDistance;
     },
 
     /** Marks the tapped place (or removes the mark with null). */
@@ -530,6 +643,7 @@ const FlightMap = (() => {
         map.resize();
         if (savedCoordinates.length > 0 && !follow) fitSavedFlight();
         else if (follow && position) map.jumpTo({ center: [position.longitude, position.latitude] });
+        updateLandingHint();
       }
     },
 
@@ -593,6 +707,19 @@ const FlightMap = (() => {
       map.setPaintProperty("airspace-warning", "line-color", warningColor());
     },
 
+    /** The landing point ({ latitudeDeg, longitudeDeg, distanceM }) or null. */
+    setLanding(next) {
+      const same = (landing === null && next === null) || (landing && next &&
+        landing.latitudeDeg === next.latitudeDeg && landing.longitudeDeg === next.longitudeDeg &&
+        landing.distanceM === next.distanceM);
+      if (same) return;
+      landing = next ? { ...next } : null;
+      const source = map && map.getSource(LANDING_SOURCE);
+      if (source) source.setData(landingData());
+      updateLandingHint();
+    },
+
+    landingCount: () => (landing ? 1 : 0),
     trackLength: () => coordinates.length,
     warnedCount: () => warned.length,
     airspaceCount: () => airspaceData.features.length,

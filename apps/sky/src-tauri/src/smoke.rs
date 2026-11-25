@@ -15,6 +15,9 @@ use tauri::{AppHandle, Listener, Manager};
 const ENV_VAR: &str = "VARIO_SMOKE_TEST";
 /// Long enough for one 10-second summary line to appear.
 const RUN_TIME: Duration = Duration::from_secs(14);
+/// Seconds of simulated flight instead of `RUN_TIME`, e.g. 90 to see the glide ratio
+/// (after the first glide window) and the wind (after the first full circle).
+const RUN_TIME_ENV_VAR: &str = "VARIO_SMOKE_RUN_S";
 /// Address of a desktop share (e.g. ZeroGrid Base's `share-serve`): if set, the
 /// smoke test also connects to it and downloads the first region it offers. That
 /// writes into the app's real `maps` folder, so run it with `HOME` set to an empty
@@ -24,6 +27,14 @@ const SHARE_ENV_VAR: &str = "VARIO_SMOKE_SHARE";
 const DARK_ENV_VAR: &str = "VARIO_SMOKE_DARK";
 /// How long the region download may take.
 const DOWNLOAD_TIME: Duration = Duration::from_secs(120);
+
+/// How long the simulated flight runs before the pages are visited.
+fn run_time() -> Duration {
+    std::env::var(RUN_TIME_ENV_VAR)
+        .ok()
+        .and_then(|seconds| seconds.parse::<u64>().ok())
+        .map_or(RUN_TIME, Duration::from_secs)
+}
 
 pub fn enabled() -> bool {
     std::env::var_os(ENV_VAR).is_some()
@@ -51,10 +62,10 @@ pub fn maybe_run(app: &AppHandle) {
                  if (b && b.textContent === 'Start') b.click(); }",
             );
         }
-        std::thread::sleep(RUN_TIME / 2);
+        std::thread::sleep(run_time() / 2);
         // Visit the map so that errors in creating it are caught as well.
         let _ = window.eval("document.querySelector('[data-page=map]').click()");
-        std::thread::sleep(RUN_TIME / 2);
+        std::thread::sleep(run_time() / 2);
         // The flight list, then the first flight on the map.
         let _ = window.eval("document.querySelector('[data-page=flights]').click()");
         std::thread::sleep(Duration::from_secs(1));
@@ -103,6 +114,10 @@ pub fn maybe_run(app: &AppHandle) {
              '\\nairspace warning: ' + (document.getElementById('warning').hidden ? 'none' : \
              document.getElementById('warning-text').innerText.replace(/\\n/g, ' | ')) + \
              '\\nwarned on map: ' + FlightMap.warnedCount() + \
+             '\\nglide/wind/landing: ' + document.getElementById('map-glide-value').innerText + '|' + \
+             (document.getElementById('wind-box').hidden ? '' : \
+              document.getElementById('wind-box').innerText.replace(/\\s+/g, ' ').trim()) + '|' + \
+             FlightMap.landingCount() + \
              '\\npermission warnings: ' + \
              document.querySelectorAll('#permission-problems li').length + \
              '\\nscript errors: ' + JSON.stringify(window.scriptErrors) })",
