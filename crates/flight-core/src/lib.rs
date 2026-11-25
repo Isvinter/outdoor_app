@@ -11,6 +11,7 @@ pub mod flightlog;
 pub mod geo;
 pub mod glide;
 pub mod igc;
+pub mod landing;
 pub mod openaip;
 pub mod sensor;
 pub mod settings;

@@ -251,3 +251,17 @@ Gleitflug, gemessen über ein gleitendes Fenster (Einstellung 10, 20, 30 oder 60
   versetzt.
 - Lieber nichts anzeigen als etwas Falsches: Kreisen, Steigen, zu langsam oder ein noch nicht
   volles Fenster (auch nach einer GPS-Lücke) ergeben `None`.
+
+### Landepunkt
+
+Modul `landing`. Wo die aktuelle Gleitlinie das Gelände trifft, entlang des Kurses über Grund.
+
+- **Schritte:** Alle 50 m (`LANDING_STEP_M`) entlang des Kurses (`geo::destination`), höchstens
+  50 km weit (`LANDING_MAX_RANGE_M`). Die Höhe der Gleitlinie ist `Höhe - Strecke / Gleitzahl`;
+  Höhe und Gelände sind beide über Meer (GPS-Höhe).
+- **Treffer:** Der erste Schritt, an dem die Linie höchstens so hoch wie das Gelände liegt. Die
+  genaue Strecke ergibt sich linear zwischen diesem und dem vorigen Schritt (Differenz Linie minus
+  Gelände), die Position wird dafür neu berechnet.
+- **Nichts statt Falsches:** Liegt der Start schon unter dem Gelände, ist das Gelände am Start oder
+  irgendwo auf dem Weg unbekannt (außerhalb der Regionen), oder gibt es keinen Treffer innerhalb
+  der Reichweite, so gibt es `None`.
