@@ -16,7 +16,7 @@ mod sim;
 mod smoke;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use flight_core::airspace_warning::WarningSettings;
 use flight_core::settings::VarioSettings;
@@ -138,7 +138,7 @@ async fn start(app: AppHandle, state: State<'_, AppState>) -> Result<StartInfo, 
     engine.set_warning_settings(state.warning().clone());
     engine.set_airspaces(airspace::loaded(&app));
     if let Some(store) = maps::store(&app) {
-        engine.set_terrain(Box::new(maps::RegionTerrain(store)));
+        engine.set_terrain(Arc::new(maps::RegionTerrain(store)));
     }
 
     session_marker::create(&app);
@@ -224,7 +224,7 @@ async fn offline_maps(app: AppHandle) -> Result<maps::OfflineMaps, String> {
     // Regions may have changed: the engine gets the new ground elevations.
     if let Some(store) = maps::store(&app) {
         app.state::<AppState>()
-            .with_engine(|engine| engine.set_terrain(Box::new(maps::RegionTerrain(store))));
+            .with_engine(|engine| engine.set_terrain(Arc::new(maps::RegionTerrain(store))));
     }
     Ok(maps)
 }

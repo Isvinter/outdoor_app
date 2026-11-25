@@ -28,7 +28,8 @@ use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
 
 pub use crate::processor::{
-    AirspaceWarning, FixInfo, Processor, RecordingInfo, SensorStats, Status, TrackPoint,
+    AirspaceWarning, FixInfo, LandingInfo, Processor, RecordingInfo, SensorStats, Status,
+    TrackPoint, WindInfo,
 };
 
 /// How often a summary line is written and the sensor rates are refreshed.
@@ -51,7 +52,7 @@ struct Shared {
     track: Mutex<Vec<TrackPoint>>,
     /// Airspace data and settings not applied yet, like `pending_settings`.
     pending_airspaces: Mutex<Option<Arc<Vec<Airspace>>>>,
-    pending_terrain: Mutex<Option<Box<dyn Terrain>>>,
+    pending_terrain: Mutex<Option<Arc<dyn Terrain>>>,
     pending_warning_settings: Mutex<Option<WarningSettings>>,
     /// Warnings the user silenced, by airspace index.
     pending_acknowledged: Mutex<Vec<usize>>,
@@ -135,7 +136,7 @@ impl Engine {
 
     /// Sets where the ground elevation for AGL limits comes from. `Terrain` requires
     /// `Send`, so the value may move to the engine thread.
-    pub fn set_terrain(&self, terrain: Box<dyn Terrain>) {
+    pub fn set_terrain(&self, terrain: Arc<dyn Terrain>) {
         *lock(&self.shared.pending_terrain) = Some(terrain);
     }
 

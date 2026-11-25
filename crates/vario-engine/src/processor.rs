@@ -10,13 +10,16 @@ use std::time::Instant;
 use flight_core::airspace::Airspace;
 use flight_core::airspace_warning::{Altitudes, Fix, Level, Warner, Warning, WarningSettings};
 use flight_core::flightlog;
+use flight_core::glide::{GlideEstimator, GlideSample};
 use flight_core::igc::FlightMeta;
+use flight_core::landing::{LandingPoint, LandingQuery};
 use flight_core::sensor::{GpsFix, SensorEvent};
 use flight_core::settings::VarioSettings;
 use flight_core::terrain::{NoTerrain, Terrain};
 use flight_core::time::Timestamp;
 use flight_core::track::TrackRecorder;
 use flight_core::vario::VarioFilter;
+use flight_core::wind::{WindEstimator, WindSample};
 use serde::Serialize;
 use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
@@ -29,6 +32,9 @@ pub const WARNING_GPS_TIMEOUT_S: f64 = 30.0;
 /// Shortest time between two track points. Slightly below one second so that a GPS
 /// delivering at 1 Hz with a little jitter does not lose every other point.
 const TRACK_INTERVAL_S: f64 = 0.9;
+/// The glide ratio is only shown this far above the ground (when the ground is known):
+/// close to the ground the measurement is dominated by turbulence and slope effects.
+const MIN_HEIGHT_ABOVE_GROUND_M: f64 = 30.0;
 
 /// State of the flight recording.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -49,6 +55,36 @@ pub struct TrackPoint {
     pub latitude_deg: f64,
     pub longitude_deg: f64,
     pub altitude_m: f64,
+}
+
+/// The wind estimated from circling, for the user interface.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindInfo {
+    /// Direction the wind blows from, degrees true.
+    pub from_deg: f64,
+    pub speed_mps: f64,
+    /// Confidence, 1 to 3.
+    pub stars: u8,
+}
+
+/// Where the current glide meets the terrain, for the user interface.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LandingInfo {
+    pub latitude_deg: f64,
+    pub longitude_deg: f64,
+    pub distance_m: f64,
+}
+
+impl From<LandingPoint> for LandingInfo {
+    fn from(point: LandingPoint) -> Self {
+        LandingInfo {
+            latitude_deg: point.latitude_deg,
+            longitude_deg: point.longitude_deg,
+            distance_m: point.distance_m,
+        }
+    }
 }
 
 /// A snapshot of the engine state for the user interface.
@@ -79,6 +115,13 @@ pub struct Status {
     pub log_file: Option<String>,
     /// Airspaces that warn right now, alarms first, then nearest first.
     pub airspace_warnings: Vec<AirspaceWarning>,
+    /// Glide ratio over ground (distance per height lost); `None` unless flying
+    /// straight, sinking, and high enough above the ground.
+    pub glide_ratio: Option<f64>,
+    /// Wind from the last circling; `None` until there is a usable estimate.
+    pub wind: Option<WindInfo>,
+    /// Filled by the engine loop (it needs the terrain search), never by the processor.
+    pub landing: Option<LandingInfo>,
 }
 
 /// One airspace warning, for the user interface.
@@ -294,9 +337,20 @@ pub struct Processor {
     logs: Option<Logs>,
     recording: Option<Recording>,
     warner: Warner,
-    /// Ground elevation for airspace limits above ground. `Box<dyn Terrain>` holds any
-    /// type that implements the trait; which one is decided at run time.
-    terrain: Box<dyn Terrain>,
+    /// Ground elevation for airspace limits and the glide. `Arc<dyn Terrain>` is a shared
+    /// pointer to any type that implements the trait (decided at run time); `Arc` lets
+    /// the engine loop's worker hold the same terrain.
+    terrain: Arc<dyn Terrain>,
+    glide: GlideEstimator,
+    wind: WindEstimator,
+    /// Whether the last fix was high enough above the ground to show the glide ratio.
+    height_ok: bool,
+    /// Set while the GPS is lost; hides the glide ratio.
+    gps_lost: bool,
+    /// Time of the last fix, the "now" for the wind estimate.
+    last_fix_time_s: Option<f64>,
+    /// Landing query for the last fix, handed out once by `take_landing_query`.
+    landing_query: Option<LandingQuery>,
     warnings: Vec<Warning>,
     /// Warning sound that overrides the real warnings, for testing the sound.
     test_alert: Option<Alert>,
@@ -321,7 +375,13 @@ impl Processor {
             logs: None,
             recording: None,
             warner: Warner::new(Arc::new(Vec::new()), WarningSettings::default()),
-            terrain: Box::new(NoTerrain),
+            terrain: Arc::new(NoTerrain),
+            glide: GlideEstimator::new(settings.glide_window_s),
+            wind: WindEstimator::new(),
+            height_ok: false,
+            gps_lost: false,
+            last_fix_time_s: None,
+            landing_query: None,
             warnings: Vec::new(),
             test_alert: None,
         }
@@ -339,6 +399,7 @@ impl Processor {
     /// `gps_age_s` is the age of the last fix, `None` if there was none.
     pub fn expire_warnings(&mut self, gps_age_s: Option<f64>) {
         let stale = gps_age_s.is_none_or(|age| age > WARNING_GPS_TIMEOUT_S);
+        self.gps_lost = stale;
         if stale && !self.warnings.is_empty() {
             self.warnings.clear();
             self.update_alert();
@@ -364,7 +425,7 @@ impl Processor {
     }
 
     /// Sets where the ground elevation comes from.
-    pub fn set_terrain(&mut self, terrain: Box<dyn Terrain>) {
+    pub fn set_terrain(&mut self, terrain: Arc<dyn Terrain>) {
         self.terrain = terrain;
     }
 
@@ -488,6 +549,7 @@ impl Processor {
     pub fn set_settings(&mut self, settings: &VarioSettings) {
         self.control.set_settings(settings);
         self.filter.set_damping(settings.damping_s);
+        self.glide.set_window(settings.glide_window_s);
         self.update_tone();
     }
 
@@ -509,7 +571,10 @@ impl Processor {
         }
         self.filter.handle(event);
         match event {
-            SensorEvent::Gps(fix) => self.check_airspaces(fix),
+            SensorEvent::Gps(fix) => {
+                self.check_airspaces(fix);
+                self.update_glide_and_wind(fix);
+            }
             // The other sensors keep running when the GPS fails: their time tells how
             // old the last fix is.
             _ => {
@@ -529,6 +594,61 @@ impl Processor {
             None => Ok(()),
         };
         self.note_log_result(written);
+    }
+
+    /// Feeds the glide and wind estimators with a fix and prepares the landing query.
+    fn update_glide_and_wind(&mut self, fix: &GpsFix) {
+        self.gps_lost = false;
+        let time_s = fix.time.as_secs();
+        self.last_fix_time_s = Some(time_s);
+        if let (Some(ground_speed_mps), Some(course_deg)) = (fix.ground_speed_mps, fix.course_deg) {
+            self.wind.push(WindSample {
+                time_s,
+                ground_speed_mps,
+                course_deg,
+            });
+        }
+        // The vario's pressure altitude: its differences are accurate, which is all the
+        // glide needs.
+        if let Some(reading) = self.filter.reading() {
+            self.glide.push(GlideSample {
+                time_s,
+                latitude_deg: fix.latitude_deg,
+                longitude_deg: fix.longitude_deg,
+                altitude_m: reading.altitude_m,
+            });
+        }
+        // Known ground needs a 3D fix and enough height; unknown ground only the speed gate.
+        self.height_ok = match self
+            .terrain
+            .elevation_m(fix.latitude_deg, fix.longitude_deg)
+        {
+            Some(ground_m) => fix.fix_3d && fix.altitude_m - ground_m >= MIN_HEIGHT_ABOVE_GROUND_M,
+            None => true,
+        };
+        self.landing_query = match (self.shown_glide(), fix.fix_3d) {
+            (Some(glide), true) => Some(LandingQuery {
+                latitude_deg: fix.latitude_deg,
+                longitude_deg: fix.longitude_deg,
+                altitude_m: fix.altitude_m,
+                course_deg: glide.course_deg,
+                glide_ratio: glide.ratio,
+            }),
+            _ => None,
+        };
+    }
+
+    /// The glide, unless a gate hides it (see the task rules: height, GPS).
+    fn shown_glide(&self) -> Option<flight_core::glide::Glide> {
+        if self.gps_lost || !self.height_ok {
+            return None;
+        }
+        self.glide.glide()
+    }
+
+    /// Hands out the landing query of the last fix, once. `Option::take` leaves `None`.
+    pub fn take_landing_query(&mut self) -> Option<LandingQuery> {
+        self.landing_query.take()
     }
 
     fn add_track_point(&mut self, fix: &GpsFix) {
@@ -640,6 +760,16 @@ impl Processor {
                     Some(AirspaceWarning::new(warning, airspace))
                 })
                 .collect(),
+            glide_ratio: self.shown_glide().map(|glide| glide.ratio),
+            wind: self
+                .last_fix_time_s
+                .and_then(|now_s| self.wind.estimate(now_s))
+                .map(|estimate| WindInfo {
+                    from_deg: estimate.from_deg,
+                    speed_mps: estimate.speed_mps,
+                    stars: estimate.stars,
+                }),
+            landing: None,
         }
     }
 
@@ -1016,7 +1146,7 @@ mod tests {
         for (ground_m, expected) in [(1300.0, Alert::Alarm), (900.0, Alert::None)] {
             let (mut processor, control) = processor();
             processor.set_airspaces(Arc::clone(&airspaces));
-            processor.set_terrain(Box::new(flight_core::terrain::FlatTerrain(ground_m)));
+            processor.set_terrain(Arc::new(flight_core::terrain::FlatTerrain(ground_m)));
             climb_simulation(10.0).run_fast(|event| processor.handle(&event));
             assert_eq!(control.alert(), expected, "ground {ground_m}");
         }
@@ -1055,5 +1185,134 @@ mod tests {
         assert_eq!(control.alert(), Alert::Alarm, "test sound stays");
         processor.set_test_alert(None);
         assert_eq!(control.alert(), Alert::Near, "back to the real warning");
+    }
+
+    fn glide_flight(
+        segments: Vec<sensor_sim::synthetic::Segment>,
+        wind: Option<(f64, f64)>,
+    ) -> Simulation<sensor_sim::sources::SimGps> {
+        let mut builder = SyntheticFlight::builder().start(47.665, 11.526, 1700.0);
+        if let Some((from, speed)) = wind {
+            builder = builder.wind(from, speed);
+        }
+        for segment in segments {
+            builder = builder.segment(segment);
+        }
+        let start = UtcDateTime::new(
+            Date::new(2026, 7, 28).unwrap(),
+            TimeOfDay::new(10, 0, 0).unwrap(),
+        );
+        Simulation::synthetic(builder.build(), start, &SimConfig::default())
+    }
+
+    #[test]
+    fn straight_glide_shows_the_glide_ratio() {
+        use sensor_sim::synthetic::Segment;
+        let (mut processor, _control) = processor();
+        glide_flight(vec![Segment::straight(30.0, -1.25)], None)
+            .run_fast(|event| processor.handle(&event));
+        let ratio = processor.status(30.0, true).glide_ratio.unwrap();
+        assert!((ratio - 8.0).abs() < 0.5, "ratio {ratio}");
+    }
+
+    #[test]
+    fn circling_hides_the_glide_ratio() {
+        use sensor_sim::synthetic::Segment;
+        let (mut processor, _control) = processor();
+        glide_flight(vec![Segment::circling(60.0, -1.0, 20.0)], None).run_fast(|event| {
+            processor.handle(&event);
+            if let SensorEvent::Gps(fix) = event
+                && fix.time.as_secs() > 25.0
+            {
+                assert_eq!(processor.status(0.0, true).glide_ratio, None);
+            }
+        });
+    }
+
+    #[test]
+    fn low_above_the_terrain_hides_the_glide_ratio() {
+        use flight_core::terrain::FlatTerrain;
+        use sensor_sim::synthetic::Segment;
+        for (ground_m, shown) in [(1690.0, false), (1000.0, true)] {
+            let (mut processor, _control) = processor();
+            processor.set_terrain(Arc::new(FlatTerrain(ground_m)));
+            glide_flight(vec![Segment::straight(30.0, -1.25)], None)
+                .run_fast(|event| processor.handle(&event));
+            assert_eq!(
+                processor.status(30.0, true).glide_ratio.is_some(),
+                shown,
+                "ground {ground_m}"
+            );
+        }
+    }
+
+    #[test]
+    fn landing_query_follows_a_shown_glide_ratio() {
+        use sensor_sim::synthetic::Segment;
+        let (mut processor, _control) = processor();
+        glide_flight(vec![Segment::straight(30.0, -1.25)], None)
+            .run_fast(|event| processor.handle(&event));
+        let query = processor.take_landing_query().unwrap();
+        assert!((query.glide_ratio - 8.0).abs() < 0.5);
+        assert_eq!(processor.take_landing_query(), None, "handed out once");
+
+        let (mut processor, _control) = self::processor();
+        glide_flight(vec![Segment::circling(40.0, -1.0, 20.0)], None)
+            .run_fast(|event| processor.handle(&event));
+        assert_eq!(processor.take_landing_query(), None);
+    }
+
+    #[test]
+    fn wind_appears_after_circling_in_wind() {
+        use sensor_sim::synthetic::Segment;
+        let (mut processor, _control) = processor();
+        glide_flight(
+            vec![
+                Segment::straight(30.0, -1.25),
+                Segment::circling(80.0, 1.0, 20.0),
+            ],
+            Some((270.0, 4.0)),
+        )
+        .run_fast(|event| processor.handle(&event));
+        let wind = processor.status(110.0, true).wind.unwrap();
+        assert!(
+            (wind.from_deg - 270.0).abs() < 10.0,
+            "from {}",
+            wind.from_deg
+        );
+        assert!(
+            (wind.speed_mps - 4.0).abs() < 0.7,
+            "speed {}",
+            wind.speed_mps
+        );
+        assert!(wind.stars >= 1);
+    }
+
+    #[test]
+    fn changed_glide_window_applies_at_once() {
+        use sensor_sim::synthetic::Segment;
+        let settings = VarioSettings {
+            damping_s: 0.0,
+            glide_window_s: 60.0,
+            ..VarioSettings::default()
+        };
+        let control = ToneControl::new(&settings);
+        let mut processor = Processor::new(control, &settings);
+        glide_flight(
+            vec![
+                Segment::straight(60.0, -1.25),
+                Segment::straight(20.0, -2.5),
+            ],
+            None,
+        )
+        .run_fast(|event| processor.handle(&event));
+        let before = processor.status(80.0, true).glide_ratio.unwrap();
+        assert!(before > 5.0 && before < 7.5, "60 s window: {before}");
+        processor.set_settings(&VarioSettings {
+            glide_window_s: 10.0,
+            ..settings
+        });
+        let after = processor.status(80.0, true).glide_ratio.unwrap();
+        assert!((after - 4.0).abs() < 0.5, "10 s window: {after}");
     }
 }
