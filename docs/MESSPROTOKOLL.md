@@ -297,6 +297,28 @@ iPhone 13 Pro Max, Release-Build, Flugmodus, Handtest durch den Nutzer nach der 
   („Hier starten“). Danach von Hand nachgeprüft.
 - Simulator mit dem Endstand: alle 64 Unit-Tests und 43 UI-Tests grün.
 
+## Aufzeichnung und Live-Routing in Trail (2026-11-24/25)
+
+Handtests des Nutzers auf dem iPhone 13 Pro Max (Release-Build), Plan
+`2026-11-24-aufzeichnung-live-routing.md` (Task 11) und Fortsetzung `2026-11-24-aufzeichnung-nach-test.md`.
+
+- **Erster Test (24.11.):** Wie die Aufnahme startet, war unklar: Die Wahl der Aktivität startete sie,
+  ohne dass das erkennbar war. Beim Live-Routing (Suche → Route hierher → Führen) sah der Nutzer keine
+  Umplanung. Daraufhin umgebaut: Aufnahme mit einem Knopf, Sportart beim Speichern, Name aus Datum
+  und Sportart, Abbruch und GPS-Lücke werden gesichert bzw. gemeldet, Aufnahme und Führung getrennt,
+  Tipp auf die Karte bietet „Route hierher“.
+- **Zweiter Test (24.11.):** Aufzeichnung in Ordnung. „Route hierher“ → „Mein Standort“ lief in eine
+  Schleife zurück zu „Route hierher“ (eigener GPS-Empfänger des Ablaufs, Warten auf die Position).
+  Daraufhin umgebaut: Suchtreffer und Kartentipp bieten dasselbe an, die Position kommt vom einen
+  GPS der App, danach Planungsmodus bis „Fertig“.
+- **Kurztest (24.11.):** Alle Bedienelemente wie gewünscht, Planen und Führen deutlich klarer.
+- **Test draußen (25.11.):** Suche → Treffer → Route hierher mit GPS → Führen → vom Kurs abweichen:
+  funktioniert, ebenso die Aufzeichnung. Wunsch: Beim Abkommen die Route ohne Rückfrage ersetzen
+  statt des Wegs zurück daneben; nur Gespeichertes bleibt. Umgebaut.
+- **Test draußen (25.11.), nach dem Umbau:** Umplanen beim Abkommen funktioniert wie gewünscht.
+- Simulator mit dem Endstand: alle Unit- und UI-Tests grün (`scripts/test.sh` mit `isarwinkel-achensee`).
+- Noch nicht gemessen: Akkuverbrauch bei Aufnahme und Führung.
+
 ## Rohdaten
 
 ```
