@@ -10,14 +10,15 @@ use flight_core::geo::offset_position;
 
 use crate::trajectory::{Trajectory, TruthState};
 
-/// One leg of a synthetic flight with constant target climb rate, ground speed and turn
+/// One leg of a synthetic flight with constant target climb rate, air speed and turn
 /// rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Segment {
     pub duration_s: f64,
     /// Climb rate in m/s the glider settles on, upwards positive.
     pub climb_rate_mps: f64,
-    pub ground_speed_mps: f64,
+    /// Speed through the air (not over the ground; wind comes on top of it).
+    pub airspeed_mps: f64,
     /// Seconds per full circle; positive turns right, negative left. `None` flies
     /// straight ahead.
     pub turn_period_s: Option<f64>,
@@ -29,7 +30,7 @@ impl Segment {
         Segment {
             duration_s,
             climb_rate_mps,
-            ground_speed_mps: 10.0,
+            airspeed_mps: 10.0,
             turn_period_s: None,
         }
     }
@@ -39,7 +40,7 @@ impl Segment {
         Segment {
             duration_s,
             climb_rate_mps,
-            ground_speed_mps: 8.0,
+            airspeed_mps: 8.0,
             turn_period_s: Some(turn_period_s),
         }
     }
@@ -52,6 +53,8 @@ pub struct SyntheticFlightBuilder {
     longitude_deg: f64,
     altitude_m: f64,
     heading_deg: f64,
+    wind_from_deg: f64,
+    wind_speed_mps: f64,
     transition_s: f64,
     segments: Vec<Segment>,
 }
@@ -68,6 +71,15 @@ impl SyntheticFlightBuilder {
     /// Initial heading in degrees. Defaults to 0 (north).
     pub fn heading(mut self, heading_deg: f64) -> Self {
         self.heading_deg = heading_deg;
+        self
+    }
+
+    /// Constant wind: the direction it blows *from* (aviation convention, 270 = from the
+    /// west) and its speed. Defaults to calm. The whole air mass, and so the glider,
+    /// drifts with it.
+    pub fn wind(mut self, from_deg: f64, speed_mps: f64) -> Self {
+        self.wind_from_deg = from_deg;
+        self.wind_speed_mps = speed_mps;
         self
     }
 
@@ -123,6 +135,9 @@ impl SyntheticFlightBuilder {
         SyntheticFlight {
             latitude_deg: self.latitude_deg,
             longitude_deg: self.longitude_deg,
+            // Wind vector pointing where the air moves to, as (north, east) in m/s.
+            wind_north_mps: -self.wind_from_deg.to_radians().cos() * self.wind_speed_mps,
+            wind_east_mps: -self.wind_from_deg.to_radians().sin() * self.wind_speed_mps,
             duration_s: state.time_s,
             legs,
         }
@@ -135,6 +150,8 @@ impl SyntheticFlightBuilder {
 pub struct SyntheticFlight {
     latitude_deg: f64,
     longitude_deg: f64,
+    wind_north_mps: f64,
+    wind_east_mps: f64,
     duration_s: f64,
     legs: Vec<Leg>,
 }
@@ -146,6 +163,8 @@ impl SyntheticFlight {
             longitude_deg: 11.0,
             altitude_m: 1500.0,
             heading_deg: 0.0,
+            wind_from_deg: 0.0,
+            wind_speed_mps: 0.0,
             transition_s: 2.0,
             segments: Vec::new(),
         }
@@ -205,17 +224,27 @@ impl Trajectory for SyntheticFlight {
         let (latitude_deg, longitude_deg) = offset_position(
             self.latitude_deg,
             self.longitude_deg,
-            local.north_m,
-            local.east_m,
+            // The legs describe the path through the air; the wind carries the whole
+            // air mass along, so its drift grows with the time since the flight start.
+            local.north_m + self.wind_north_mps * t,
+            local.east_m + self.wind_east_mps * t,
         );
+        // Ground velocity = velocity through the air along the heading + wind.
+        let air_north = leg.segment.airspeed_mps * local.heading_rad.cos();
+        let air_east = leg.segment.airspeed_mps * local.heading_rad.sin();
+        let ground_north = air_north + self.wind_north_mps;
+        let ground_east = air_east + self.wind_east_mps;
         TruthState {
             latitude_deg,
             longitude_deg,
             altitude_m: local.altitude_m,
             vertical_speed_mps: local.climb_rate_mps,
             vertical_accel_mps2: local.vertical_accel_mps2,
-            ground_speed_mps: leg.segment.ground_speed_mps,
-            course_deg: local.heading_rad.to_degrees().rem_euclid(360.0),
+            ground_speed_mps: ground_north.hypot(ground_east),
+            course_deg: ground_east
+                .atan2(ground_north)
+                .to_degrees()
+                .rem_euclid(360.0),
         }
     }
 }
@@ -269,7 +298,7 @@ impl Leg {
             (1.0, 0.5 * tau + (s - tau), 0.0)
         };
 
-        let speed = self.segment.ground_speed_mps;
+        let speed = self.segment.airspeed_mps;
         let h0 = self.start.heading_rad;
         let (heading_rad, north, east) = match self.segment.turn_period_s {
             Some(period) => {
@@ -414,5 +443,48 @@ mod tests {
         let flight = SyntheticFlight::steady_climb(1.0, 10.0);
         assert_eq!(flight.state_at(-5.0), flight.state_at(0.0));
         assert_eq!(flight.state_at(99.0), flight.state_at(10.0));
+    }
+
+    #[test]
+    fn wind_drifts_a_full_circle_downwind() {
+        // 4 m/s from the west: after one 20 s circle the glider is 80 m further east.
+        let flight = SyntheticFlight::builder()
+            .wind(270.0, 4.0)
+            .segment(Segment::circling(20.0, 0.0, 20.0))
+            .build();
+        let start = flight.state_at(0.0);
+        let end = flight.state_at(20.0);
+        let east = distance_m(
+            start.latitude_deg,
+            start.longitude_deg,
+            start.latitude_deg,
+            end.longitude_deg,
+        );
+        assert!((east - 80.0).abs() < 0.5, "{east}");
+        assert!((distance_m(start.latitude_deg, 0.0, end.latitude_deg, 0.0)).abs() < 0.5);
+    }
+
+    #[test]
+    fn ground_speed_is_air_speed_plus_wind_along_the_course() {
+        let flight = SyntheticFlight::builder()
+            .heading(90.0) // flying east, downwind
+            .wind(270.0, 4.0)
+            .segment(Segment::straight(10.0, -1.0))
+            .build();
+        let state = flight.state_at(5.0);
+        assert!((state.ground_speed_mps - 14.0).abs() < 1e-9);
+        assert!((state.course_deg - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn headwind_stronger_than_airspeed_flies_backwards() {
+        let flight = SyntheticFlight::builder()
+            .heading(0.0)
+            .wind(0.0, 12.0) // from the north, faster than the 10 m/s trim speed
+            .segment(Segment::straight(10.0, -1.0))
+            .build();
+        let state = flight.state_at(5.0);
+        assert!((state.ground_speed_mps - 2.0).abs() < 1e-9);
+        assert!((state.course_deg - 180.0).abs() < 1e-9);
     }
 }

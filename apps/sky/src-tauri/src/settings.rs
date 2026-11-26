@@ -31,6 +31,7 @@ pub struct SettingsDto {
     sink_threshold_mps: f64,
     volume: f64,
     damping_s: f64,
+    glide_window_s: f64,
 }
 
 impl From<VarioSettings> for SettingsDto {
@@ -40,6 +41,7 @@ impl From<VarioSettings> for SettingsDto {
             sink_threshold_mps: settings.sink_threshold_mps,
             volume: settings.volume,
             damping_s: settings.damping_s,
+            glide_window_s: settings.glide_window_s,
         }
     }
 }
@@ -51,6 +53,7 @@ impl From<SettingsDto> for VarioSettings {
             sink_threshold_mps: dto.sink_threshold_mps,
             volume: dto.volume,
             damping_s: dto.damping_s,
+            glide_window_s: dto.glide_window_s,
         }
     }
 }

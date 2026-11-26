@@ -35,6 +35,8 @@
         <div><b id="altitude">–</b><span>Höhe m</span></div>
         <div><b id="speed">–</b><span>km/h</span></div>
         <div><b id="course">–</b><span id="course-label">Kurs</span></div>
+        <div><b id="glide">–</b><span>GZ</span></div>
+        <div><b id="wind">–</b><span id="wind-label">Wind km/h</span></div>
       </div>
 
       <div id="interrupted" hidden>
@@ -58,8 +60,24 @@
       <div id="map-readout" class="map-overlay">
         <span id="map-climb">–</span> <small>m/s</small> · <span id="map-altitude">–</span>
         <small>m</small>
+        <div id="map-glide" hidden>GZ <span id="map-glide-value"></span></div>
       </div>
       <button id="follow" class="map-overlay on">Folgen</button>
+      <!-- Wind from circling: the arrow points where the wind blows to. -->
+      <div id="wind-box" class="map-overlay" hidden>
+        <svg id="wind-arrow" viewBox="0 0 40 40" width="40" height="40">
+          <g id="wind-arrow-turn">
+            <line x1="20" y1="34" x2="20" y2="12" style="stroke:var(--ink)" stroke-width="4" />
+            <polygon points="20,4 12,15 28,15" style="fill:var(--ink)" />
+          </g>
+        </svg>
+        <div><b id="wind-speed"></b> <small>km/h</small></div>
+        <div id="wind-stars"></div>
+      </div>
+      <!-- Direction and distance to a landing point outside the visible map. -->
+      <div id="landing-hint" class="map-overlay" hidden>
+        <span id="landing-hint-arrow">▲</span> <span id="landing-hint-distance"></span>
+      </div>
       <div id="saved-flight" class="map-overlay">
         <span id="saved-flight-label"></span>
         <button id="close-saved-flight" class="button">Schließen</button>
@@ -101,6 +119,14 @@
         <label for="set-damping">Dämpfung <output id="out-damping"></output></label>
         <input id="set-damping" type="range" min="0" max="5" step="0.1" />
         <small>Mittelungszeit des Varios: größer ist ruhiger, reagiert aber später.</small>
+      </div>
+      <div class="setting">
+        <label for="set-glide-window">Gleitzahl-Zeitraum</label>
+        <select id="set-glide-window">
+          <option value="10">10 s</option><option value="20">20 s</option>
+          <option value="30">30 s</option><option value="60">60 s</option>
+        </select>
+        <small>Länger ist ruhiger, zeigt nach einem Windsprung aber länger den alten Wert.</small>
       </div>
       <div id="settings-message"></div>
       <div class="row">

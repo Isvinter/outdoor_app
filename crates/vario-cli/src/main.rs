@@ -105,6 +105,7 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
         sink_threshold_mps: args.sink_threshold,
         volume: args.volume,
         damping_s: args.damping,
+        ..VarioSettings::default()
     };
     settings.validate()?;
     // Written this way round so that NaN is rejected too.

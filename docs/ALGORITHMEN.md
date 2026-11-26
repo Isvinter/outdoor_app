@@ -318,3 +318,91 @@ erste Werte nach dem Vorbild ähnlicher Apps und werden mit abgespielten echten 
   `roundabout`, `stage_end`), `stage` `ahead` oder `now`, dazu Abstand, Abstandstext, Kurztext und
   der Satz für Mitteilung und Sprache. Texte rundet der Kern: unter 100 m auf 10 m (mindestens
   „10 m“), bis 1 km auf 50 m, ab 975 m auf 0,1 km mit Komma („1,2 km“).
+
+## 8. Gleitzahl, Landepunkt, Wind (`flight-core`)
+
+### Gleitzahl
+
+Modul `glide`. Die Gleitzahl über Grund ist Strecke geteilt durch verlorene Höhe im
+Gleitflug, gemessen über ein gleitendes Fenster (Einstellung 10, 20, 30 oder 60 s, Standard 20 s).
+
+- **Puffer:** Es bleiben immer die letzten 62 s an Messpunkten, egal welches Fenster gilt;
+  ein neues Fenster wirkt so sofort. Eine Lücke über 3 s zwischen zwei Punkten leert den Puffer.
+- **Auswertung:** Über die Punkte im Fenster (vom neuesten aus zurück). Das Fenster muss
+  mindestens `Fenster - 1 s` abdecken, sonst gibt es nichts.
+- **Geradeaus:** Verschiebung `d` (Großkreis erster bis letzter Punkt) geteilt durch den
+  gesamten Weg `p` (Summe der Teilstrecken) muss mindestens 0,8 sein. Kreisen liefert viel
+  weniger. Es zählen Positionen, nicht der GPS-Kurs; dessen Rauschen stört nicht.
+- **Tore:** Mittlere Grundgeschwindigkeit `d / Spanne` mindestens 1,4 m/s (ca. 5 km/h).
+  Mittlere Sinkrate (`Höhenverlust / Spanne`) mindestens 0,1 m/s; sonst (Steigen, Nullschieber)
+  gibt es nichts.
+- **Ergebnis:** `Gleitzahl = d / Höhenverlust`, gedeckelt bei 40. Der Kurs ist die Peilung vom
+  ersten zum letzten Punkt über Grund; er zeigt also nach hinten, wenn der Wind rückwärts
+  versetzt.
+- Lieber nichts anzeigen als etwas Falsches: Steigen, zu langsam, nicht geradeaus oder ein noch
+  nicht volles Fenster (auch nach einer GPS-Lücke) ergeben `None`. Die Geradeaus-Prüfung allein
+  erkennt Kreisen aber nicht sicher (direkt nach dem Bart, oder beim Kreisen in starkem Wind, wo
+  die Spur sich kaum einrollt); das übernimmt die Engine (siehe Anzeige-Sperren).
+
+### Landepunkt
+
+Modul `landing`. Wo die aktuelle Gleitlinie das Gelände trifft, entlang des Kurses über Grund.
+
+- **Schritte:** Alle 50 m (`LANDING_STEP_M`) entlang des Kurses (`geo::destination`), höchstens
+  50 km weit (`LANDING_MAX_RANGE_M`). Die Höhe der Gleitlinie ist `Höhe - Strecke / Gleitzahl`;
+  Höhe und Gelände sind beide über Meer (GPS-Höhe).
+- **Treffer:** Der erste Schritt, an dem die Linie höchstens so hoch wie das Gelände liegt. Die
+  genaue Strecke ergibt sich linear zwischen diesem und dem vorigen Schritt (Differenz Linie minus
+  Gelände), die Position wird dafür neu berechnet.
+- **Nichts statt Falsches:** Liegt der Start schon unter dem Gelände, ist das Gelände am Start oder
+  irgendwo auf dem Weg unbekannt (außerhalb der Regionen), oder gibt es keinen Treffer innerhalb
+  der Reichweite, so gibt es `None`.
+
+### Wind
+
+Modul `wind`. Beim Kreisen liegen die Geschwindigkeiten über Grund auf einem Kreis, dessen
+Mittelpunkt der Windvektor ist (die Fluggeschwindigkeit dreht sich, der Wind bleibt).
+
+- **Punkte:** Je GPS-Punkt `x = v·sin(Kurs)` (Ost), `y = v·cos(Kurs)` (Nord).
+- **Vollkreis:** Kursänderung je Punkt (gefaltet auf −180°..180°) durch die Zeit. Ein Kreis läuft,
+  solange die Drehrate mindestens 4°/s in gleicher Richtung beträgt; bis zu 2 schwächere Punkte
+  in Folge sind erlaubt, der dritte bricht ab, ebenso eine Lücke über 3 s oder eine Dauer über
+  60 s. Eine starke Drehung in Gegenrichtung beendet den Kreis und beginnt einen neuen in der
+  neuen Richtung (sonst hielte Zickzack-Rauschen einen Kreis ewig offen). Bei 360° Summe ist der
+  Kreis fertig, der nächste beginnt an diesem Punkt.
+- **Anpassung:** Algebraischer Kleinste-Quadrate-Kreis (Kåsa, 3×3-Normalgleichungen). Gültig nur
+  mit mindestens 8 Punkten, höchstens 60 s Dauer, Radius mindestens 3 m/s und RMS-Rest / Radius
+  höchstens 0,3. Der Mittelpunkt ist der Wind (wohin); angezeigt wird „woher“.
+- **Mittel:** Höchstens 6 Kreise, Gewicht 0,7^k (neuester k = 0) für Mittelpunkt und Restgüte.
+  Ein Kreis, der mehr als 120 s nach dem Ende des letzten beginnt (neuer Bart), oder dessen
+  Wind mehr als 2,5 m/s vom Mittel abweicht, ersetzt die Liste.
+- **Sterne:** Minimum aus Anzahl (1, 2, ab 3 → 3) und Güte (≤ 0,1 → 3, ≤ 0,2 → 2, sonst 1).
+  Minus 1 ab 5 min Alter (seit dem Ende des neuesten Kreises), minus 2 ab 15 min, ab 30 min
+  nichts. Minus 1, solange ein Kreis in einem neuen Bart schon 180° gedreht hat (alter Wind).
+  Unter 1 Stern nichts.
+- **Letzte Drehung:** `last_turn_s` ist die Zeit des letzten Punkts einer echten Drehung: eines
+  laufenden Kreises ab 60° Kursänderung, des Kreises nach einem fertigen Kreis oder einer starken
+  Gegendrehung direkt nach einem Stück, das selbst mindestens 60° gedreht hat. Kurs-Zickzack im
+  Geradeausflug kommt nie so weit, auch nicht direkt nach dem Kreisen (kleine Gegendrehungen
+  geben die Drehung nicht weiter). Kreist der Schirm in Wind stärker als seine Fahrt, pendelt der
+  Kurs nur hin und her (bei 8 m/s Fahrt und 12 m/s Wind um ±42°), zählt so aber durchgehend als
+  Drehung.
+
+### Anzeige-Sperren (`vario-engine`)
+
+Die Engine (`Processor`) zeigt Gleitzahl und Landepunkt nur, wenn sie gerade etwas aussagen:
+
+- **Geschwindigkeit:** mindestens 1,4 m/s (ca. 5 km/h) über Grund im Fenster (Modul `glide`).
+- **Höhe:** bei bekanntem Gelände mindestens 30 m darüber, gemessen mit der GPS-Höhe; dafür ist
+  ein 3D-Fix nötig, mit 2D-Fix gibt es nichts. Ohne bekanntes Gelände gilt nur die
+  Geschwindigkeit.
+- **GPS-Verlust:** Ist der letzte Fix älter als 3 s, verschwinden beide (gemessen an der Zeit der
+  übrigen Sensoren, ohne jeden Sensor an der Uhr der Engine). Die Luftraumwarnungen enden erst
+  nach 30 s.
+- **Nach dem Kreisen:** Keine Gleitzahl, solange seit der letzten Drehung (`last_turn_s` aus
+  `wind`) noch kein ganzes Fenster vergangen ist. Sonst enthielte das Fenster noch Steigen oder
+  Kreisstücke und zeigte z. B. direkt nach dem Bart Werte um 40 statt 8.
+- **Landepunkt:** Die Anfrage nimmt die GPS-Höhe (MSL, wie das Gelände), die Gleitzahl selbst
+  die Druckhöhe des Varios (nur Differenzen zählen). Ein eigener Thread sucht den Treffer und
+  rechnet nur die neueste Anfrage. Ist keine Gleitzahl sichtbar, wird auch kein Landepunkt
+  gezeigt und das alte Ergebnis verworfen.

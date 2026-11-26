@@ -39,6 +39,7 @@ Phasen strikt nacheinander, nach jeder Phase auf Freigabe warten.
 | 6b | Fertiger Flugstil mit dem neuen Flug-Layer des Region-Builders (Stromleitungen dünn gestrichelt, Seilbahnen dicker und durchgehend, Start-/Landeplätze); Regionen per WLAN von der outdoor_app (Linux-Desktop, `core-share`) auf ZeroGrid Sky (iOS) übertragen | freigegeben (Flugstil und WLAN-Übertragung auf dem iPhone geprüft: Aktualisieren, Abbrechen und Fortsetzen gegen `share-serve` am Mac; am 23.11.2026 gegen die echte Freigabe von ZeroGrid Base auf Linux: Verbinden per QR-Code, Laden, Abbrechen, Fortsetzen, Offline-Anzeige und Seilbahnen; Aktualisieren gegen Base noch nicht ausdrücklich bestätigt; Regionen ohne `flying` zeigen keine Seilbahnen mehr, also neu bauen) |
 | 7 | Lufträume: OpenAir einlesen (`flight-core`), Anzeige auf der Karte, später Warnungen; Daten zuerst von openAIP (Deutschland, Österreich; später Schweiz, Norditalien), nicht im Repository | freigegeben (OpenAir-Parser fertig, liest die openAIP-Dateien (OpenAir 2) für Deutschland und Österreich ohne Meldung; Anzeige auf der Karte, Dateiliste und Filter in den Einstellungen auf macOS und dem iPhone geprüft (flüssig auch mit ganz Deutschland und Österreich im Bild); Antippen der Karte listet die Lufträume an der Stelle, auf macOS und dem iPhone geprüft (Scrollen einer langen Liste nicht); Warnungen (Vorwarnung/Alarm, Ton, Banner, Hervorhebung, Quittieren, Einstellungen, Gelände aus `dem.pmtiles` für AGL) gebaut, mit Tests und im Desktop-Simulator geprüft, auf dem iPhone draußen mit erfundenen Testlufträumen vom Nutzer geprüft; danach: Warnungen enden nach 30 s ohne GPS, Testknöpfe für den Warnton, beides nur mit Tests und auf macOS geprüft) |
 | – | OLED-Dunkelmodus: Hell/Dunkel und Relief (Schattierung) an/aus in den Einstellungen; Höhenlinien bleiben im Dunkelmodus immer sichtbar | freigegeben (Linux- und macOS-Selbsttest; am 23.11.2026 auf dem iPhone mit Sky und Trail geprüft, auch die Höhenlinien ohne Relief; Ergebnisse: `docs/sky/ios-test.md`) |
+| – | Gleitzahl, Landepunkt, Wind: Gleitzahl über Grund (Zeitraum 10/20/30/60 s einstellbar), Landepunkt gegen das Gelände aus `dem.pmtiles` (Kreuz auf der Karte, Hinweis am Rand), Wind aus ganzen Kreisen (Windbox mit Pfeil, km/h und Sternen); Kacheln „GZ“ und „Wind“ auf der Instrumente-Seite | gebaut, mit Tests und im Desktop-Simulator geprüft; am 26.11.2026 auf macOS geprüft (Selbsttests mit und ohne Region, mit Testlufträumen, Zeitraum 10/20/60 s, ungültigem Zeitraum, Dunkelmodus), im iOS-Simulator gestartet (Wind dort nicht prüfbar: `simctl` liefert konstante Geschwindigkeit, kein Barometer), auf dem iPhone gestartet und angesehen; nicht im Flug geprüft |
 
 Den Status hier nach jeder Freigabe aktualisieren.
 
@@ -159,6 +160,8 @@ cargo run -p vario-app
 # Selbsttest: drückt selbst auf Start, öffnet die Karte, gibt Seiteninhalt, Anzahl der
 # Track-Punkte und Skriptfehler aus und beendet sich
 VARIO_SMOKE_TEST=1 cargo run -p vario-app
+# Länger fliegen lassen (Sekunden), damit Gleitzahl, Wind und Landepunkt im Bericht stehen
+VARIO_SMOKE_TEST=1 VARIO_SMOKE_RUN_S=150 cargo run -p vario-app
 # Region per WLAN laden: Freigabe von ZeroGrid Base nachstellen (share-serve;
 # --seed-region verschiebt den Ordner, also eine Kopie
 # angeben) und den Selbsttest mit leerem HOME dagegen laufen lassen, damit der echte

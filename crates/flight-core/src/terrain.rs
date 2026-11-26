@@ -6,8 +6,10 @@
 
 /// Something that knows the ground elevation.
 ///
-/// `Send` is required because the engine asks from its own thread.
-pub trait Terrain: Send {
+/// `Send` lets the terrain move to another thread; `Sync` means it may be used from several
+/// threads at once (through `&self`). Both together allow one `Arc<dyn Terrain>` (a shared,
+/// reference-counted pointer to any terrain) to be held by the engine and a worker thread.
+pub trait Terrain: Send + Sync {
     /// Elevation of the ground above mean sea level in metres, or `None` where it is
     /// not known (outside of all regions).
     fn elevation_m(&self, lat_deg: f64, lon_deg: f64) -> Option<f64>;

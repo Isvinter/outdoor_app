@@ -100,9 +100,50 @@ function render(status) {
   $("map-altitude").textContent = number(status?.altitudeM);
   if (fix) FlightMap.setPosition(fix.latitudeDeg, fix.longitudeDeg, fix.courseDeg ?? null);
 
+  renderGlide(status?.glideRatio ?? null);
+  renderWind(status?.wind ?? null);
+  FlightMap.setLanding(status?.landing ?? null);
+
   renderRecording(status?.recording ?? null);
   renderWarnings(status?.airspaceWarnings ?? []);
   if (activePage === "settings") renderSensors(status);
+}
+
+// ---- Glide ratio and wind (estimated in Rust; shown here) ----
+
+// Glide ratio over ground, one decimal; very flat glides are capped.
+const glideText = (ratio) => (ratio >= 40 ? ">40" : ratio.toFixed(1).replace(".", ","));
+
+function renderGlide(ratio) {
+  // Hidden while circling, climbing or without a valid window (Rust sends null).
+  $("map-glide").hidden = ratio === null;
+  const text = ratio === null ? "–" : glideText(ratio);
+  $("map-glide-value").textContent = ratio === null ? "" : text;
+  $("glide").textContent = text;
+}
+
+// Below this the direction means little: show "< 5" km/h and no arrow.
+const CALM_MPS = 1.4;
+
+function renderWind(wind) {
+  $("wind-box").hidden = wind === null;
+  if (wind === null) {
+    $("wind").textContent = "–";
+    $("wind-label").textContent = "Wind km/h";
+    return;
+  }
+  const calm = wind.speedMps < CALM_MPS;
+  const speed = calm ? "< 5" : String(Math.round(wind.speedMps * 3.6));
+  const filled = Math.max(0, Math.min(3, wind.stars));
+  const stars = "★".repeat(filled) + "☆".repeat(3 - filled);
+  // An SVG element has no `hidden` property, so set the attribute itself.
+  $("wind-arrow").toggleAttribute("hidden", calm);
+  // The arrow points where the wind blows to, like a wind sock.
+  $("wind-arrow-turn").setAttribute("transform", `rotate(${(wind.fromDeg + 180) % 360} 20 20)`);
+  $("wind-speed").textContent = speed;
+  $("wind-stars").textContent = stars;
+  $("wind").textContent = speed;
+  $("wind-label").textContent = calm ? "Wind km/h " + stars : "Wind aus " + compass(wind.fromDeg) + " " + stars;
 }
 
 // ---- Airspace warnings (decided in Rust; shown here) ----
@@ -541,6 +582,7 @@ function showSettings() {
     $(input).value = settings[field];
     $(output).textContent = format(settings[field]);
   }
+  $("set-glide-window").value = String(settings.glideWindowS);
 }
 
 async function applySettings(changed) {
@@ -565,6 +607,10 @@ for (const [input, output, field, format] of settingInputs) {
     applySettings({ ...settings, [field]: Number($(input).value) });
   });
 }
+
+$("set-glide-window").addEventListener("change", () => {
+  applySettings({ ...settings, glideWindowS: Number($("set-glide-window").value) });
+});
 
 $("reset-settings").addEventListener("click", async () => {
   applySettings(await invoke("default_settings"));
@@ -610,6 +656,7 @@ FlightMap.configure({
     $("map-message").style.display = text ? "block" : "none";
   },
   onTap: showAirspacesAt,
+  formatDistance: distance,
 });
 $("follow").addEventListener("click", () => FlightMap.toggleFollow());
 
