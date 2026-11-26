@@ -32,3 +32,13 @@ nachziehen (Swift ließ sich unter Linux nicht bauen). Kleiner Branch, z. B. `fi
 - Die Karte zeigt die Sportart nur als Farbpunkt.
 - Luftlinienmitte mittelt Breite/Länge (falsch über den 180. Längengrad; praktisch egal).
 - „Rückgängig“ nimmt das Teilen nicht zurück (offen seit dem Entwurf).
+
+## Erledigt (2026-11-26, Branch `fix/leg-selection`)
+
+- Punkt 1: `computed` hebt im `.failure`-Zweig die Auswahl auf. Test
+  `PlanUITests.testFailedPlanningLetsGoOfTheLeg` mit dem neuen Selbsttest-Schalter
+  `-failPlansAfter <n>` (nur DEBUG): nach n berechneten Routen scheitert jede Berechnung als
+  Ganzes. Gegenprobe: ohne den Fix schlägt der Test fehl (`selected_leg` bleibt `0`).
+- Punkt 2: `selectLeg` wählt im Setzmodus nichts (`guard !picking`). Ohne eigenen Test: das
+  Fenster von 0,3 s lässt sich mit XCUITest nicht verlässlich treffen.
+- Alle 20 `PlanUITests` im Simulator grün.

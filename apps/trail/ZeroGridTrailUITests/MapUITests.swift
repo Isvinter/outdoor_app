@@ -22,7 +22,7 @@ extension XCUIApplication {
     /// Starts the app in self-test mode without regions, or with a fixture
     /// (`mini`, or `mini-contours` with contour lines), at zoom 11 or `zoom`.
     static func selftest(
-        withMini: Bool, fixture: String = "mini", zoom: Double? = nil,
+        withMini: Bool, fixture: String = "mini", zoom: Double? = nil, arguments: [String] = [],
         beforeLaunch: (XCUIApplication) -> Void = { _ in }
     ) -> XCUIApplication {
         let app = XCUIApplication()
@@ -35,6 +35,7 @@ extension XCUIApplication {
         if let zoom {
             app.launchArguments += ["-startZoom", String(zoom)]
         }
+        app.launchArguments += arguments
         app.launch()
         return app
     }

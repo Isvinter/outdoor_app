@@ -61,6 +61,7 @@ private struct RootView: View {
                 core: start.host.core, location: location, bounds: start.bounds, zoom: start.options.startZoom ?? 11,
                 centre: start.options.startCenter)
             let plan = PlanController(core: start.host.core, map: map)
+            plan.failPlansAfter = start.options.failPlansAfter
             let regions = RegionsController(
                 host: start.host, engine: start.engine, map: map, plan: plan, installed: start.regions)
             let search = SearchController(backend: SearchBackend(core: start.host.core), map: map.searchOverlay)

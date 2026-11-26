@@ -23,6 +23,9 @@ enum AppStart {
         var replayGPX: String?
         /// `-route <lat>,<lon>;<lat>,<lon>`: a route to plan at the start.
         var route: [[Double]] = []
+        /// `-failPlansAfter <n>`: after `n` computed routes, every computation
+        /// fails as a whole, as with a broken engine.
+        var failPlansAfter: Int?
 
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             guard arguments.contains("-selftest") else { return }
@@ -54,6 +57,9 @@ enum AppStart {
             }
             if let flag = arguments.firstIndex(of: "-route"), flag + 1 < arguments.count {
                 route = places(arguments[flag + 1])
+            }
+            if let flag = arguments.firstIndex(of: "-failPlansAfter"), flag + 1 < arguments.count {
+                failPlansAfter = Int(arguments[flag + 1])
             }
             #endif
         }
