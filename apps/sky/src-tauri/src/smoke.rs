@@ -49,7 +49,7 @@ pub fn maybe_run(app: &AppHandle) {
     std::thread::spawn(move || {
         let Some(window) = app.get_webview_window("main") else {
             eprintln!("smoke test: no main window");
-            app.exit(1);
+            finish(&app, 1);
             return;
         };
         // Give the page time to load. How long that takes varies (first launch on a
@@ -130,7 +130,7 @@ pub fn maybe_run(app: &AppHandle) {
         // If the page never answers, it is broken: fail instead of hanging.
         std::thread::sleep(Duration::from_secs(5));
         eprintln!("smoke test: the page did not report back");
-        app.exit(1);
+        finish(&app, 1);
     });
 }
 
@@ -220,6 +220,20 @@ fn check_look(window: &tauri::WebviewWindow) {
     eprintln!("smoke test: the look report did not arrive");
 }
 
+/// Ends the app with `code` once the test is over.
+///
+/// On iOS `app.exit` panics inside tao (`app_state.rs`: "`AppState` previously failed a
+/// state transition"), and iOS has no regular way for an app to end itself anyway. So
+/// there the session is ended the way the exit handler would (flight and logs saved),
+/// then the process ends directly.
+fn finish(app: &AppHandle, code: i32) {
+    if cfg!(target_os = "ios") {
+        crate::end_session_on_exit(app);
+        std::process::exit(code);
+    }
+    app.exit(code);
+}
+
 /// Set by `smoke_note`.
 static NOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -283,6 +297,6 @@ pub fn smoke_report(app: AppHandle, text: String) {
             crate::maps::TILES_SERVED.load(std::sync::atomic::Ordering::Relaxed)
         );
         println!("--- end ---");
-        app.exit(0);
+        finish(&app, 0);
     }
 }
