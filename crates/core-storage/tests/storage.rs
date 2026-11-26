@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use core_storage::{Storage, StorageError, TrackState};
-use core_track::{Activity, Segment, StatsParams, Track, TrackPoint, compute_stats};
+use core_track::{Activity, Segment, SegmentReason, StatsParams, Track, TrackPoint, compute_stats};
 use uuid::Uuid;
 
 fn point(i: i64) -> TrackPoint {
@@ -41,11 +41,15 @@ fn recorded_points_come_back_in_order_and_unchanged() {
             1000,
         )
         .unwrap();
-    let first = db.begin_segment(track, 1000).unwrap();
+    let first = db
+        .begin_segment(track, Activity::Bike, SegmentReason::Start, 1000)
+        .unwrap();
     for i in 0..3 {
         db.append_point(first, &point(i)).unwrap();
     }
-    let second = db.begin_segment(track, 5000).unwrap();
+    let second = db
+        .begin_segment(track, Activity::Bike, SegmentReason::Start, 5000)
+        .unwrap();
     db.append_points(second, &[point(10), point(11)]).unwrap();
 
     let loaded = db.load_track(track).unwrap();
@@ -94,7 +98,9 @@ fn unfinished_recording_is_found_after_reopening_the_database() {
         let id = db
             .create_track(None, Activity::Mtb, TrackState::Recording, 1000)
             .unwrap();
-        let seg = db.begin_segment(id, 1000).unwrap();
+        let seg = db
+            .begin_segment(id, Activity::Bike, SegmentReason::Start, 1000)
+            .unwrap();
         db.append_point(seg, &point(0)).unwrap();
         db.append_point(seg, &point(1)).unwrap();
         id
@@ -182,7 +188,7 @@ fn operations_on_unknown_ids_report_not_found() {
         Err(StorageError::NotFound(_))
     ));
     assert!(matches!(
-        db.begin_segment(unknown, 1),
+        db.begin_segment(unknown, Activity::Bike, SegmentReason::Start, 1),
         Err(StorageError::NotFound(_))
     ));
     assert!(matches!(
@@ -299,7 +305,7 @@ fn routes_survive_reopening_and_old_databases_gain_the_table() {
     };
     let storage = Storage::open(&path).unwrap();
     assert_eq!(storage.list_routes().unwrap()[0].id, id);
-    assert_eq!(storage.schema_version().unwrap(), 3);
+    assert_eq!(storage.schema_version().unwrap(), 4);
 }
 
 #[test]
@@ -347,6 +353,106 @@ fn replace_deleted_route_is_not_found() {
     ));
     assert!(matches!(
         storage.replace_route(Uuid::now_v7(), "x", "hike", 1.0, None, "{}", 3),
+        Err(StorageError::NotFound(_))
+    ));
+}
+
+#[test]
+fn migration_4_keeps_old_segments() {
+    let path = temp_db("migration-4");
+    let id = {
+        let mut db = Storage::open(&path).unwrap();
+        let id = db
+            .create_track(Some("Old"), Activity::Hike, TrackState::Recording, 1000)
+            .unwrap();
+        let seg = db
+            .begin_segment(id, Activity::Hike, SegmentReason::Start, 1000)
+            .unwrap();
+        db.append_point(seg, &point(0)).unwrap();
+        id
+    };
+    // Turn the database back into schema 3.
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "ALTER TABLE track_segments DROP COLUMN activity;
+         ALTER TABLE track_segments DROP COLUMN reason;",
+    )
+    .unwrap();
+    conn.pragma_update(None, "user_version", 3).unwrap();
+    drop(conn);
+
+    let db = Storage::open(&path).unwrap();
+    assert_eq!(db.schema_version().unwrap(), 4);
+    let loaded = db.load_track(id).unwrap();
+    assert_eq!(loaded.segments.len(), 1);
+    assert_eq!(loaded.segments[0].points, [point(0)]);
+    assert_eq!(loaded.segments[0].activity, None);
+    assert_eq!(loaded.segments[0].reason, SegmentReason::Start);
+}
+
+#[test]
+fn segments_keep_activity_and_reason() {
+    let mut db = Storage::open_in_memory().unwrap();
+    let id = db
+        .create_track(None, Activity::Bike, TrackState::Recording, 1000)
+        .unwrap();
+    let a = db
+        .begin_segment(id, Activity::Bike, SegmentReason::Start, 1000)
+        .unwrap();
+    db.append_point(a, &point(0)).unwrap();
+    let b = db
+        .begin_segment(id, Activity::Hike, SegmentReason::Rest, 2000)
+        .unwrap();
+    db.append_point(b, &point(1)).unwrap();
+
+    let loaded = db.load_track(id).unwrap();
+    assert_eq!(loaded.segments[0].activity, Some(Activity::Bike));
+    assert_eq!(loaded.segments[0].reason, SegmentReason::Start);
+    assert_eq!(loaded.segments[1].activity, Some(Activity::Hike));
+    assert_eq!(loaded.segments[1].reason, SegmentReason::Rest);
+}
+
+#[test]
+fn imported_segments_keep_activity_and_reason() {
+    let mut db = Storage::open_in_memory().unwrap();
+    let track = Track {
+        name: None,
+        activity: Some(Activity::Bike),
+        segments: vec![Segment {
+            points: vec![point(0)],
+            activity: Some(Activity::Hike),
+            reason: SegmentReason::Gap,
+        }],
+    };
+    let stats = compute_stats(&track, &StatsParams::for_activity(Activity::Bike));
+    let id = db.import_track(&track, Activity::Bike, &stats, 1).unwrap();
+    assert_eq!(db.load_track(id).unwrap().segments, track.segments);
+}
+
+#[test]
+fn set_segment_activity_changes_one_and_bumps_rev() {
+    let mut db = Storage::open_in_memory().unwrap();
+    let id = db
+        .create_track(None, Activity::Bike, TrackState::Recording, 1000)
+        .unwrap();
+    for (i, reason) in [SegmentReason::Start, SegmentReason::Rest]
+        .into_iter()
+        .enumerate()
+    {
+        let seg = db.begin_segment(id, Activity::Bike, reason, 1000).unwrap();
+        db.append_point(seg, &point(i as i64)).unwrap();
+    }
+    let rev = db.track(id).unwrap().rev;
+    db.set_segment_activity(id, 1, Activity::Hike, 5000)
+        .unwrap();
+    let loaded = db.load_track(id).unwrap();
+    assert_eq!(loaded.segments[0].activity, Some(Activity::Bike));
+    assert_eq!(loaded.segments[1].activity, Some(Activity::Hike));
+    let record = db.track(id).unwrap();
+    assert_eq!(record.rev, rev + 1);
+    assert_eq!(record.updated_at_ms, 5000);
+    assert!(matches!(
+        db.set_segment_activity(id, 7, Activity::Hike, 6000),
         Err(StorageError::NotFound(_))
     ));
 }

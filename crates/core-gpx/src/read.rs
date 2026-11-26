@@ -122,6 +122,9 @@ impl<'a> Parser<'a> {
                 let lon = self.coordinate(e, "lon")?;
                 self.point = Some(TrackPoint::new(lat, lon));
             }
+            (Some("extensions"), "section") if self.segment.is_some() => {
+                self.section(e)?;
+            }
             _ => {}
         }
         self.path.push(name);
@@ -178,6 +181,25 @@ impl<'a> Parser<'a> {
             }
             (Some("gpx"), "trk") => self.doc.tracks.extend(self.track.take()),
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// `<zg:section activity=".." reason=".."/>` inside a segment's extensions.
+    fn section(&mut self, e: &BytesStart<'_>) -> Result<(), GpxError> {
+        for attr in e.attributes() {
+            let attr = attr.map_err(|err| self.xml_error(err))?;
+            let value = attr
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .map_err(|err| self.xml_error(err))?;
+            let Some(segment) = &mut self.segment else {
+                continue;
+            };
+            match attr.key.local_name().as_ref() {
+                "activity" => segment.activity = value.trim().parse().ok(),
+                "reason" => segment.reason = value.trim().parse().unwrap_or_default(),
+                _ => {}
+            }
         }
         Ok(())
     }

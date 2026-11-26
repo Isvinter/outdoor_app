@@ -17,7 +17,7 @@ fn synced(name: &str, source_rev: i64) -> SyncedRoute<'_> {
 #[test]
 fn migration_3_adds_source_rev() {
     let mut storage = Storage::open_in_memory().unwrap();
-    assert_eq!(storage.schema_version().unwrap(), 3);
+    assert!(storage.schema_version().unwrap() >= 3);
     let id = storage
         .save_route("Tour", "hike", 1.0, None, "{}", 1)
         .unwrap();

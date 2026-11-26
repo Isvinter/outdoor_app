@@ -71,6 +71,12 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     ",
     // 3: where a route taken over from the desktop came from
     "ALTER TABLE routes ADD COLUMN source_rev INTEGER;",
+    // 4: each section of a track has its own activity and a reason it began
+    // (NULL for sections recorded before: the activity of the track, `start`)
+    "
+    ALTER TABLE track_segments ADD COLUMN activity TEXT;
+    ALTER TABLE track_segments ADD COLUMN reason TEXT;
+    ",
 ];
 
 pub(crate) fn schema_version(conn: &Connection) -> Result<u32, StorageError> {

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use core_track::{Activity, Segment, Track, TrackPoint, TrackStats};
+use core_track::{Activity, Segment, SegmentReason, Track, TrackPoint, TrackStats};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -154,8 +154,16 @@ impl Storage {
         for (seq, segment) in track.segments.iter().enumerate() {
             let segment_id = Uuid::now_v7();
             tx.execute(
-                "INSERT INTO track_segments (id, track_id, seq, created_at) VALUES (?1, ?2, ?3, ?4)",
-                params![segment_id, id, seq as i64, now_ms],
+                "INSERT INTO track_segments (id, track_id, seq, created_at, activity, reason)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    segment_id,
+                    id,
+                    seq as i64,
+                    now_ms,
+                    segment.activity.map(Activity::as_str),
+                    segment.reason.as_str()
+                ],
             )?;
             insert_points(&tx, segment_id, 0, &segment.points)?;
         }
@@ -164,15 +172,47 @@ impl Storage {
     }
 
     /// Starts a new segment of a track; points are appended to segments.
-    pub fn begin_segment(&mut self, track: Uuid, now_ms: i64) -> Result<Uuid, StorageError> {
+    pub fn begin_segment(
+        &mut self,
+        track: Uuid,
+        activity: Activity,
+        reason: SegmentReason,
+        now_ms: i64,
+    ) -> Result<Uuid, StorageError> {
         self.require_track(track)?;
         let id = Uuid::now_v7();
         self.conn.execute(
-            "INSERT INTO track_segments (id, track_id, seq, created_at)
-             SELECT ?1, ?2, COALESCE(MAX(seq), -1) + 1, ?3 FROM track_segments WHERE track_id = ?2",
-            params![id, track, now_ms],
+            "INSERT INTO track_segments (id, track_id, seq, created_at, activity, reason)
+             SELECT ?1, ?2, COALESCE(MAX(seq), -1) + 1, ?3, ?4, ?5
+             FROM track_segments WHERE track_id = ?2",
+            params![id, track, now_ms, activity.as_str(), reason.as_str()],
         )?;
         Ok(id)
+    }
+
+    /// Changes the activity of one segment (by position) and marks the track changed.
+    pub fn set_segment_activity(
+        &mut self,
+        track: Uuid,
+        seq: usize,
+        activity: Activity,
+        now_ms: i64,
+    ) -> Result<(), StorageError> {
+        let tx = self.conn.transaction()?;
+        let changed = tx.execute(
+            "UPDATE track_segments SET activity = ?3 WHERE track_id = ?1 AND seq = ?2
+             AND EXISTS (SELECT 1 FROM tracks WHERE id = ?1 AND deleted_at IS NULL)",
+            params![track, seq as i64, activity.as_str()],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::NotFound(track));
+        }
+        tx.execute(
+            "UPDATE tracks SET updated_at = ?2, rev = rev + 1 WHERE id = ?1",
+            params![track, now_ms],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// Appends one point. Durable as soon as the call returns.
@@ -313,17 +353,17 @@ impl Storage {
     pub fn load_track(&self, id: Uuid) -> Result<Track, StorageError> {
         let record = self.track(id)?;
         let mut segments = Vec::new();
-        let mut segment_stmt = self
-            .conn
-            .prepare("SELECT id FROM track_segments WHERE track_id = ?1 ORDER BY seq")?;
+        let mut segment_stmt = self.conn.prepare(
+            "SELECT id, activity, reason FROM track_segments WHERE track_id = ?1 ORDER BY seq",
+        )?;
         let mut point_stmt = self.conn.prepare(
             "SELECT lat, lon, ele, time_ms, h_accuracy_m, speed_mps
              FROM track_points WHERE segment_id = ?1 ORDER BY seq",
         )?;
-        let segment_ids: Vec<Uuid> = segment_stmt
-            .query_map([id], |row| row.get(0))?
+        let segment_rows: Vec<(Uuid, Option<String>, Option<String>)> = segment_stmt
+            .query_map([id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
             .collect::<Result<_, _>>()?;
-        for segment_id in segment_ids {
+        for (segment_id, activity, reason) in segment_rows {
             let points = point_stmt
                 .query_map([segment_id], |row| {
                     Ok(TrackPoint {
@@ -336,9 +376,13 @@ impl Storage {
                     })
                 })?
                 .collect::<Result<_, _>>()?;
+            // Unknown or missing values read like NULL: the track's activity, `start`.
             segments.push(Segment {
                 points,
-                ..Default::default()
+                activity: activity.and_then(|a| Activity::from_str(&a).ok()),
+                reason: reason
+                    .and_then(|r| SegmentReason::from_str(&r).ok())
+                    .unwrap_or_default(),
             });
         }
         Ok(Track {

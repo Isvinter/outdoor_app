@@ -242,7 +242,12 @@ impl Inner {
         let segment_id = match rec.segment {
             Some((i, id)) if i == index => id,
             _ => {
-                let id = self.storage.begin_segment(rec.track_id, now_ms())?;
+                let id = self.storage.begin_segment(
+                    rec.track_id,
+                    rec.activity,
+                    SegmentReason::Start,
+                    now_ms(),
+                )?;
                 rec.segment = Some((index, id));
                 id
             }
