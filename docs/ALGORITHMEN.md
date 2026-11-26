@@ -406,3 +406,36 @@ Die Engine (`Processor`) zeigt Gleitzahl und Landepunkt nur, wenn sie gerade etw
   die Druckhöhe des Varios (nur Differenzen zählen). Ein eigener Thread sucht den Treffer und
   rechnet nur die neueste Anfrage. Ist keine Gleitzahl sichtbar, wird auch kein Landepunkt
   gezeigt und das alte Ergebnis verworfen.
+
+## 9. Start- und Landeerkennung (`flight-core`, Modul `flight_phase`)
+
+Ein Zustandsautomat (bereit → in der Luft → gelandet → in der Luft …) bekommt je GPS-Fix
+Zeit, Position, Geschwindigkeit über Grund, Steigwert des Varios und Höhe über Gelände
+(GPS-Höhe minus `dem.pmtiles`, nur mit 3D-Fix). Er meldet Start und Landung, beide auf den
+Zeitpunkt zurückdatiert, an dem sie wirklich geschahen. Vorbild ist der Flymaster GPS M; wo
+das Gelände bekannt ist, entscheidet Sky über die Höhe statt über die Geschwindigkeit.
+
+- **Start mit Gelände:** mindestens 20 m über Gelände, 5 s lang. Eine Autofahrt bleibt am
+  Boden und startet keinen Flug; ein Start im starken Wind mit kaum Fahrt über Grund wird
+  trotzdem erkannt.
+- **Start ohne Gelände** (wie Flymaster „Start Speed“): mindestens die Startgeschwindigkeit
+  (Einstellung, Standard 15 km/h), 5 s lang. Kurze Ausreißer der GPS-Geschwindigkeit starten
+  nichts.
+- **Zurückdatieren des Starts:** auf den letzten Fix „in Ruhe“ vor Beginn der Startbedingung:
+  langsamer als 5 km/h, Steigwert innerhalb ±0,5 m/s, mit Gelände unter 20 m darüber. Der
+  Steigwert gehört dazu, weil beim Start im starken Wind die Fahrt über Grund so klein ist wie
+  am Boden, der Schirm aber schon steigt. Gibt es in den letzten 60 s keinen solchen Fix,
+  gilt der älteste gemerkte.
+- **Landung** (Flymaster „On Landing“): langsamer als 5 km/h und Steigwert innerhalb
+  ±1,5 m/s, mit Gelände zusätzlich unter 20 m darüber, 30 s lang; wo die Höhe über Gelände
+  unbekannt ist, 60 s lang. Die Bodennähe ist eine Ergänzung zum Flymaster: Beim Soaren im
+  starken Wind (keine Fahrt über Grund, Nullschieber, hoch über dem Hang) würde dessen Regel
+  sonst mitten im Flug eine Landung melden. Die Landung wird auf den ersten ruhigen Fix
+  zurückdatiert.
+- **Fehlende Daten beenden keinen Flug:** Eine unbekannte Geschwindigkeit ist nicht ruhig.
+  Ein unbekannter Steigwert (noch kein Barometer) stört weder Ruhe noch Start. Liegen zwei Fixe
+  mehr als 3 s auseinander, beginnen alle Zählungen neu, auch eine Lücke allein beendet nichts.
+- **Bekannte Grenzen:** In der Seilbahn ist Sky hoch über dem Gelände; wer Sky dort schon
+  bereit macht, bekommt einen kurzen Scheinflug bis zur Bergstation. Ohne Gelände startet wie
+  beim Flymaster auch eine Autofahrt einen Flug. Die Höhe über Gelände schwankt mit GPS-Höhe
+  und Geländemodell (Zoom 13, am Brauneck ca. 13 m je Pixel) um einige Meter.
