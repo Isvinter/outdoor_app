@@ -38,9 +38,10 @@ pub fn compute_stats(track: &Track, params: &StatsParams) -> TrackStats {
 ///
 /// A rest section counts only towards total time (and its points), not moving time,
 /// distance or elevation. The section after a rest ([`SegmentReason::RestEnd`])
-/// additionally gets the straight line from the last fix of the rest to its first fix
-/// as distance: fixes during a rest may be coarse or sparse, so that part of the way
-/// is otherwise lost.
+/// additionally gets the straight line from the first fix of the rest (the one it was
+/// detected at, near the rest spot) to its own first fix as distance. Fixes during a
+/// rest may be coarse or sparse, and the last ones are already on the way out, so that
+/// part of the way is otherwise lost.
 pub fn compute_section_stats(
     track: &Track,
     params_of: impl Fn(Activity) -> StatsParams,
@@ -92,10 +93,10 @@ pub fn compute_section_stats(
     (with_averages(total), sections)
 }
 
-/// Distance from the last valid fix of `from` to the first valid fix of `to`.
+/// Distance from the first valid fix of `from` to the first valid fix of `to`.
 fn straight_line_m(from: &Segment, to: &Segment) -> Option<f64> {
     let valid = |p: &&TrackPoint| p.lat.is_finite() && p.lon.is_finite();
-    let a = from.points.iter().rev().find(valid)?;
+    let a = from.points.iter().find(valid)?;
     let b = to.points.iter().find(valid)?;
     Some(haversine_m(a.lat, a.lon, b.lat, b.lon))
 }

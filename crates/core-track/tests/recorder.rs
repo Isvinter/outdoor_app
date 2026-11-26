@@ -224,7 +224,15 @@ fn pause_during_rest_ends_it() {
     r.resume().unwrap();
     assert!(r.add_point(fix_at(300.0, 430)));
     assert!(!r.resting());
-    assert_eq!(reasons(&r).last(), Some(&SegmentReason::Resume));
+    assert_eq!(
+        reasons(&r),
+        [
+            SegmentReason::Start,
+            SegmentReason::Rest,
+            SegmentReason::Resume
+        ]
+    );
+    assert!(r.track().segments.iter().all(|s| !s.points.is_empty()));
     assert_eq!(r.track().segment_activity(2), Activity::Bike);
 }
 
@@ -236,7 +244,15 @@ fn switch_during_rest_ends_it() {
     r.switch_activity(Activity::Hike);
     assert!(!r.resting());
     assert!(r.add_point(fix_at(300.0, 430)));
-    assert_eq!(reasons(&r).last(), Some(&SegmentReason::ActivityChange));
+    assert_eq!(
+        reasons(&r),
+        [
+            SegmentReason::Start,
+            SegmentReason::Rest,
+            SegmentReason::ActivityChange
+        ]
+    );
+    assert!(r.track().segments.iter().all(|s| !s.points.is_empty()));
     assert_eq!(r.track().segment_activity(2), Activity::Hike);
     assert!(!r.resting());
 }

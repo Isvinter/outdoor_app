@@ -534,3 +534,46 @@ fn rest_end_adds_straight_line() {
         "section after the rest",
     );
 }
+
+#[test]
+fn rest_end_with_sparse_fixes_measures_from_the_rest_spot() {
+    // Throttled during the rest: fixes 30 s apart. The rest segment begins with the
+    // detection fix at the spot; its last fix is already the first one away (80 m).
+    let ride = north_line(47.0, 101, 5.0, T0, 1.0);
+    let spot = ride[100];
+    let at = |north_m: f64, t_ms: i64| {
+        let mut p = TrackPoint::new(spot.lat + north_m / M_PER_DEG_LAT, 11.0);
+        p.time_ms = Some(t_ms);
+        p
+    };
+    let mut rest: Vec<TrackPoint> = (0..20)
+        .map(|k| at(0.0, T0 + 101_000 + k * 30_000))
+        .collect();
+    rest.push(at(80.0, T0 + 101_000 + 20 * 30_000));
+    let on = north_line(
+        spot.lat + 160.0 / M_PER_DEG_LAT,
+        101,
+        5.0,
+        T0 + 731_000,
+        1.0,
+    );
+    let t = Track {
+        name: None,
+        activity: Some(Activity::Bike),
+        segments: vec![
+            section(ride.clone(), Activity::Bike, SegmentReason::Start),
+            section(rest, Activity::Bike, SegmentReason::Rest),
+            section(on.clone(), Activity::Bike, SegmentReason::RestEnd),
+        ],
+    };
+    let d_ride = compute_stats(&track(vec![ride]), &bike()).distance_m;
+    let d_on = compute_stats(&track(vec![on]), &bike()).distance_m;
+    let (total, sections) = compute_section_stats(&t, StatsParams::for_activity);
+    assert_close(
+        sections[2].distance_m,
+        d_on + 160.0,
+        1.0,
+        "section after the rest",
+    );
+    assert_close(total.distance_m, d_ride + d_on + 160.0, 1.0, "distance");
+}
