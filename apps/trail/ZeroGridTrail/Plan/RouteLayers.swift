@@ -21,6 +21,8 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
 
     private let mapView: MLNMapView
     private var legs: [Leg] = []
+    /// The leg drawn as chosen, an index into `legs`.
+    private var selectedLeg: Int?
     private var waypoints: [WaypointAnnotation] = []
     private var cursor: CursorAnnotation?
     private let tap = UITapGestureRecognizer()
@@ -30,9 +32,14 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
     /// the map's double tap instead would swallow every second of quick taps
     /// at different places.
     private static let doubleTapWait = 0.3
+    /// When the map's double tap last ended. Its second tap may reach `tapped`
+    /// only after that, too late to be cancelled.
+    private var lastDoubleTap: CFTimeInterval = -.infinity
 
     /// A tap on the map, away from the waypoints.
     var onTap: ((CLLocationCoordinate2D) -> Void)?
+    /// A tap on the line of a leg, with its index.
+    var onLegTap: ((Int) -> Void)?
     var onWaypointTap: ((Int) -> Void)?
     /// A waypoint was dragged to a new place.
     var onWaypointMove: ((Int, CLLocationCoordinate2D) -> Void)?
@@ -64,11 +71,17 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
         casing.lineColor = NSExpression(forConstantValue: dark ? UIColor.black : UIColor.white)
         casing.lineWidth = NSExpression(forConstantValue: 8)
         casing.lineOpacity = NSExpression(forConstantValue: 0.95)
+        // The chosen leg, wide and see-through under its line; a dashed one as well.
+        let selected = MLNLineStyleLayer(identifier: "route-selected", source: source)
+        selected.predicate = NSPredicate(format: "selected == TRUE")
+        selected.lineColor = NSExpression(mglJSONObject: ["to-color", ["get", "color"]])
+        selected.lineWidth = NSExpression(forConstantValue: 10)
+        selected.lineOpacity = NSExpression(forConstantValue: 0.45)
         let line = MLNLineStyleLayer(identifier: "route", source: source)
         line.predicate = drawn
         line.lineColor = NSExpression(mglJSONObject: ["to-color", ["get", "color"]])
         line.lineWidth = NSExpression(forConstantValue: 4.5)
-        for layer in [casing, line] {
+        for layer in [casing, selected, line] {
             layer.lineCap = NSExpression(forConstantValue: "round")
             layer.lineJoin = NSExpression(forConstantValue: "round")
         }
@@ -77,13 +90,24 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
         failed.lineColor = NSExpression(mglJSONObject: ["to-color", ["get", "color"]])
         failed.lineWidth = NSExpression(forConstantValue: 3)
         failed.lineDashPattern = NSExpression(forConstantValue: [2, 2])
-        for layer in [casing, line, failed] {
+        for layer in [casing, selected, line, failed] {
             style.addLayer(layer)
         }
     }
 
     func show(_ legs: [Leg]) {
         self.legs = legs
+        reshape()
+    }
+
+    /// Draws leg `leg` as chosen; nil for none.
+    func select(leg: Int?) {
+        guard leg != selectedLeg else { return }
+        selectedLeg = leg
+        reshape()
+    }
+
+    private func reshape() {
         (mapView.style?.source(withIdentifier: Self.source) as? MLNShapeSource)?.shape = shape()
     }
 
@@ -112,10 +136,11 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func shape() -> MLNShape {
-        MLNShapeCollectionFeature(shapes: legs.filter { $0.line.count >= 2 }.map { leg in
+        MLNShapeCollectionFeature(shapes: legs.enumerated().filter { $0.element.line.count >= 2 }.map { index, leg in
             let feature = MLNPolylineFeature(coordinates: leg.line, count: UInt(leg.line.count))
             feature.attributes = [
                 "color": dark ? Self.readableOnBlack(leg.color) : leg.color, "failed": leg.failed,
+                "leg": index, "selected": index == selectedLeg,
             ]
             return feature
         })
@@ -222,19 +247,64 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
 
     @objc private func tapped() {
         guard tap.state == .ended else { return }
-        let at = mapView.convert(tap.location(in: mapView), toCoordinateFrom: mapView)
+        let point = tap.location(in: mapView)
+        let at = mapView.convert(point, toCoordinateFrom: mapView)
+        // Where the map is now: it may move before the tap counts.
+        let leg = leg(at: point)
+        let time = CACurrentMediaTime()
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingTaps.removeFirst()
-            self.onTap?(at)
+            guard abs(time - self.lastDoubleTap) >= Self.doubleTapWait else { return }
+            if let leg {
+                self.onLegTap?(leg)
+            } else {
+                self.onTap?(at)
+            }
         }
         pendingTaps.append(item)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.doubleTapWait, execute: item)
     }
 
+    /// How far from a line a finger still hits it, in points.
+    private static let legHitRadius: CGFloat = 22
+
+    /// The leg whose line is nearest to `point`, if one is within reach.
+    private func leg(at point: CGPoint) -> Int? {
+        let reach = Self.legHitRadius
+        let box = CGRect(x: point.x - reach, y: point.y - reach, width: 2 * reach, height: 2 * reach)
+        let hits = mapView.visibleFeatures(in: box, styleLayerIdentifiers: ["route", "route-failed"])
+        let nearest = hits.compactMap { feature -> (leg: Int, distance: CGFloat)? in
+            guard let leg = (feature.attribute(forKey: "leg") as? NSNumber)?.intValue else { return nil }
+            // What the map hands back may be cut into pieces at tile edges.
+            let lines = (feature as? MLNMultiPolylineFeature)?.polylines ?? [feature as? MLNPolyline].compactMap { $0 }
+            let distance = lines.map { line in
+                let points = UnsafeBufferPointer(start: line.coordinates, count: Int(line.pointCount))
+                    .map { mapView.convert($0, toPointTo: mapView) }
+                return Self.distance(from: point, toLine: points)
+            }.min() ?? reach
+            return (leg, distance)
+        }.min { $0.distance < $1.distance }
+        return nearest?.leg
+    }
+
+    /// The distance from `point` to the polyline through `line`, in points.
+    nonisolated static func distance(from point: CGPoint, toLine line: [CGPoint]) -> CGFloat {
+        guard let first = line.first else { return .infinity }
+        var best = hypot(point.x - first.x, point.y - first.y)
+        for (a, b) in zip(line, line.dropFirst()) {
+            let (dx, dy) = (b.x - a.x, b.y - a.y)
+            let length = dx * dx + dy * dy
+            let t = length > 0 ? max(0, min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length)) : 0
+            best = min(best, hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)))
+        }
+        return best
+    }
+
     /// A double tap zooms the map and sets no points.
     @objc private func tappedTwice(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
+        lastDoubleTap = CACurrentMediaTime()
         pendingTaps.forEach { $0.cancel() }
         pendingTaps = []
     }

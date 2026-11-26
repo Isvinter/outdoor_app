@@ -87,12 +87,20 @@ final class PlanController: ObservableObject {
     @Published private(set) var profiles: [ProfileChoice]
     @Published private(set) var request = planEmpty() {
         didSet {
-            if request != oldValue { onRouteChanged?() }
+            guard request != oldValue else { return }
+            // A leg that is gone, or whose place in the route may have moved, is no longer chosen.
+            if let selectedLeg, selectedLeg >= request.legs.count || request.waypoints.count != oldValue.waypoints.count {
+                selectLeg(nil)
+            }
+            onRouteChanged?()
         }
     }
     /// The answer to `request`, or to an older one while `planning`.
     @Published private(set) var plan: PlanResult?
-    /// What the form shows: the profile and settings of the last leg and of new legs.
+    /// The leg the user chose on the map; the form shows and changes it.
+    @Published private(set) var selectedLeg: Int?
+    /// What the form shows: the profile and settings of the chosen leg, or else
+    /// of the last leg and of new legs.
     @Published private(set) var profile: String
     @Published private(set) var options: [String: Double] = [:]
     /// In plan mode a tap on the map sets a waypoint.
@@ -162,7 +170,10 @@ final class PlanController: ObservableObject {
         profile = profiles.first { $0.profile == "hike" }?.available == true ? "hike" : "manual"
         overlay.onTap = { [weak self] at in
             guard let self else { return }
-            if self.picking {
+            // A tap beside the route first lets go of the chosen leg, and does nothing else.
+            if self.selectedLeg != nil {
+                self.selectLeg(nil)
+            } else if self.picking {
                 let first = self.request.waypoints.isEmpty
                 self.addWaypoint(at)
                 self.onPickedTap?(at, first)
@@ -170,6 +181,7 @@ final class PlanController: ObservableObject {
                 self.onFreeTap?(at)
             }
         }
+        overlay.onLegTap = { [weak self] index in self?.selectLeg(index) }
         overlay.onWaypointTap = { [weak self] index in
             guard let self, self.request.waypoints.indices.contains(index) else { return }
             self.menuWaypoint = index
@@ -213,7 +225,7 @@ final class PlanController: ObservableObject {
         guard !replacing, profile != self.profile else { return }
         self.profile = profile
         options = [:]
-        if profile != "manual" { UserDefaults.standard.set(profile, forKey: Self.lastProfileKey) }
+        if profile != "manual", selectedLeg == nil { UserDefaults.standard.set(profile, forKey: Self.lastProfileKey) }
         formChanged()
     }
 
@@ -223,11 +235,34 @@ final class PlanController: ObservableObject {
         formChanged()
     }
 
-    /// The last leg follows the form.
+    /// The chosen leg follows the form; without one, the last leg does.
     private func formChanged() {
         guard !request.legs.isEmpty else { return }
-        request = planSetLastLeg(request: request, leg: formLeg)
+        if let selectedLeg {
+            request = planSetLeg(request: request, index: UInt32(selectedLeg), leg: formLeg)
+        } else {
+            request = planSetLastLeg(request: request, leg: formLeg)
+        }
         compute()
+    }
+
+    /// Chooses leg `index` of the route, or none with nil. The form then shows
+    /// that leg, or again the last one; nothing is computed anew.
+    func selectLeg(_ index: Int?) {
+        if let index {
+            guard !replacing, request.legs.indices.contains(index) else { return }
+        }
+        guard index != selectedLeg else { return }
+        selectedLeg = index
+        if let leg = (index.map { request.legs[$0] } ?? request.legs.last) {
+            showInForm(leg)
+        }
+        overlay.select(leg: index)
+    }
+
+    private func showInForm(_ leg: LegInput) {
+        profile = leg.profile
+        options = Dictionary(leg.options.map { ($0.key, $0.value) }, uniquingKeysWith: { $1 })
     }
 
     // MARK: Waypoints
@@ -278,6 +313,7 @@ final class PlanController: ObservableObject {
     func clear() {
         guard !replacing else { return }
         picking = false
+        selectLeg(nil)
         request = planEmpty()
         loaded = nil
         let core = core
@@ -457,11 +493,9 @@ final class PlanController: ObservableObject {
         picking = false
         message = nil
         self.plan = plan
+        selectLeg(nil)
         request = plan.request
-        if let last = plan.request.legs.last {
-            profile = last.profile
-            options = Dictionary(uniqueKeysWithValues: last.options.map { ($0.key, $0.value) })
-        }
+        if let last = plan.request.legs.last { showInForm(last) }
         drawWaypoints()
         drawLegs()
         overlay.fit(plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
@@ -639,6 +673,7 @@ final class PlanController: ObservableObject {
                 line: leg.line.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) },
                 color: leg.color, failed: false)
         }
+        overlay.select(leg: selectedLeg)
         overlay.show(drawn)
         onRouteDrawn?(drawn.map(\.line), points.count)
     }
@@ -660,6 +695,7 @@ final class PlanController: ObservableObject {
             String(format: "distance_m=%.0f", plan?.total.distanceM ?? 0),
             "route_colors=\(list(drawn.colors))",
             "dashed=\(drawn.dashed)",
+            "selected_leg=\(selectedLeg.map(String.init) ?? "-")",
         ]
         parts += ["routes=\(routes.count)", "route_id=\(loaded?.id ?? "-")", "route_rev=\(loaded?.rev ?? 0)"]
         if let remoteRoutes {

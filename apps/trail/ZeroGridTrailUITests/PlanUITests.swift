@@ -195,6 +195,102 @@ final class PlanUITests: XCTestCase {
         XCTAssertEqual(winter.int("waypoints"), 3)
     }
 
+    // MARK: Choosing a leg
+
+    /// The middles of the first two legs through `places`: legs of "Skitour (manuell)"
+    /// are straight lines.
+    private let firstLegMiddle = (0.5, 0.415)
+    private let secondLegMiddle = (0.6, 0.525)
+
+    /// A tap on the line chooses its leg; the profile then applies to that leg alone.
+    func testTapOnLegSelectsItAndProfileAppliesToIt() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+        app.buttons["plan-pick"].tap()
+
+        app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
+        app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
+        app.chooseProfile("Wandern")
+
+        let status = app.waitForStatus("first leg is a hike") {
+            $0.int("planning") == 0 && $0.list("leg_profiles") == ["hike", "manual"]
+        }
+        XCTAssertEqual(status.int("waypoints"), 3)
+        XCTAssertEqual(status.values["selected_leg"], "0")
+    }
+
+    /// In plan mode a tap on the line chooses the leg and sets no point.
+    func testTapOnLegInPickModeSetsNoPoint() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+
+        app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
+
+        let status = app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
+        XCTAssertEqual(status.int("picking"), 1)
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(app.mapStatus.int("waypoints"), 3)
+    }
+
+    /// Review focus 4: without a selection the profile applies to the last leg again.
+    func testDeselectedProfileAppliesToLastLegAgain() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+        app.buttons["plan-pick"].tap()
+        app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
+        app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
+
+        app.place(0.85, 0.3).tap()
+        app.waitForStatus("nothing selected") { $0.values["selected_leg"] == "-" }
+        app.chooseProfile("Wandern")
+
+        let status = app.waitForStatus("last leg is a hike") {
+            $0.int("planning") == 0 && $0.list("leg_profiles") == ["manual", "hike"]
+        }
+        XCTAssertEqual(status.int("waypoints"), 3)
+    }
+
+    /// Review focus 3: a selection whose leg is gone goes with it.
+    func testSelectionGoesWithItsLeg() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+        app.buttons["plan-pick"].tap()
+
+        app.place(secondLegMiddle.0, secondLegMiddle.1).tap()
+        app.waitForStatus("leg 1 selected") { $0.values["selected_leg"] == "1" }
+        app.buttons["plan-undo"].tap()
+        let undone = app.waitForPlan(waypoints: 2)
+        XCTAssertEqual(undone.values["selected_leg"], "-")
+        XCTAssertEqual(undone.int("legs"), 1)
+
+        app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
+        app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
+        app.buttons["plan-clear"].tap()
+        let cleared = app.waitForPlan(waypoints: 0)
+        XCTAssertEqual(cleared.values["selected_leg"], "-")
+    }
+
+    /// Review focus 5: a double tap on the line only zooms.
+    func testDoubleTapOnLegSelectsNothing() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        let before = app.waitForPlan(waypoints: 3)
+        app.buttons["plan-pick"].tap()
+
+        app.place(firstLegMiddle.0, firstLegMiddle.1).doubleTap()
+
+        let zoomed = app.waitForStatus("zoomed in") {
+            (Double($0.values["zoom"] ?? "") ?? 0) > (Double(before.values["zoom"] ?? "") ?? 0) + 0.5
+        }
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertEqual(app.mapStatus.values["selected_leg"], "-")
+        XCTAssertEqual(zoomed.int("waypoints"), 3)
+    }
+
     // MARK: The sheet
 
     private func pullSheetUp(_ app: XCUIApplication) {
