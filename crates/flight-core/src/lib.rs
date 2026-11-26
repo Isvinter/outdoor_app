@@ -7,6 +7,7 @@
 pub mod airspace;
 pub mod airspace_warning;
 pub mod atmosphere;
+pub mod flight_phase;
 pub mod flightlog;
 pub mod geo;
 pub mod glide;

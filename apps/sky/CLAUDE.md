@@ -40,6 +40,7 @@ Phasen strikt nacheinander, nach jeder Phase auf Freigabe warten.
 | 7 | Lufträume: OpenAir einlesen (`flight-core`), Anzeige auf der Karte, später Warnungen; Daten zuerst von openAIP (Deutschland, Österreich; später Schweiz, Norditalien), nicht im Repository | freigegeben (OpenAir-Parser fertig, liest die openAIP-Dateien (OpenAir 2) für Deutschland und Österreich ohne Meldung; Anzeige auf der Karte, Dateiliste und Filter in den Einstellungen auf macOS und dem iPhone geprüft (flüssig auch mit ganz Deutschland und Österreich im Bild); Antippen der Karte listet die Lufträume an der Stelle, auf macOS und dem iPhone geprüft (Scrollen einer langen Liste nicht); Warnungen (Vorwarnung/Alarm, Ton, Banner, Hervorhebung, Quittieren, Einstellungen, Gelände aus `dem.pmtiles` für AGL) gebaut, mit Tests und im Desktop-Simulator geprüft, auf dem iPhone draußen mit erfundenen Testlufträumen vom Nutzer geprüft; danach: Warnungen enden nach 30 s ohne GPS, Testknöpfe für den Warnton, beides nur mit Tests und auf macOS geprüft) |
 | – | OLED-Dunkelmodus: Hell/Dunkel und Relief (Schattierung) an/aus in den Einstellungen; Höhenlinien bleiben im Dunkelmodus immer sichtbar | freigegeben (Linux- und macOS-Selbsttest; am 23.11.2026 auf dem iPhone mit Sky und Trail geprüft, auch die Höhenlinien ohne Relief; Ergebnisse: `docs/sky/ios-test.md`) |
 | – | Gleitzahl, Landepunkt, Wind: Gleitzahl über Grund (Zeitraum 10/20/30/60 s einstellbar), Landepunkt gegen das Gelände aus `dem.pmtiles` (Kreuz auf der Karte, Hinweis am Rand), Wind aus ganzen Kreisen (Windbox mit Pfeil, km/h und Sternen); Kacheln „GZ“ und „Wind“ auf der Instrumente-Seite | gebaut, mit Tests und im Desktop-Simulator geprüft; am 26.11.2026 auf macOS geprüft (Selbsttests mit und ohne Region, mit Testlufträumen, Zeitraum 10/20/60 s, ungültigem Zeitraum, Dunkelmodus), im iOS-Simulator gestartet (Wind dort nicht prüfbar: `simctl` liefert konstante Geschwindigkeit, kein Barometer), auf dem iPhone gestartet und angesehen; nicht im Flug geprüft |
+| – | Start-/Landeerkennung nach dem Vorbild des Flymaster GPS M: Start ab 20 m über Gelände (ohne Gelände ab Startgeschwindigkeit, Standard 15 km/h) für 5 s, Landung nach 30 s (ohne Gelände 60 s) Ruhe am Boden, beides zurückdatiert; Flüge vom Start bis zur Landung (mehrere pro Sitzung), Sitzung ohne Start mit Bewegung als markierter Flug; „Ton erst ab Start“ (Standard an) für Vario- und Warnton; Gleitzahl und Landepunkt nur in der Luft; Anzeige „Bereit / In der Luft / Gelandet“. Spezifikation: `docs/superpowers/specs/2026-11-26-start-landeerkennung-design.md` | gebaut, mit Tests und im Desktop-Simulator geprüft (26.11.2026: ganzer Flug vom Brauneck bis zur Landung im Isartal, mit und ohne Region, Ton erst ab Start aus); auf dem iPhone am Schreibtisch vom Nutzer geprüft (Bereit, kein Ton vor dem Start, Testton spielt, Herumgehen startet keinen Flug, nach Stopp kein neuer Flug); nicht an einem echten Start geprüft |
 
 Den Status hier nach jeder Freigabe aktualisieren.
 
@@ -160,8 +161,11 @@ cargo run -p vario-app
 # Selbsttest: drückt selbst auf Start, öffnet die Karte, gibt Seiteninhalt, Anzahl der
 # Track-Punkte und Skriptfehler aus und beendet sich
 VARIO_SMOKE_TEST=1 cargo run -p vario-app
-# Länger fliegen lassen (Sekunden), damit Gleitzahl, Wind und Landepunkt im Bericht stehen
-VARIO_SMOKE_TEST=1 VARIO_SMOKE_RUN_S=150 cargo run -p vario-app
+# Länger fliegen lassen (Sekunden): nach 150 s in der ersten Thermik (Wind, keine
+# Gleitzahl), nach 450 s im Gleitflug (Gleitzahl, Wind, Landepunkt); der ganze Flug vom
+# Startplatz bis 60 s nach der Landung dauert gut 20 min (1240 s). Der Bericht nennt
+# die Flugphase und ob die gespeicherten Flüge einen erkannten Start haben.
+VARIO_SMOKE_TEST=1 VARIO_SMOKE_RUN_S=450 cargo run -p vario-app
 # Region per WLAN laden: Freigabe von ZeroGrid Base nachstellen (share-serve;
 # --seed-region verschiebt den Ordner, also eine Kopie
 # angeben) und den Selbsttest mit leerem HOME dagegen laufen lassen, damit der echte
@@ -189,8 +193,16 @@ den Text des Warnbanners aus. Warn-Einstellungen liegen in `airspace-warning.txt
 
 Flüge liegen als IGC-Dateien im Ordner `flights` (iOS: Dokumente-Ordner der App, in der
 App „Dateien“ sichtbar; Desktop: Datenordner der App), Sensorlogs daneben in `logs`. Jeder
-Lauf von Start bis Stopp ist ein Flug; die Datei wird alle 10 s vollständig neu geschrieben.
-Der Selbsttest schreibt seine Flüge in einen temporären Ordner.
+Flug reicht vom erkannten Start bis zur erkannten Landung (Abschnitt 9 in
+`docs/ALGORITHMEN.md`); mehrere Flüge pro Sitzung sind möglich. Daneben läuft die ganze
+Sitzung in einer versteckten Datei `.session-….igc` mit, die bei „Stopp“ verschwindet; ohne
+erkannten Start, aber mit Bewegung wird sie zum Flug mit Vermerk „ohne erkannten Start“. Die
+Dateien werden alle 10 s vollständig neu geschrieben.
+Der Selbsttest schreibt seine Flüge in einen temporären Ordner
+(`$TMPDIR/vario-smoke-test-flights`), der ohne eigenes `TMPDIR` von allen Läufen geteilt
+wird. Für saubere Flugliste und Start-/Landeerkennung jedem Lauf ein eigenes `TMPDIR` geben
+und nie zwei Läufe mit demselben Ordner gleichzeitig starten: Beim Start räumt die App
+übrig gebliebene Sitzungsdateien auf.
 
 Einstellungen liegen als Textdatei (`settings.txt`, Kartenstil in `map-style.txt`, Hell/Dunkel und Relief in `map-look.json`) im
 Konfigurationsordner der App; das Format definiert `flight-core`.

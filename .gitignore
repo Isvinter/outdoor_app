@@ -6,3 +6,4 @@ dist/
 /data/
 .env
 .~lock.*
+/references/

@@ -104,7 +104,7 @@ function render(status) {
   renderWind(status?.wind ?? null);
   FlightMap.setLanding(status?.landing ?? null);
 
-  renderRecording(status?.recording ?? null);
+  renderRecording(status?.recording ?? null, status?.flight ?? null);
   renderWarnings(status?.airspaceWarnings ?? []);
   if (activePage === "settings") renderSensors(status);
 }
@@ -260,19 +260,29 @@ $("reset-warning").addEventListener("click", async () => {
 });
 
 let recordingFile = null;
+// Last flight phase from Rust, for the desktop self-test's report.
+let lastFlight = null;
 
-function renderRecording(recording) {
+// The flight phase comes from the takeoff and landing detection in Rust.
+function renderRecording(recording, flight) {
   const element = $("recording");
+  // Only a flight in the air has a file name; the session before it has none.
   recordingFile = running ? (recording?.fileName ?? null) : null;
+  lastFlight = flight;
   element.className = recording?.error ? "bad" : "";
+  const seconds = Math.floor(flight?.flightS ?? 0);
   if (!running || !recording) {
     element.textContent = "";
   } else if (recording.error) {
     element.textContent = "Aufzeichnung: Speichern fehlgeschlagen – " + recording.error;
   } else if (recording.fixCount === 0) {
     element.textContent = "Aufzeichnung: warte auf GPS";
+  } else if (flight?.phase === "airborne") {
+    element.textContent = `● In der Luft · ${duration(seconds)}`;
+  } else if (flight?.phase === "landed") {
+    element.textContent = `Gelandet · Flugzeit ${duration(seconds)}`;
   } else {
-    element.textContent = `● Aufzeichnung: ${duration(recording.fixCount)}`;
+    element.textContent = "Bereit · wartet auf Start";
   }
 }
 
@@ -507,7 +517,8 @@ function flightElement(flight) {
   const active = flight.fileName === recordingFile;
   facts.textContent = s
     ? `${active ? "läuft · " : ""}${duration(s.durationS)} · max. ${s.maxAltitudeM} m · ` +
-      `${(s.trackLengthM / 1000).toFixed(1)} km`
+      `${(s.trackLengthM / 1000).toFixed(1)} km` +
+      (flight.takeoffDetected ? "" : " · ohne erkannten Start")
     : "Datei nicht lesbar";
 
   const buttons = document.createElement("div");
@@ -575,6 +586,7 @@ const settingInputs = [
   ["set-sink", "out-sink", "sinkThresholdMps", (v) => signed(v) + " m/s"],
   ["set-volume", "out-volume", "volume", (v) => Math.round(v * 100) + " %"],
   ["set-damping", "out-damping", "dampingS", (v) => v.toFixed(1) + " s"],
+  ["set-takeoff-speed", "out-takeoff-speed", "takeoffSpeedKmh", (v) => Math.round(v) + " km/h"],
 ];
 
 function showSettings() {
@@ -583,6 +595,11 @@ function showSettings() {
     $(output).textContent = format(settings[field]);
   }
   $("set-glide-window").value = String(settings.glideWindowS);
+  const toneAfterTakeoff = $("set-tone-after-takeoff");
+  toneAfterTakeoff.classList.toggle("on", settings.toneAfterTakeoff);
+  toneAfterTakeoff.textContent = settings.toneAfterTakeoff
+    ? "Ton erst ab Start: an"
+    : "Ton erst ab Start: aus";
 }
 
 async function applySettings(changed) {
@@ -610,6 +627,10 @@ for (const [input, output, field, format] of settingInputs) {
 
 $("set-glide-window").addEventListener("change", () => {
   applySettings({ ...settings, glideWindowS: Number($("set-glide-window").value) });
+});
+
+$("set-tone-after-takeoff").addEventListener("click", () => {
+  applySettings({ ...settings, toneAfterTakeoff: !settings.toneAfterTakeoff });
 });
 
 $("reset-settings").addEventListener("click", async () => {

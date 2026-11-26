@@ -64,16 +64,28 @@ fn run(stop: &AtomicBool) {
     }
 }
 
-/// About 45 minutes of glides, thermals and sink, repeating every four and a half
-/// minutes, with no net altitude change per round. Starts above the Brauneck near
-/// Lenggries (a public launch site), inside ZeroGrid Base's test map region, so the
-/// offline map can be tried on the desktop. A constant wind of 4 m/s (about 14 km/h)
-/// from the west blows throughout.
+/// A whole flight of about 20 minutes, from launch to landing: 20 s standing at a
+/// launch just east of the Brauneck summit near Lenggries (a public launch site), a
+/// thermal, two rounds of glides, thermals and sink, a spiral down and a final glide
+/// into the Isar valley south of Lenggries, then 60 s standing in the landing field.
+/// All of it lies inside ZeroGrid Base's test map region, so the offline map and the
+/// takeoff and landing detection can be tried on the desktop. A constant wind of
+/// 4 m/s (about 14 km/h) from the west blows throughout.
+///
+/// The heights come from the test region's elevation tiles (`dem.pmtiles`, zoom 13),
+/// looked up once with a throwaway program: ground 1470.9 m at the launch, 719.6 m
+/// where the final glide (87.1 s) touches down at 47.6542 N 11.5703 E. The phone is
+/// 1 m above the ground. Profile and wind were chosen so that the glider stays above
+/// the terrain all the way.
 fn long_flight() -> SyntheticFlight {
     let mut builder = SyntheticFlight::builder()
-        .start(47.665, 11.526, 1700.0)
-        .wind(270.0, 4.0);
-    for _ in 0..10 {
+        .start(47.6640, 11.5270, 1471.9)
+        .heading(90.0)
+        .wind(270.0, 4.0)
+        .segment(Segment::on_ground(20.0, 0.0))
+        .segment(Segment::straight(30.0, -1.2))
+        .segment(Segment::circling(200.0, 2.5, 20.0));
+    for _ in 0..2 {
         builder = builder
             .segment(Segment::straight(30.0, -1.2))
             .segment(Segment::circling(40.0, 1.0, 20.0))
@@ -82,5 +94,9 @@ fn long_flight() -> SyntheticFlight {
             .segment(Segment::straight(20.0, -3.5))
             .segment(Segment::straight(88.0, -1.0));
     }
-    builder.build()
+    builder
+        .segment(Segment::circling(273.0, -4.0, 20.0))
+        .segment(Segment::straight(87.1, -1.2))
+        .segment(Segment::on_ground(60.0, 0.0))
+        .build()
 }

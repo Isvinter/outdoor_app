@@ -82,7 +82,11 @@ impl Engine {
     ) -> io::Result<Engine> {
         let mut processor = Processor::new(control, settings);
         if let Some(dir) = &flights_dir {
-            processor.record_flight(dir);
+            // Sessions left over from a crash first, so they are not mixed up with this one.
+            for note in flights::recover_sessions(dir) {
+                processor.note(note);
+            }
+            processor.record_flights(dir);
         }
         if let Some(dir) = &log_dir {
             processor.open_logs(dir, &timestamp_for_file_name())?;
@@ -236,6 +240,7 @@ fn run(
     }
 
     processor.summarize(last_summary.elapsed().as_secs_f64(), &utc_clock_label());
+    processor.finish_session();
     processor.silence();
     *lock(&shared.status) = processor.status(started.elapsed().as_secs_f64(), false);
 }
