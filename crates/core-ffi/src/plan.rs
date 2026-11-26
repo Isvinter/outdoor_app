@@ -530,6 +530,14 @@ pub fn plan_set_leg(request: PlanInput, index: u32, leg: LegInput) -> PlanInput 
     }
 }
 
+/// Splits leg `index` at half its length along `line` (the leg as computed;
+/// empty for a failed leg); both halves keep its profile.
+#[uniffi::export]
+pub fn plan_split_leg(request: PlanInput, index: u32, line: Vec<LatLon>) -> PlanInput {
+    let line: Vec<core_routing::LatLon> = line.into_iter().map(Into::into).collect();
+    edit(request, |r| r.split_leg(index as usize, &line))
+}
+
 /// Whether a leg failing with this error code can be joined by a straight line.
 #[uniffi::export]
 pub fn leg_can_connect_straight(code: String) -> bool {

@@ -22,7 +22,7 @@ pub use plan::{
     ElevationSample, EngineFailure, LatLon, LegInput, OptionInfo, OptionValue, PlanInput, PlanLeg,
     PlanResult, PlanTotals, ProfileChoice, SavedRoute, StageSummary, ValhallaEngine,
     failed_leg_color, leg_can_connect_straight, plan_add_waypoint, plan_empty, plan_move_waypoint,
-    plan_remove_waypoint, plan_set_last_leg, plan_set_leg, plan_toggle_stage_end,
+    plan_remove_waypoint, plan_set_last_leg, plan_set_leg, plan_split_leg, plan_toggle_stage_end,
 };
 pub use search::{KnownPosition, RouteStart, SearchHit, SearchResults};
 pub use share::{ImportedRoute, RegionEntry, RegionList, RemoteRouteEntry};

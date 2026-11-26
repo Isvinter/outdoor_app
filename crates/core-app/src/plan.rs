@@ -358,11 +358,61 @@ impl PlanRequest {
         next
     }
 
+    /// Splits leg `index` with a new waypoint at half the length of `line`,
+    /// the leg as computed. Without a line of some length the point goes
+    /// halfway between the leg's waypoints. Both halves keep the leg's
+    /// profile and settings; later stage ends stay at their waypoints.
+    #[must_use]
+    pub fn split_leg(&self, index: usize, line: &[LatLon]) -> Self {
+        let (Some(&leg), Some(&from), Some(&to)) = (
+            self.legs.get(index),
+            self.waypoints.get(index),
+            self.waypoints.get(index + 1),
+        ) else {
+            return self.clone();
+        };
+        let at = half_way(line).unwrap_or(LatLon {
+            lat: (from.lat + to.lat) / 2.0,
+            lon: (from.lon + to.lon) / 2.0,
+        });
+        let mut next = self.clone();
+        next.waypoints.insert(index + 1, at);
+        next.legs.insert(index + 1, leg);
+        for end in &mut next.stage_ends {
+            if *end > index {
+                *end += 1;
+            }
+        }
+        next
+    }
+
     /// Only inner waypoints can end a stage.
     fn keep_inner_stage_ends(&mut self) {
         let n = self.waypoints.len();
         self.stage_ends.retain(|&end| end > 0 && end + 1 < n);
     }
+}
+
+/// The point at half the length of `line`; `None` for a line without length.
+fn half_way(line: &[LatLon]) -> Option<LatLon> {
+    let lengths: Vec<f64> = line.windows(2).map(|w| w[0].distance_m(&w[1])).collect();
+    let total: f64 = lengths.iter().sum();
+    if total <= 0.0 {
+        return None;
+    }
+    let mut left = total / 2.0;
+    for (i, &length) in lengths.iter().enumerate() {
+        if left <= length && length > 0.0 {
+            let t = left / length;
+            let (a, b) = (line[i], line[i + 1]);
+            return Some(LatLon {
+                lat: a.lat + t * (b.lat - a.lat),
+                lon: a.lon + t * (b.lon - a.lon),
+            });
+        }
+        left -= length;
+    }
+    line.last().copied()
 }
 
 fn on_foot(profile: Profile) -> bool {

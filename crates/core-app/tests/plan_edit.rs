@@ -183,3 +183,66 @@ fn straight_line_only_for_missing_data_or_no_route() {
     assert!(!error("routing_incompatible").can_connect_straight());
     assert!(!error("routing").can_connect_straight());
 }
+
+fn ll(lat: f64, lon: f64) -> LatLon {
+    LatLon { lat, lon }
+}
+
+fn dist(a: &LatLon, b: &LatLon) -> f64 {
+    a.distance_m(b)
+}
+
+#[test]
+fn split_inserts_point_on_half_length_of_the_line() {
+    let request = plan(&[Hike, Mtb, Car], &[]);
+    // A bend: 0→1 short, 1→2 long; half the length lies on the second stretch.
+    let line = vec![ll(47.0, 11.0), ll(47.0, 11.001), ll(47.003, 11.001)];
+    let split = request.split_leg(1, &line);
+    assert_eq!(profiles(&split), vec![Hike, Mtb, Mtb, Car]);
+    assert_eq!(split.waypoints.len(), 5);
+    assert_eq!(split.waypoints[1], at(1));
+    assert_eq!(split.waypoints[3], at(2));
+    let mid = split.waypoints[2];
+    let total = dist(&line[0], &line[1]) + dist(&line[1], &line[2]);
+    assert!((dist(&line[0], &line[1]) + dist(&line[1], &mid) - total / 2.0).abs() < 0.5);
+    assert!(
+        (mid.lon - 11.001).abs() < 1e-9,
+        "on the second stretch of the line"
+    );
+    valid(&split);
+}
+
+#[test]
+fn split_keeps_options_of_the_leg() {
+    let mut request = plan(&[Mtb], &[]);
+    request.legs[0].options.use_hills = Some(0.8);
+    let split = request.split_leg(0, &[at(0), at(1)]);
+    assert_eq!(split.legs, vec![request.legs[0], request.legs[0]]);
+}
+
+#[test]
+fn split_shifts_later_stage_ends() {
+    let request = plan(&[Hike, Hike, Hike, Hike], &[1, 3]);
+    let split = request.split_leg(1, &[at(1), at(2)]);
+    assert_eq!(split.stage_ends, vec![1, 4]);
+    valid(&split);
+}
+
+#[test]
+fn split_without_line_uses_middle_of_the_waypoints() {
+    let request = plan(&[Hike], &[]);
+    for line in [vec![], vec![at(0)], vec![at(0), at(0)]] {
+        let split = request.split_leg(0, &line);
+        let mid = split.waypoints[1];
+        assert!((mid.lat - (at(0).lat + at(1).lat) / 2.0).abs() < 1e-12);
+        assert!((mid.lon - (at(0).lon + at(1).lon) / 2.0).abs() < 1e-12);
+        valid(&split);
+    }
+}
+
+#[test]
+fn split_outside_the_route_changes_nothing() {
+    let request = plan(&[Hike, Mtb], &[]);
+    assert_eq!(request.split_leg(2, &[at(0), at(1)]), request);
+    assert_eq!(PlanRequest::empty().split_leg(0, &[]), PlanRequest::empty());
+}

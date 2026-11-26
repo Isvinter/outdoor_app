@@ -17,7 +17,12 @@ struct PlanSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            totals
+            // A chosen leg takes the place of the totals, at the same height.
+            if plan.selectedLeg != nil, plan.plan != nil {
+                LegSummary(plan: plan)
+            } else {
+                totals
+            }
             PlanBar(plan: plan, guide: guide)
             if let notice = plan.notice, detent != Self.collapsed {
                 Text(notice)
