@@ -89,10 +89,80 @@ impl TrackPoint {
     }
 }
 
-/// Consecutive fixes without interruption. A pause or a restart begins a new segment.
+/// Why a segment began.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SegmentReason {
+    /// The first segment of a recording, or of an imported track.
+    #[default]
+    Start,
+    /// The user switched the activity.
+    ActivityChange,
+    /// The recording was resumed after a pause.
+    Resume,
+    /// A long time without fixes.
+    Gap,
+    /// A rest was detected; the segment holds the fixes of the rest.
+    Rest,
+    /// The user moved on after a rest.
+    RestEnd,
+    /// The recording was continued from a stored track, e.g. after a crash.
+    Continue,
+}
+
+impl SegmentReason {
+    pub const ALL: [SegmentReason; 7] = [
+        SegmentReason::Start,
+        SegmentReason::ActivityChange,
+        SegmentReason::Resume,
+        SegmentReason::Gap,
+        SegmentReason::Rest,
+        SegmentReason::RestEnd,
+        SegmentReason::Continue,
+    ];
+
+    /// Stable identifier used in storage.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SegmentReason::Start => "start",
+            SegmentReason::ActivityChange => "activity_change",
+            SegmentReason::Resume => "resume",
+            SegmentReason::Gap => "gap",
+            SegmentReason::Rest => "rest",
+            SegmentReason::RestEnd => "rest_end",
+            SegmentReason::Continue => "continue",
+        }
+    }
+}
+
+impl FromStr for SegmentReason {
+    type Err = TrackError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        SegmentReason::ALL
+            .into_iter()
+            .find(|r| r.as_str() == s)
+            .ok_or_else(|| TrackError::UnknownSegmentReason(s.to_owned()))
+    }
+}
+
+/// Consecutive fixes without interruption, a section of a tour. A new segment begins
+/// with a pause, a restart, a long gap, a change of activity and a detected rest.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Segment {
     pub points: Vec<TrackPoint>,
+    /// Activity of this section; `None` means that of the track.
+    #[serde(default)]
+    pub activity: Option<Activity>,
+    #[serde(default)]
+    pub reason: SegmentReason,
+}
+
+impl Segment {
+    /// Whether the segment holds the fixes of a detected rest.
+    pub fn is_rest(&self) -> bool {
+        self.reason == SegmentReason::Rest
+    }
 }
 
 /// A recorded or imported track.
@@ -101,4 +171,15 @@ pub struct Track {
     pub name: Option<String>,
     pub activity: Option<Activity>,
     pub segments: Vec<Segment>,
+}
+
+impl Track {
+    /// Activity of segment `i`: its own, else that of the track, else [`Activity::Other`].
+    pub fn segment_activity(&self, i: usize) -> Activity {
+        self.segments
+            .get(i)
+            .and_then(|s| s.activity)
+            .or(self.activity)
+            .unwrap_or(Activity::Other)
+    }
 }

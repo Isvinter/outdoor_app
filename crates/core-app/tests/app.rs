@@ -400,9 +400,11 @@ fn replayed_real_track_is_recorded_and_exported_faithfully() {
     parts.segments = vec![
         Segment {
             points: points[..split].to_vec(),
+            ..Default::default()
         },
         Segment {
             points: points[split..].to_vec(),
+            ..Default::default()
         },
     ];
     assert_eq!(exported.segments[0].points.len(), split);

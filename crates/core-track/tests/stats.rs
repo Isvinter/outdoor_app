@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use core_track::{Activity, Segment, StatsParams, Track, TrackPoint, compute_stats};
+use core_track::{
+    Activity, Segment, SegmentReason, StatsParams, Track, TrackPoint, compute_section_stats,
+    compute_stats,
+};
 
 /// Metres per degree of latitude on the sphere used by the crate.
 const M_PER_DEG_LAT: f64 = 111_195.08;
@@ -23,7 +26,10 @@ fn track(segments: Vec<Vec<TrackPoint>>) -> Track {
         activity: None,
         segments: segments
             .into_iter()
-            .map(|points| Segment { points })
+            .map(|points| Segment {
+                points,
+                ..Default::default()
+            })
             .collect(),
     }
 }
@@ -370,4 +376,161 @@ fn elevation_gain_of_a_profile_ignores_ripples_below_the_threshold() {
     assert!((down - 40.0).abs() < 3.0, "descent {down}");
     assert_eq!(elevation_gain(&[], 50.0, 3.0), (0.0, 0.0));
     assert_eq!(elevation_gain(&[(0.0, 700.0)], 50.0, 3.0), (0.0, 0.0));
+}
+
+fn section(points: Vec<TrackPoint>, activity: Activity, reason: SegmentReason) -> Segment {
+    Segment {
+        points,
+        activity: Some(activity),
+        reason,
+    }
+}
+
+/// Slow walking (2 km/h, below the bike threshold), then crawling: the activity's
+/// parameters matter.
+fn slow_walk(start_lat: f64, t0_ms: i64) -> Vec<TrackPoint> {
+    let mut pts = north_line(start_lat, 120, 0.6, t0_ms, 1.0);
+    let lat = pts[119].lat;
+    let mut slow = north_line(lat, 60, 0.15, t0_ms + 120_000, 1.0);
+    slow.remove(0);
+    pts.extend(slow);
+    pts
+}
+
+/// Moving north with elevation rising 0.5 m per step.
+fn climb(start_lat: f64, t0_ms: i64) -> Vec<TrackPoint> {
+    let mut pts = north_line(start_lat, 201, 5.0, t0_ms, 1.0);
+    for (i, p) in pts.iter_mut().enumerate() {
+        p.ele = Some(1000.0 + 0.5 * i as f64);
+    }
+    pts
+}
+
+#[test]
+fn sections_use_their_own_params() {
+    let hike_pts = slow_walk(47.0, T0);
+    let bike_pts = slow_walk(47.0, T0);
+    let t = Track {
+        name: None,
+        activity: Some(Activity::Bike),
+        segments: vec![
+            section(hike_pts.clone(), Activity::Hike, SegmentReason::Start),
+            section(
+                bike_pts.clone(),
+                Activity::Bike,
+                SegmentReason::ActivityChange,
+            ),
+        ],
+    };
+    let hike = StatsParams::for_activity(Activity::Hike);
+    let alone_hike = compute_stats(&track(vec![hike_pts]), &hike);
+    let alone_bike = compute_stats(&track(vec![bike_pts]), &bike());
+    assert!(
+        (alone_hike.moving_time_s - alone_bike.moving_time_s).abs() > 10.0,
+        "the profiles must differ on this track: {alone_hike:?} {alone_bike:?}"
+    );
+
+    let (total, sections) = compute_section_stats(&t, StatsParams::for_activity);
+    assert_eq!(sections, [alone_hike.clone(), alone_bike.clone()]);
+    let sum = |f: fn(&core_track::TrackStats) -> f64| f(&alone_hike) + f(&alone_bike);
+    assert_close(
+        total.moving_time_s,
+        sum(|s| s.moving_time_s),
+        1e-9,
+        "moving",
+    );
+    assert_close(total.total_time_s, sum(|s| s.total_time_s), 1e-9, "total");
+    assert_close(total.distance_m, sum(|s| s.distance_m), 1e-9, "distance");
+    assert_close(
+        total.avg_moving_speed_mps,
+        total.distance_m / total.moving_time_s,
+        1e-9,
+        "average",
+    );
+    assert_eq!(total.points_total, 2 * alone_hike.points_total);
+}
+
+#[test]
+fn rest_counts_total_time_only() {
+    let ride = climb(47.0, T0);
+    let end = ride[200];
+    let rest: Vec<TrackPoint> = (1..=61)
+        .map(|k| {
+            // jittery fixes around the rest spot, far off in elevation
+            let mut p = TrackPoint::new(end.lat + (k % 3) as f64 * 10.0 / M_PER_DEG_LAT, 11.0);
+            p.ele = Some(900.0 + (k % 2) as f64 * 50.0);
+            p.time_ms = Some(T0 + 200_000 + k * 60_000);
+            p
+        })
+        .collect();
+    let without = Track {
+        name: None,
+        activity: Some(Activity::Bike),
+        segments: vec![section(ride.clone(), Activity::Bike, SegmentReason::Start)],
+    };
+    let mut with = without.clone();
+    with.segments
+        .push(section(rest, Activity::Bike, SegmentReason::Rest));
+
+    let (before, _) = compute_section_stats(&without, StatsParams::for_activity);
+    let (after, sections) = compute_section_stats(&with, StatsParams::for_activity);
+    assert_close(
+        after.total_time_s,
+        before.total_time_s + 3600.0,
+        1e-9,
+        "total time",
+    );
+    assert_close(
+        after.moving_time_s,
+        before.moving_time_s,
+        1e-9,
+        "moving time",
+    );
+    assert_close(after.distance_m, before.distance_m, 1e-9, "distance");
+    assert_close(after.ascent_m, before.ascent_m, 1e-9, "ascent");
+    assert_close(after.descent_m, before.descent_m, 1e-9, "descent");
+    assert_eq!(after.min_ele_m, before.min_ele_m);
+    assert_eq!(after.max_speed_mps, before.max_speed_mps);
+    assert_eq!(sections[1].distance_m, 0.0);
+    assert_eq!(sections[1].moving_time_s, 0.0);
+    assert_close(sections[1].total_time_s, 3600.0, 1e-9, "rest time");
+}
+
+#[test]
+fn rest_end_adds_straight_line() {
+    let ride = north_line(47.0, 101, 5.0, T0, 1.0);
+    let spot = ride[100];
+    let rest: Vec<TrackPoint> = (1..=10)
+        .map(|k| {
+            let mut p = spot;
+            p.time_ms = Some(T0 + 100_000 + k * 60_000);
+            p
+        })
+        .collect();
+    let on = north_line(
+        spot.lat + 120.0 / M_PER_DEG_LAT,
+        101,
+        5.0,
+        T0 + 760_000,
+        1.0,
+    );
+    let t = Track {
+        name: None,
+        activity: Some(Activity::Bike),
+        segments: vec![
+            section(ride.clone(), Activity::Bike, SegmentReason::Start),
+            section(rest, Activity::Bike, SegmentReason::Rest),
+            section(on.clone(), Activity::Bike, SegmentReason::RestEnd),
+        ],
+    };
+    let d_ride = compute_stats(&track(vec![ride]), &bike()).distance_m;
+    let d_on = compute_stats(&track(vec![on]), &bike()).distance_m;
+    let (total, sections) = compute_section_stats(&t, StatsParams::for_activity);
+    assert_close(total.distance_m, d_ride + d_on + 120.0, 1.0, "distance");
+    assert_close(
+        sections[2].distance_m,
+        d_on + 120.0,
+        1.0,
+        "section after the rest",
+    );
 }

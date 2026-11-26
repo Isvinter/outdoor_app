@@ -27,7 +27,10 @@ fn import_noisy_hike(app: &App) -> TrackRecord {
     let track = Track {
         name: Some("Ramp".into()),
         activity: Some(Activity::Hike),
-        segments: vec![Segment { points }],
+        segments: vec![Segment {
+            points,
+            ..Default::default()
+        }],
     };
     let xml = write_gpx(&GpxDocument {
         name: None,

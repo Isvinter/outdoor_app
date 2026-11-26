@@ -120,6 +120,7 @@ fn stats_and_name_are_stored_with_the_track() {
         activity: None,
         segments: vec![Segment {
             points: (0..50).map(point).collect(),
+            ..Default::default()
         }],
     };
     let stats = compute_stats(&track, &StatsParams::for_activity(Activity::Hike));

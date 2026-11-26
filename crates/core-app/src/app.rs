@@ -7,7 +7,7 @@ use core_gpx::{GpxDocument, parse_gpx, write_gpx};
 use core_location::{Fix, FixSink, LocationConfig, LocationSource, SourceStatus};
 use core_storage::{Storage, TrackRecord, TrackState};
 use core_track::{
-    Activity, Recorder, RecorderState, StatsParams, Track, TrackStats, compute_stats,
+    Activity, Recorder, RecorderState, SegmentReason, StatsParams, Track, TrackStats, compute_stats,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -231,7 +231,7 @@ impl Inner {
             .last_recorded_ms
             .is_some_and(|last| fix.time_ms - last > GAP_MS)
         {
-            rec.recorder.break_segment();
+            rec.recorder.break_segment(SegmentReason::Gap);
         }
         let point = fix.to_track_point();
         if !rec.recorder.add_point(point) {

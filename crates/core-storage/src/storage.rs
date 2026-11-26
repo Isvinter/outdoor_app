@@ -336,7 +336,10 @@ impl Storage {
                     })
                 })?
                 .collect::<Result<_, _>>()?;
-            segments.push(Segment { points });
+            segments.push(Segment {
+                points,
+                ..Default::default()
+            });
         }
         Ok(Track {
             name: record.name,

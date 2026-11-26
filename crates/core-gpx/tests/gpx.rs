@@ -196,6 +196,7 @@ fn writes_gpx_1_1_header_escaped_text_and_millisecond_times() {
             activity: Some(Activity::SkiTour),
             segments: vec![Segment {
                 points: vec![p, TrackPoint::new(0.0, 0.0)],
+                ..Default::default()
             }],
         }],
     };
@@ -222,6 +223,7 @@ fn refuses_to_write_non_finite_coordinates() {
             activity: None,
             segments: vec![Segment {
                 points: vec![TrackPoint::new(f64::NAN, 1.0)],
+                ..Default::default()
             }],
         }],
     };
@@ -253,6 +255,7 @@ fn waypoints_are_written_before_tracks() {
                     h_accuracy_m: None,
                     speed_mps: None,
                 }],
+                ..Default::default()
             }],
         }],
     };

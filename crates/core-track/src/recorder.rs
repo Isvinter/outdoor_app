@@ -1,5 +1,6 @@
 use crate::{
-    Activity, Segment, StatsParams, Track, TrackError, TrackPoint, TrackStats, compute_stats,
+    Activity, RestDetector, RestEvent, RestParams, Segment, SegmentReason, StatsParams, Track,
+    TrackError, TrackPoint, TrackStats, compute_stats,
 };
 
 /// State of a recording.
@@ -22,15 +23,25 @@ impl RecorderState {
 
 /// State machine of a track recording, holding the track recorded so far.
 ///
-/// It decides which fixes belong to the track and into which segment they go.
-/// Persistence is the caller's job: store every point for which
-/// [`Recorder::add_point`] returns `true` under [`Recorder::current_segment`].
+/// It decides which fixes belong to the track and into which segment (section) they
+/// go, and gives every segment its activity and the reason it began. Persistence is
+/// the caller's job: store every point for which [`Recorder::add_point`] returns
+/// `true` under [`Recorder::current_segment`].
+///
+/// With rest detection on (see [`Recorder::set_rest_detection`], off by default) a
+/// detected rest begins a [`SegmentReason::Rest`] segment with the fix it was
+/// detected at, and moving on begins a [`SegmentReason::RestEnd`] segment. Stored
+/// points are never moved: the fixes standing before the detection stay in the
+/// previous segment.
 #[derive(Debug)]
 pub struct Recorder {
     state: RecorderState,
     track: Track,
-    /// A pause or restart happened since the last point: the next one opens a segment.
-    segment_break: bool,
+    /// Activity of the running section, also of a rest and the sections after it.
+    activity: Activity,
+    /// The next point opens a segment for this reason.
+    pending: Option<SegmentReason>,
+    rest: Option<RestDetector>,
     last_time_ms: Option<i64>,
 }
 
@@ -44,13 +55,15 @@ impl Recorder {
                 activity: Some(activity),
                 segments: Vec::new(),
             },
-            segment_break: false,
+            activity,
+            pending: None,
+            rest: None,
             last_time_ms: None,
         }
     }
 
     /// Continues a recording that was interrupted, e.g. by a crash. New points go
-    /// into a new segment.
+    /// into a new segment with the reason [`SegmentReason::Continue`].
     pub fn continue_from(mut track: Track, activity: Activity) -> Self {
         track.activity = Some(activity);
         track.segments.retain(|s| !s.points.is_empty());
@@ -63,7 +76,9 @@ impl Recorder {
         Self {
             state: RecorderState::Recording,
             track,
-            segment_break: true,
+            activity,
+            pending: Some(SegmentReason::Continue),
+            rest: None,
             last_time_ms,
         }
     }
@@ -77,10 +92,46 @@ impl Recorder {
         &self.track
     }
 
-    /// The next point starts a new segment, as after a resume; for a long
-    /// gap without fixes.
-    pub fn break_segment(&mut self) {
-        self.segment_break = !self.track.segments.is_empty();
+    /// Activity of the running section.
+    pub fn activity(&self) -> Activity {
+        self.activity
+    }
+
+    /// Whether a rest has been detected and not yet ended.
+    pub fn resting(&self) -> bool {
+        self.rest.as_ref().is_some_and(RestDetector::resting)
+    }
+
+    /// Turns rest detection on with the given parameters, or off with `None`. Off by
+    /// default.
+    pub fn set_rest_detection(&mut self, params: Option<RestParams>) {
+        self.rest = params.map(RestDetector::new);
+    }
+
+    /// Switches the activity: the next point begins a new segment with it. Before the
+    /// first point it becomes the activity of the first segment and of the track.
+    /// Ends a rest. Switching to the running activity outside a rest changes nothing.
+    pub fn switch_activity(&mut self, activity: Activity) {
+        if activity == self.activity && !self.resting() {
+            return;
+        }
+        self.activity = activity;
+        if self.track.segments.is_empty() {
+            self.track.activity = Some(activity);
+        }
+        self.break_segment(SegmentReason::ActivityChange);
+    }
+
+    /// The next point starts a new segment for `reason`, e.g. [`SegmentReason::Gap`]
+    /// for a long time without fixes. Ends a rest. Without points so far the next one
+    /// starts the first segment as usual.
+    pub fn break_segment(&mut self, reason: SegmentReason) {
+        if let Some(rest) = &mut self.rest {
+            rest.reset();
+        }
+        if !self.track.segments.is_empty() {
+            self.pending = Some(reason);
+        }
     }
 
     /// Index of the segment the most recently added point belongs to.
@@ -107,9 +158,20 @@ impl Recorder {
         if self.last_time_ms.is_some_and(|last| time_ms <= last) {
             return false;
         }
-        if self.segment_break || self.track.segments.is_empty() {
-            self.track.segments.push(Segment::default());
-            self.segment_break = false;
+        let event = self.rest.as_mut().and_then(|r| r.offer(&point));
+        let reason = match event {
+            Some(RestEvent::Started) => Some(SegmentReason::Rest),
+            Some(RestEvent::Ended) => Some(SegmentReason::RestEnd),
+            None if self.track.segments.is_empty() => Some(SegmentReason::Start),
+            None => self.pending,
+        };
+        if let Some(reason) = reason {
+            self.track.segments.push(Segment {
+                points: Vec::new(),
+                activity: Some(self.activity),
+                reason,
+            });
+            self.pending = None;
         }
         if let Some(segment) = self.track.segments.last_mut() {
             segment.points.push(point);
@@ -118,14 +180,19 @@ impl Recorder {
         true
     }
 
+    /// Pauses the recording. Ends a rest.
     pub fn pause(&mut self) -> Result<(), TrackError> {
-        self.transition("pause", RecorderState::Recording, RecorderState::Paused)
+        self.transition("pause", RecorderState::Recording, RecorderState::Paused)?;
+        if let Some(rest) = &mut self.rest {
+            rest.reset();
+        }
+        Ok(())
     }
 
+    /// Resumes a paused recording; the next point begins a new segment.
     pub fn resume(&mut self) -> Result<(), TrackError> {
         self.transition("resume", RecorderState::Paused, RecorderState::Recording)?;
-        // Only break the segment if the current one has points.
-        self.segment_break = !self.track.segments.is_empty();
+        self.break_segment(SegmentReason::Resume);
         Ok(())
     }
 
