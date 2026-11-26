@@ -160,8 +160,11 @@ cargo run -p vario-app
 # Selbsttest: drückt selbst auf Start, öffnet die Karte, gibt Seiteninhalt, Anzahl der
 # Track-Punkte und Skriptfehler aus und beendet sich
 VARIO_SMOKE_TEST=1 cargo run -p vario-app
-# Länger fliegen lassen (Sekunden), damit Gleitzahl, Wind und Landepunkt im Bericht stehen
-VARIO_SMOKE_TEST=1 VARIO_SMOKE_RUN_S=150 cargo run -p vario-app
+# Länger fliegen lassen (Sekunden): nach 150 s in der ersten Thermik (Wind, keine
+# Gleitzahl), nach 450 s im Gleitflug (Gleitzahl, Wind, Landepunkt); der ganze Flug vom
+# Startplatz bis 60 s nach der Landung dauert gut 20 min (1240 s). Der Bericht nennt
+# die Flugphase und ob die gespeicherten Flüge einen erkannten Start haben.
+VARIO_SMOKE_TEST=1 VARIO_SMOKE_RUN_S=450 cargo run -p vario-app
 # Region per WLAN laden: Freigabe von ZeroGrid Base nachstellen (share-serve;
 # --seed-region verschiebt den Ordner, also eine Kopie
 # angeben) und den Selbsttest mit leerem HOME dagegen laufen lassen, damit der echte
@@ -189,8 +192,16 @@ den Text des Warnbanners aus. Warn-Einstellungen liegen in `airspace-warning.txt
 
 Flüge liegen als IGC-Dateien im Ordner `flights` (iOS: Dokumente-Ordner der App, in der
 App „Dateien“ sichtbar; Desktop: Datenordner der App), Sensorlogs daneben in `logs`. Jeder
-Lauf von Start bis Stopp ist ein Flug; die Datei wird alle 10 s vollständig neu geschrieben.
-Der Selbsttest schreibt seine Flüge in einen temporären Ordner.
+Flug reicht vom erkannten Start bis zur erkannten Landung (Abschnitt 9 in
+`docs/ALGORITHMEN.md`); mehrere Flüge pro Sitzung sind möglich. Daneben läuft die ganze
+Sitzung in einer versteckten Datei `.session-….igc` mit, die bei „Stopp“ verschwindet; ohne
+erkannten Start, aber mit Bewegung wird sie zum Flug mit Vermerk „ohne erkannten Start“. Die
+Dateien werden alle 10 s vollständig neu geschrieben.
+Der Selbsttest schreibt seine Flüge in einen temporären Ordner
+(`$TMPDIR/vario-smoke-test-flights`), der ohne eigenes `TMPDIR` von allen Läufen geteilt
+wird. Für saubere Flugliste und Start-/Landeerkennung jedem Lauf ein eigenes `TMPDIR` geben
+und nie zwei Läufe mit demselben Ordner gleichzeitig starten: Beim Start räumt die App
+übrig gebliebene Sitzungsdateien auf.
 
 Einstellungen liegen als Textdatei (`settings.txt`, Kartenstil in `map-style.txt`, Hell/Dunkel und Relief in `map-look.json`) im
 Konfigurationsordner der App; das Format definiert `flight-core`.

@@ -596,6 +596,6 @@ fn end_session_on_exit(app: &AppHandle) {
         // before it ends; `drop` waits for that.
         drop(session);
         session_marker::remove(app);
-        eprintln!("session ended on exit, flight saved");
+        eprintln!("session ended on exit, flights and logs saved");
     }
 }

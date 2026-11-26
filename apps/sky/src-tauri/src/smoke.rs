@@ -118,6 +118,11 @@ pub fn maybe_run(app: &AppHandle) {
              (document.getElementById('wind-box').hidden ? '' : \
               document.getElementById('wind-box').innerText.replace(/\\s+/g, ' ').trim()) + '|' + \
              FlightMap.landingCount() + \
+             '\\nflight phase: ' + (lastFlight ? lastFlight.phase + ' · ' + \
+              (lastFlight.flightS == null ? '–' : Math.round(lastFlight.flightS) + ' s') : 'none') + \
+             '\\ntakeoff detected: ' + (document.querySelectorAll('#flights .flight').length === 0 ? 'no flight' : \
+              [...document.querySelectorAll('#flights .flight-facts')].map((facts) => \
+               facts.innerText.includes('ohne erkannten Start') ? 'no' : 'yes').join(',')) + \
              '\\npermission warnings: ' + \
              document.querySelectorAll('#permission-problems li').length + \
              '\\nscript errors: ' + JSON.stringify(window.scriptErrors) })",

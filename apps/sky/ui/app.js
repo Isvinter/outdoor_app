@@ -260,12 +260,15 @@ $("reset-warning").addEventListener("click", async () => {
 });
 
 let recordingFile = null;
+// Last flight phase from Rust, for the desktop self-test's report.
+let lastFlight = null;
 
 // The flight phase comes from the takeoff and landing detection in Rust.
 function renderRecording(recording, flight) {
   const element = $("recording");
   // Only a flight in the air has a file name; the session before it has none.
   recordingFile = running ? (recording?.fileName ?? null) : null;
+  lastFlight = flight;
   element.className = recording?.error ? "bad" : "";
   const seconds = Math.floor(flight?.flightS ?? 0);
   if (!running || !recording) {
