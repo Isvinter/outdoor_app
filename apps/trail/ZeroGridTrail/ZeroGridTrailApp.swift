@@ -104,7 +104,10 @@ private struct RootView: View {
                 plan?.whenPlanned { guide?.startIfIdle() }
             }
             recording.onTracksChanged = { [weak tracks] in tracks?.refresh() }
-            let alert = DeviationAlert(center: UNUserNotificationCenter.current(), haptics: SystemHaptics())
+            let haptics = SystemHaptics()
+            let alert = DeviationAlert(center: UNUserNotificationCenter.current(), haptics: haptics)
+            guide.haptics = haptics
+            guide.announcer = TurnAnnouncer(center: UNUserNotificationCenter.current(), speaker: SystemSpeaker())
             guide.onFirstStart = { alert.requestPermission() }
             guide.alert = alert
             plan.onRouteDrawn = { [weak guide, weak map] legs, waypoints in

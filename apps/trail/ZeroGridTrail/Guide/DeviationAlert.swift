@@ -6,11 +6,15 @@ import UserNotifications
 protocol NotificationScheduling: AnyObject {
     func requestAuthorization()
     func schedule(id: String, title: String, body: String, sound: Bool)
+    /// Takes a notification away, shown or still to come.
+    func remove(id: String)
 }
 
 /// A short vibration.
 protocol Haptics: AnyObject {
     func deviation()
+    /// A new turn hint; lighter than a deviation.
+    func turn()
 }
 
 extension UNUserNotificationCenter: NotificationScheduling {
@@ -25,6 +29,11 @@ extension UNUserNotificationCenter: NotificationScheduling {
         content.sound = sound ? .default : nil
         add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
+
+    func remove(id: String) {
+        removePendingNotificationRequests(withIdentifiers: [id])
+        removeDeliveredNotifications(withIdentifiers: [id])
+    }
 }
 
 final class SystemHaptics: Haptics {
@@ -33,10 +42,18 @@ final class SystemHaptics: Haptics {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
         }
     }
+
+    func turn() {
+        DispatchQueue.main.async {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+    }
 }
 
-/// Tells the user once per deviation: a vibration, and in the background or
-/// on the locked screen a notification, with sound after the switch.
+/// Tells the user each time they get off the network of ways (on it, the
+/// route is planned anew without a word): a vibration, and in the background or
+/// on the locked screen a notification, with sound after the switch; without
+/// when the turns are spoken, as the voice says it then.
 final class DeviationAlert {
     static let soundKey = "deviationSound"
     static let title = "Abseits der Route"
@@ -63,18 +80,26 @@ final class DeviationAlert {
         center.requestAuthorization()
     }
 
-    /// A new deviation; `waypoints` is the number of waypoints of the route.
+    /// Off the network of ways; `waypoints` is the number of waypoints of the route.
     func handle(_ info: GuidanceInfo, appActive: Bool, waypoints: Int) {
         haptics.deviation()
         guard !appActive else { return }
         center.schedule(
             id: "deviation-\(info.deviation)-\(UUID().uuidString)", title: Self.title,
-            body: Self.body(info, waypoints: waypoints), sound: sound)
+            body: Self.body(info, waypoints: waypoints),
+            sound: sound && !defaults.bool(forKey: TurnAnnouncer.speechKey))
     }
 
-    /// "Weg zurück zu Wegpunkt 4: 650 m." or "Weg zurück zum Ziel: 650 m."
+    /// "Die Route liegt 120 m bei 150°. Weg zurück zu Wegpunkt 4: 650 m." or
+    /// "… Weg zurück zum Ziel: 650 m."
     static func body(_ info: GuidanceInfo, waypoints: Int) -> String {
-        guard let metres = info.wayBackM else { return "Kein Weg zurück gefunden." }
-        return "\(GuideBar.target(info, waypoints: waypoints)): \(Format.distance(metres))."
+        let back: String
+        if let metres = info.wayBackM {
+            back = "\(GuideBar.target(info, waypoints: waypoints)): \(Format.distance(metres))."
+        } else {
+            back = "Kein Weg zurück gefunden."
+        }
+        guard let off = info.offNetwork else { return back }
+        return "\(off.text). \(back)"
     }
 }

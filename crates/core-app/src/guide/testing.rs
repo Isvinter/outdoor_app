@@ -1,6 +1,6 @@
 //! Plans and positions for the guide's module tests.
 
-use core_routing::{LatLon, Profile, RouteOptions};
+use core_routing::{LatLon, Profile, RouteOptions, Turn};
 
 use crate::plan::{Leg, LegError, LegSpec, PLAN_FORMAT, PlanRequest, RoutePlan, Totals};
 
@@ -40,6 +40,7 @@ pub fn leg(profile: Profile, line: Vec<LatLon>) -> Leg {
         time_s: Some(60.0),
         region: None,
         max_mtb_scale: None,
+        turns: None,
         error: None,
     }
 }
@@ -109,5 +110,13 @@ pub fn east(p: LatLon, m: f64) -> LatLon {
     LatLon {
         lat: p.lat,
         lon: p.lon + m / (M_PER_DEG * p.lat.to_radians().cos()),
+    }
+}
+
+/// A hiking leg along `line` whose turns were computed and are `turns`.
+pub fn routed_leg(line: Vec<LatLon>, turns: Vec<Turn>) -> Leg {
+    Leg {
+        turns: Some(turns),
+        ..leg(Profile::Hike, line)
     }
 }

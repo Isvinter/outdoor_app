@@ -14,8 +14,9 @@ mod share;
 pub use app::{App, AppListener, LinePoint, RecordingPhase, RecordingStatus, TrackDetail};
 pub use error::AppError;
 pub use guide::{
-    Guide, GuideParams, GuidePhase, GuideStatus, LegKind, LegSpan, NextWaypoint, Projection,
-    Remaining, RouteLine, WayBack, WayBackRouter, WayBackTarget,
+    Guide, GuideParams, GuidePhase, GuideStatus, HintParams, HintStage, LegKind, LegSpan, LineTurn,
+    NextWaypoint, OffNetwork, Projection, Remaining, RouteLine, TurnHint, WayBack, WayBackRouter,
+    WayBackTarget,
 };
 pub use plan::{
     KnownPosition, Leg, LegError, LegSpec, MAX_POSITION_AGE_S, PlanRequest, RoutePlan, RoutePoint,

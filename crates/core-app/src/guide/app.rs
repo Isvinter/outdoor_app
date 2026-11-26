@@ -125,7 +125,7 @@ impl Shared {
             .last_fix
             .filter(|fix| (now_ms() - fix.time_ms) as f64 / 1000.0 <= MAX_POSITION_AGE_S);
         let status = match last {
-            Some(fix) => guide.update(&fix, &NotAsked),
+            Some(fix) => guide.place(&fix, &NotAsked),
             None => guide.status(),
         };
         Some(ActiveGuide {

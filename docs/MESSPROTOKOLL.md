@@ -319,6 +319,23 @@ Handtests des Nutzers auf dem iPhone 13 Pro Max (Release-Build), Plan
 - Simulator mit dem Endstand: alle Unit- und UI-Tests grün (`scripts/test.sh` mit `isarwinkel-achensee`).
 - Noch nicht gemessen: Akkuverbrauch bei Aufnahme und Führung.
 
+## Abbiegehinweise in Trail (2026-11-25/26)
+
+iPhone 13 Pro Max, Region `isarwinkel-achensee`, Mitteilung und Sprache eingeschaltet.
+
+- **Kurztest auf dem Gerät (25.11.):** Feld, Mitteilung und Sprachansage funktionieren, auch bei
+  gesperrtem Bildschirm, mit Stummschalter, mit laufender Musik (wird leiser und wieder lauter)
+  und mit der App im Hintergrund.
+- **Test draußen (25.11.), eine Runde mit dem Rad und eine kurze zu Fuß:** Die Hinweise kommen
+  rechtzeitig und nicht doppelt; die Startwerte der Abstände (`HintParams`) bleiben. Wunsch:
+  „Abseits der Route“ nur abseits des Wegenetzes, sonst still umplanen; dazu Luftlinie und
+  Richtung zur Route. Umgebaut (`docs/ALGORITHMEN.md`, Abschnitt 7).
+- **Test draußen (26.11.), nach dem Umbau:** Stilles Umplanen auf einem anderen Weg und die
+  Ansage mit Distanz und Richtung weglos im Gelände passen.
+- Noch nicht geprüft: Abzweigungen auf Wegen ohne Namen.
+- Simulator: alle Unit- und UI-Tests grün (`scripts/test.sh` mit `isarwinkel-achensee`), darunter
+  der UI-Test des Hinweisfelds mit der Spur `fixtures/gpx/replay/isarwinkel-turn.gpx`.
+
 ## Rohdaten
 
 ```
