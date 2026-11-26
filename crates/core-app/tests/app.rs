@@ -852,3 +852,47 @@ fn set_section_activity_changes_one() {
         Err(AppError::Storage(_))
     ));
 }
+
+/// Turning rest detection off during a rest ends the rest: the way on is no rest.
+#[test]
+fn turning_rest_detection_off_during_a_rest_ends_it() {
+    let (app, listener, _) = open("rest-turned-off");
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    app.start_recording(Activity::Bike).unwrap();
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    for t in 11..=370 {
+        app.handle_fix(at(10, t));
+    }
+    assert!(app.recording_status().resting);
+    app.set_rest_detection(None);
+    assert!(
+        !listener
+            .0
+            .lock()
+            .unwrap()
+            .recordings
+            .last()
+            .unwrap()
+            .resting,
+        "the listener is told at once"
+    );
+    for k in 1..=20 {
+        app.handle_fix(at(10 + k, 370 + k));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(
+        reasons(&app, record.id)
+            .iter()
+            .map(|r| r.1)
+            .collect::<Vec<_>>(),
+        [
+            SegmentReason::Start,
+            SegmentReason::Rest,
+            SegmentReason::RestEnd
+        ]
+    );
+    let detail = app.track_detail(record.id).unwrap();
+    assert!(detail.sections[2].stats.distance_m > 90.0, "{detail:?}");
+}

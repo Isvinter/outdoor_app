@@ -490,14 +490,36 @@ impl App {
     /// Turns rest detection on with `params`, or off with `None` (the default).
     /// Applies at once to the running recording and to every recording started or
     /// continued later by this instance; it is not stored.
+    /// A rest in progress ends with the change: the next fix begins a
+    /// [`SegmentReason::RestEnd`] section, and the listener is told.
     pub fn set_rest_detection(&self, params: Option<RestParams>) {
-        let mut inner = self.shared.inner();
-        if inner.rest_detection == params {
-            return;
-        }
-        inner.rest_detection = params;
-        if let Some(rec) = &mut inner.recording {
+        let status = {
+            let mut inner = self.shared.inner();
+            if inner.rest_detection == params {
+                return;
+            }
+            inner.rest_detection = params;
+            let Some(rec) = &mut inner.recording else {
+                return;
+            };
+            let was_resting = rec.recorder.resting();
+            if was_resting {
+                rec.recorder.break_segment(SegmentReason::RestEnd);
+            }
             rec.recorder.set_rest_detection(params);
+            // Keep the points still owed to the listener for the next update.
+            was_resting.then(|| {
+                let pending = rec.pending.clone();
+                let status = rec.status();
+                rec.pending = pending;
+                RecordingStatus {
+                    appended: Vec::new(),
+                    ..status
+                }
+            })
+        };
+        if let Some(status) = status {
+            self.shared.listener.on_recording(&status);
         }
     }
 

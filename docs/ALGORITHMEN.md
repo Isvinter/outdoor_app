@@ -183,7 +183,9 @@ Beurteilung im Gelände.
   seiner Genauigkeit als Spielraum: „weg“ ist ein Fix weiter als Radius + Genauigkeit (0, wenn
   unbekannt). Zwei Weg-Fixe nacheinander beenden die Rast (Abschnitt Rastende ab dem zweiten);
   ein Fix im Spielraum dazwischen setzt die Zählung zurück, ein einzelner Sprung beendet nichts.
-  Pause, Sportwechsel und Weiter setzen die Erkennung zurück. Während einer Rast bricht eine
+  Pause, Sportwechsel und Weiter setzen die Erkennung zurück. Wird die Erkennung während einer
+  Rast geändert oder ausgeschaltet, endet die Rast: Der nächste Fix beginnt einen Abschnitt
+  Rastende. Während einer Rast bricht eine
   Funkstille über 120 s keine GPS-Lücke: Das gedrosselte GPS meldet im Stand oft minutenlang
   nichts.
 
