@@ -16,6 +16,9 @@ hängen an der Aufzeichnung), ist aber dieselbe Bedienidee.
 - Tipp auf die Routenlinie wählt das Teilstück; es wird hervorgehoben, unten erscheint eine
   kleine Karte: Sportart, Länge, Auf-/Abstieg, Knopf „Punkt in der Mitte einfügen“.
 - Tipp neben die Linie fügt wie bisher einen Wegpunkt am Ende an (im Setzmodus).
+  *Geändert beim Bauen (2026-11-26, Entscheidung des Nutzers):* Im Setzmodus setzt jeder Tipp
+  einen Punkt, auch auf der Linie (Hin- und Rückweg auf demselben Pfad, Schleifen); Teilstücke
+  wählt man außerhalb des Setzmodus, Einschalten des Setzmodus hebt die Auswahl auf.
 - Ist ein Teilstück gewählt, ändert die Sportart-/Einstellungswahl nur dieses Teilstück;
   nur dieses wird neu gerechnet. Ohne Auswahl gilt wie heute: letztes Teilstück und alle neuen.
 - „Punkt in der Mitte einfügen“ setzt einen Wegpunkt auf die Mitte der **berechneten Strecke**

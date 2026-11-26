@@ -103,8 +103,14 @@ final class PlanController: ObservableObject {
     /// of the last leg and of new legs.
     @Published private(set) var profile: String
     @Published private(set) var options: [String: Double] = [:]
-    /// In plan mode a tap on the map sets a waypoint.
-    @Published var picking = false
+    /// In plan mode a tap on the map sets a waypoint, also on the route's own
+    /// line (a way back on the same path); legs are chosen outside plan mode.
+    @Published var picking = false {
+        didSet {
+            overlay.choosesLegs = !picking
+            if picking { selectLeg(nil) }
+        }
+    }
     /// A computation is running.
     @Published private(set) var planning = false
     /// Why the route or a leg of it could not be computed.
@@ -258,6 +264,20 @@ final class PlanController: ObservableObject {
             showInForm(leg)
         }
         overlay.select(leg: index)
+    }
+
+    /// Splits the chosen leg with a point at half its computed length (in the
+    /// middle of the straight line for a failed one); both halves keep its
+    /// profile, and only they are computed anew.
+    func splitSelectedLeg() {
+        guard !replacing, !planning, let index = selectedLeg, request.legs.indices.contains(index) else { return }
+        var line: [LatLon] = []
+        if let plan, plan.request == request, plan.legs.indices.contains(index), plan.legs[index].errorCode == nil {
+            line = plan.legs[index].line
+        }
+        selectLeg(nil)
+        request = planSplitLeg(request: request, index: UInt32(index), line: line)
+        compute()
     }
 
     private func showInForm(_ leg: LegInput) {

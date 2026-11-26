@@ -220,18 +220,25 @@ final class PlanUITests: XCTestCase {
         XCTAssertEqual(status.values["selected_leg"], "0")
     }
 
-    /// In plan mode a tap on the line chooses the leg and sets no point.
-    func testTapOnLegInPickModeSetsNoPoint() {
+    /// In plan mode a tap on the line sets a point, as anywhere else: a way back
+    /// may run on the same path. Switching plan mode on lets go of a chosen leg.
+    func testTapOnLegInPickModeSetsPoint() {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
 
         app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
 
-        let status = app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
-        XCTAssertEqual(status.int("picking"), 1)
-        Thread.sleep(forTimeInterval: 1)
-        XCTAssertEqual(app.mapStatus.int("waypoints"), 3)
+        let status = app.waitForPlan(waypoints: 4)
+        XCTAssertEqual(status.values["selected_leg"], "-")
+
+        // The new point lies where the first tap was: choose the second leg.
+        app.buttons["plan-pick"].tap()
+        app.place(secondLegMiddle.0, secondLegMiddle.1).tap()
+        app.waitForStatus("leg 1 selected") { $0.values["selected_leg"] == "1" }
+        app.buttons["plan-pick"].tap()
+        let picking = app.waitForStatus("plan mode on") { $0.int("picking") == 1 }
+        XCTAssertEqual(picking.values["selected_leg"], "-")
     }
 
     /// Review focus 4: without a selection the profile applies to the last leg again.
@@ -289,6 +296,76 @@ final class PlanUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1)
         XCTAssertEqual(app.mapStatus.values["selected_leg"], "-")
         XCTAssertEqual(zoomed.int("waypoints"), 3)
+    }
+
+    // MARK: Splitting a leg
+
+    /// Splitting sets a point in the middle; both halves keep the profile.
+    func testSplitInsertsPointInTheMiddle() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        let before = app.waitForPlan(waypoints: 3).int("distance_m")
+        app.buttons["plan-pick"].tap()
+
+        app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
+        let summary = app.staticTexts["leg-summary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 5))
+        XCTAssertTrue(summary.label.hasPrefix("Teilstück 1"), summary.label)
+        XCTAssertFalse(app.staticTexts["plan-totals"].exists)
+        app.buttons["leg-split"].tap()
+
+        let after = app.waitForPlan(waypoints: 4)
+        XCTAssertEqual(after.list("leg_profiles"), ["manual", "manual", "manual"])
+        XCTAssertEqual(after.values["selected_leg"], "-")
+        XCTAssertEqual(after.int("distance_m"), before, accuracy: 2, "the route stays the same")
+        XCTAssertTrue(app.staticTexts["plan-totals"].waitForExistence(timeout: 5))
+    }
+
+    /// Review focus 2: a dashed leg can be split as well, in the middle of its straight line.
+    func testSplitFailedLeg() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+        app.buttons["plan-pick"].tap()
+        // `mini` has no routing data: the hiking leg fails.
+        app.chooseProfile("Wandern")
+        app.waitForStatus("last leg dashed") { $0.int("planning") == 0 && $0.int("dashed") == 1 }
+
+        app.place(secondLegMiddle.0, secondLegMiddle.1).tap()
+        let summary = app.staticTexts["leg-summary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 5))
+        XCTAssertTrue(summary.label.hasPrefix("Teilstück 2"), summary.label)
+        app.buttons["leg-split"].tap()
+
+        let after = app.waitForPlan(waypoints: 4)
+        XCTAssertEqual(after.list("leg_profiles"), ["manual", "hike", "hike"])
+        XCTAssertEqual(after.int("dashed"), 2)
+        // The new point lies in the middle of the dashed line, as drawn.
+        let xy = (after.values["waypoint_xy"] ?? "").split(separator: ";").map {
+            $0.split(separator: ",").compactMap { Double($0) }
+        }
+        XCTAssertEqual(xy.count, 4)
+        if xy.count == 4 {
+            XCTAssertEqual(xy[2][0], (xy[1][0] + xy[3][0]) / 2, accuracy: 2)
+            XCTAssertEqual(xy[2][1], (xy[1][1] + xy[3][1]) / 2, accuracy: 2)
+        }
+    }
+
+    /// Closing lets go of the leg; the totals come back.
+    func testCloseLegSummary() {
+        let app = XCUIApplication.planning()
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+        app.buttons["plan-pick"].tap()
+        app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
+        XCTAssertTrue(app.buttons["leg-close"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["leg-close"].label, "Auswahl aufheben")
+
+        app.buttons["leg-close"].tap()
+
+        app.waitForStatus("nothing selected") { $0.values["selected_leg"] == "-" }
+        XCTAssertTrue(app.staticTexts["plan-totals"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["leg-summary"].exists)
     }
 
     // MARK: The sheet

@@ -38,8 +38,10 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
 
     /// A tap on the map, away from the waypoints.
     var onTap: ((CLLocationCoordinate2D) -> Void)?
-    /// A tap on the line of a leg, with its index.
+    /// A tap on the line of a leg, with its index; only while `choosesLegs`.
     var onLegTap: ((Int) -> Void)?
+    /// Whether a tap on the line chooses its leg; otherwise it is a tap on the map.
+    var choosesLegs = true
     var onWaypointTap: ((Int) -> Void)?
     /// A waypoint was dragged to a new place.
     var onWaypointMove: ((Int, CLLocationCoordinate2D) -> Void)?
@@ -250,7 +252,7 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
         let point = tap.location(in: mapView)
         let at = mapView.convert(point, toCoordinateFrom: mapView)
         // Where the map is now: it may move before the tap counts.
-        let leg = leg(at: point)
+        let leg = choosesLegs ? leg(at: point) : nil
         let time = CACurrentMediaTime()
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
