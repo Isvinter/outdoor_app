@@ -35,6 +35,16 @@ struct TrackDetailView: View {
                 }
             }
             .font(.callout)
+            // With one section, its numbers are those above.
+            if track.sections.count > 1 {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Abschnitte")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(track.sections, id: \.index) { section in
+                        SectionRow(tracks: tracks, section: section)
+                    }
+                }
+            }
             if let file = tracks.shareFile {
                 ShareLink(item: file) {
                     Label("Als GPX teilen", systemImage: "square.and.arrow.up")
@@ -80,5 +90,53 @@ struct TrackDetailView: View {
         if let descent = track.descentM { rows.append(("Abstieg", Format.elevation(descent))) }
         if let top = track.maxEleM { rows.append(("Höchster Punkt", Format.elevation(top))) }
         return rows
+    }
+}
+
+/// One section of a track: its activity as a menu (not for a rest), its time and numbers.
+private struct SectionRow: View {
+    @ObservedObject var tracks: TracksController
+    let section: TrackSection
+
+    var body: some View {
+        let id = Int(section.index)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if section.rest {
+                Text("Rast \(TracksController.time(section.startMs))–\(TracksController.time(section.endMs))")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("section-\(id)-title")
+                Spacer(minLength: 0)
+            } else {
+                Menu {
+                    ForEach(Activity.all, id: \.self) { choice in
+                        Button(Activity.name(choice)) {
+                            tracks.setSectionActivity(index: id, activity: choice)
+                        }
+                        .accessibilityIdentifier("section-\(id)-\(choice)")
+                    }
+                } label: {
+                    Text("\(Activity.name(section.activity)) ▾")
+                        .fontWeight(.semibold)
+                }
+                .accessibilityIdentifier("section-\(id)-activity")
+                Text("\(TracksController.time(section.startMs))–\(TracksController.time(section.endMs))")
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text(numbers)
+                    .monospacedDigit()
+                    .accessibilityIdentifier("section-\(id)-numbers")
+            }
+        }
+        .font(.callout)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("section-\(id)")
+    }
+
+    private var numbers: String {
+        var parts = [Format.distance(section.distanceM), Format.hours(section.movingS)]
+        if let ascent = section.ascentM { parts.append("↑ \(Format.elevation(ascent))") }
+        return parts.joined(separator: " · ")
     }
 }

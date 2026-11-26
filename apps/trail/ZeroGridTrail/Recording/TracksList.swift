@@ -47,6 +47,27 @@ final class TracksController: ObservableObject {
         }
     }
 
+    /// From the detail: another activity for one section, not a rest.
+    func setSectionActivity(index: Int, activity: String) {
+        guard let track = selected, index >= 0 else { return }
+        do {
+            let view = try core.setSectionActivity(id: track.summary.id, index: UInt32(index), activity: activity)
+            selected = view
+            shareFile = try writeGPX(view.summary)
+            refresh()
+        } catch {
+            message = "Die Sportart konnte nicht geändert werden: \(describe(error))"
+        }
+    }
+
+    /// "10:05"
+    nonisolated static func time(_ ms: Int64) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+    }
+
     func close() {
         selected = nil
         shareFile = nil
