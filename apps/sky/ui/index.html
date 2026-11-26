@@ -128,6 +128,18 @@
         </select>
         <small>Länger ist ruhiger, zeigt nach einem Windsprung aber länger den alten Wert.</small>
       </div>
+      <div class="setting">
+        <button id="set-tone-after-takeoff" class="button">Ton erst ab Start</button>
+        <small>Vario- und Warnton bleiben bis zum erkannten Start stumm, wie „Auto Silent“
+          am Flymaster.</small>
+      </div>
+      <div class="setting">
+        <label for="set-takeoff-speed">Startgeschwindigkeit ohne Gelände
+          <output id="out-takeoff-speed"></output></label>
+        <input id="set-takeoff-speed" type="range" min="5" max="50" step="1" />
+        <small>Nur wo keine Region installiert ist; sonst erkennt Sky den Start an der Höhe
+          über dem Gelände.</small>
+      </div>
       <div id="settings-message"></div>
       <div class="row">
         <button id="tone-climb" class="button" disabled>Testton Steigen</button>

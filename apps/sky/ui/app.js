@@ -575,6 +575,7 @@ const settingInputs = [
   ["set-sink", "out-sink", "sinkThresholdMps", (v) => signed(v) + " m/s"],
   ["set-volume", "out-volume", "volume", (v) => Math.round(v * 100) + " %"],
   ["set-damping", "out-damping", "dampingS", (v) => v.toFixed(1) + " s"],
+  ["set-takeoff-speed", "out-takeoff-speed", "takeoffSpeedKmh", (v) => Math.round(v) + " km/h"],
 ];
 
 function showSettings() {
@@ -583,6 +584,11 @@ function showSettings() {
     $(output).textContent = format(settings[field]);
   }
   $("set-glide-window").value = String(settings.glideWindowS);
+  const toneAfterTakeoff = $("set-tone-after-takeoff");
+  toneAfterTakeoff.classList.toggle("on", settings.toneAfterTakeoff);
+  toneAfterTakeoff.textContent = settings.toneAfterTakeoff
+    ? "Ton erst ab Start: an"
+    : "Ton erst ab Start: aus";
 }
 
 async function applySettings(changed) {
@@ -610,6 +616,10 @@ for (const [input, output, field, format] of settingInputs) {
 
 $("set-glide-window").addEventListener("change", () => {
   applySettings({ ...settings, glideWindowS: Number($("set-glide-window").value) });
+});
+
+$("set-tone-after-takeoff").addEventListener("click", () => {
+  applySettings({ ...settings, toneAfterTakeoff: !settings.toneAfterTakeoff });
 });
 
 $("reset-settings").addEventListener("click", async () => {

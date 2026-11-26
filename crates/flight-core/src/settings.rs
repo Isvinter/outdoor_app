@@ -17,7 +17,15 @@ pub struct VarioSettings {
     /// Time window in seconds over which the glide ratio is averaged. One of
     /// [`GLIDE_WINDOWS_S`].
     pub glide_window_s: f64,
+    /// Keep the vario and the airspace warning sound silent until a takeoff is detected,
+    /// like "Auto Silent" on the Flymaster.
+    pub tone_after_takeoff: bool,
+    /// Speed over ground that starts a flight where the terrain is unknown, in m/s.
+    pub takeoff_speed_mps: f64,
 }
+
+/// Allowed takeoff speeds in m/s (about 4 to 54 km/h).
+pub const TAKEOFF_SPEED_RANGE_MPS: std::ops::RangeInclusive<f64> = 1.0..=15.0;
 
 /// The glide windows the user can choose from, in seconds.
 pub const GLIDE_WINDOWS_S: [f64; 4] = [10.0, 20.0, 30.0, 60.0];
@@ -30,6 +38,8 @@ impl Default for VarioSettings {
             volume: 0.8,
             damping_s: 0.5,
             glide_window_s: 20.0,
+            tone_after_takeoff: true,
+            takeoff_speed_mps: crate::flight_phase::DEFAULT_TAKEOFF_SPEED_MPS,
         }
     }
 }
@@ -44,9 +54,11 @@ pub enum SettingsError {
     DampingOutOfRange,
     #[error("the glide window must be 10, 20, 30 or 60 seconds")]
     GlideWindowInvalid,
+    #[error("the takeoff speed must be between 1 and 15 m/s")]
+    TakeoffSpeedInvalid,
     #[error("settings must be finite numbers")]
     NotFinite,
-    #[error("line {line} of the settings file is not `name = number`")]
+    #[error("line {line} of the settings file is not `name = value`")]
     Malformed { line: usize },
 }
 
@@ -59,6 +71,7 @@ impl VarioSettings {
             self.volume,
             self.damping_s,
             self.glide_window_s,
+            self.takeoff_speed_mps,
         ];
         if values.iter().any(|value| !value.is_finite()) {
             return Err(SettingsError::NotFinite);
@@ -75,6 +88,9 @@ impl VarioSettings {
         if !GLIDE_WINDOWS_S.contains(&self.glide_window_s) {
             return Err(SettingsError::GlideWindowInvalid);
         }
+        if !TAKEOFF_SPEED_RANGE_MPS.contains(&self.takeoff_speed_mps) {
+            return Err(SettingsError::TakeoffSpeedInvalid);
+        }
         Ok(())
     }
 }
@@ -86,6 +102,8 @@ const KEY_SINK: &str = "sink_threshold_mps";
 const KEY_VOLUME: &str = "volume";
 const KEY_DAMPING: &str = "damping_s";
 const KEY_GLIDE_WINDOW: &str = "glide_window_s";
+const KEY_TONE_AFTER_TAKEOFF: &str = "tone_after_takeoff";
+const KEY_TAKEOFF_SPEED: &str = "takeoff_speed_mps";
 
 impl VarioSettings {
     /// The settings as the text of a settings file. Read it back with
@@ -94,12 +112,14 @@ impl VarioSettings {
         format!(
             "# ZeroGrid Sky settings\n\
              {KEY_CLIMB} = {}\n{KEY_SINK} = {}\n{KEY_VOLUME} = {}\n{KEY_DAMPING} = {}\n\
-             {KEY_GLIDE_WINDOW} = {}\n",
+             {KEY_GLIDE_WINDOW} = {}\n{KEY_TONE_AFTER_TAKEOFF} = {}\n{KEY_TAKEOFF_SPEED} = {}\n",
             self.climb_threshold_mps,
             self.sink_threshold_mps,
             self.volume,
             self.damping_s,
-            self.glide_window_s
+            self.glide_window_s,
+            self.tone_after_takeoff,
+            self.takeoff_speed_mps
         )
     }
 
@@ -117,13 +137,19 @@ impl VarioSettings {
             }
             let malformed = SettingsError::Malformed { line: index + 1 };
             let (key, value) = line.split_once('=').ok_or(malformed)?;
-            let value: f64 = value.trim().parse().map_err(|_| malformed)?;
+            let value = value.trim();
+            // `str::parse` picks what to parse into from the type it must return.
+            let number = || value.parse::<f64>().map_err(|_| malformed);
             match key.trim() {
-                KEY_CLIMB => settings.climb_threshold_mps = value,
-                KEY_SINK => settings.sink_threshold_mps = value,
-                KEY_VOLUME => settings.volume = value,
-                KEY_DAMPING => settings.damping_s = value,
-                KEY_GLIDE_WINDOW => settings.glide_window_s = value,
+                KEY_CLIMB => settings.climb_threshold_mps = number()?,
+                KEY_SINK => settings.sink_threshold_mps = number()?,
+                KEY_VOLUME => settings.volume = number()?,
+                KEY_DAMPING => settings.damping_s = number()?,
+                KEY_GLIDE_WINDOW => settings.glide_window_s = number()?,
+                KEY_TONE_AFTER_TAKEOFF => {
+                    settings.tone_after_takeoff = value.parse().map_err(|_| malformed)?;
+                }
+                KEY_TAKEOFF_SPEED => settings.takeoff_speed_mps = number()?,
                 _ => {}
             }
         }
@@ -144,6 +170,8 @@ mod tests {
             volume: 0.45,
             damping_s: 1.25,
             glide_window_s: 60.0,
+            tone_after_takeoff: false,
+            takeoff_speed_mps: 5.5,
         };
         assert_eq!(VarioSettings::from_text(&settings.to_text()), Ok(settings));
     }
@@ -191,6 +219,36 @@ mod tests {
                 .unwrap()
                 .glide_window_s,
             20.0
+        );
+    }
+
+    #[test]
+    fn takeoff_settings_have_flymaster_like_defaults() {
+        let defaults = VarioSettings::default();
+        assert!(defaults.tone_after_takeoff);
+        assert!((defaults.takeoff_speed_mps * 3.6 - 15.0).abs() < 1e-9);
+        // Older files without the entries keep the defaults.
+        let old = VarioSettings::from_text("volume = 0.3\nglide_window_s = 30").unwrap();
+        assert!(old.tone_after_takeoff);
+        assert_eq!(old.takeoff_speed_mps, defaults.takeoff_speed_mps);
+    }
+
+    #[test]
+    fn takeoff_settings_are_checked() {
+        for speed in [0.0, 0.5, 100.0] {
+            assert_eq!(
+                VarioSettings::from_text(&format!("takeoff_speed_mps = {speed}")),
+                Err(SettingsError::TakeoffSpeedInvalid)
+            );
+        }
+        assert_eq!(
+            VarioSettings::from_text("tone_after_takeoff = maybe"),
+            Err(SettingsError::Malformed { line: 1 })
+        );
+        assert!(
+            !VarioSettings::from_text("tone_after_takeoff = false")
+                .unwrap()
+                .tone_after_takeoff
         );
     }
 
