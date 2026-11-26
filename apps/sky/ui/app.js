@@ -104,7 +104,7 @@ function render(status) {
   renderWind(status?.wind ?? null);
   FlightMap.setLanding(status?.landing ?? null);
 
-  renderRecording(status?.recording ?? null);
+  renderRecording(status?.recording ?? null, status?.flight ?? null);
   renderWarnings(status?.airspaceWarnings ?? []);
   if (activePage === "settings") renderSensors(status);
 }
@@ -261,18 +261,25 @@ $("reset-warning").addEventListener("click", async () => {
 
 let recordingFile = null;
 
-function renderRecording(recording) {
+// The flight phase comes from the takeoff and landing detection in Rust.
+function renderRecording(recording, flight) {
   const element = $("recording");
+  // Only a flight in the air has a file name; the session before it has none.
   recordingFile = running ? (recording?.fileName ?? null) : null;
   element.className = recording?.error ? "bad" : "";
+  const seconds = Math.floor(flight?.flightS ?? 0);
   if (!running || !recording) {
     element.textContent = "";
   } else if (recording.error) {
     element.textContent = "Aufzeichnung: Speichern fehlgeschlagen – " + recording.error;
   } else if (recording.fixCount === 0) {
     element.textContent = "Aufzeichnung: warte auf GPS";
+  } else if (flight?.phase === "airborne") {
+    element.textContent = `● In der Luft · ${duration(seconds)}`;
+  } else if (flight?.phase === "landed") {
+    element.textContent = `Gelandet · Flugzeit ${duration(seconds)}`;
   } else {
-    element.textContent = `● Aufzeichnung: ${duration(recording.fixCount)}`;
+    element.textContent = "Bereit · wartet auf Start";
   }
 }
 
@@ -507,7 +514,8 @@ function flightElement(flight) {
   const active = flight.fileName === recordingFile;
   facts.textContent = s
     ? `${active ? "läuft · " : ""}${duration(s.durationS)} · max. ${s.maxAltitudeM} m · ` +
-      `${(s.trackLengthM / 1000).toFixed(1)} km`
+      `${(s.trackLengthM / 1000).toFixed(1)} km` +
+      (flight.takeoffDetected ? "" : " · ohne erkannten Start")
     : "Datei nicht lesbar";
 
   const buttons = document.createElement("div");
