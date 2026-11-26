@@ -38,6 +38,8 @@ pub struct TrackRecorder {
     start: Option<UtcDateTime>,
     last_recorded: Option<UtcDateTime>,
     fixes: Vec<IgcFix>,
+    /// UTC date and time of each fix in `fixes` (IGC fixes carry only the time of day).
+    fix_utcs: Vec<UtcDateTime>,
     revision: u64,
 }
 
@@ -50,6 +52,7 @@ impl TrackRecorder {
             start: None,
             last_recorded: None,
             fixes: Vec::new(),
+            fix_utcs: Vec::new(),
             revision: 0,
         }
     }
@@ -98,6 +101,7 @@ impl TrackRecorder {
             gps_altitude_m: fix.altitude_m.round() as i32,
             extension: String::new(),
         });
+        self.fix_utcs.push(fix.utc);
         self.pending.push_back((self.fixes.len() - 1, fix.time));
         self.start.get_or_insert(fix.utc);
         self.last_recorded = Some(fix.utc);
@@ -137,6 +141,24 @@ impl TrackRecorder {
     /// UTC date and time of the first recorded fix.
     pub fn start(&self) -> Option<UtcDateTime> {
         self.start
+    }
+
+    /// Drops every fix after `last`, e.g. when the flight turns out to have ended
+    /// earlier than the fixes recorded so far.
+    pub fn truncate_after(&mut self, last: UtcDateTime) {
+        // The fixes are in time order, so the ones to keep come first.
+        let keep = self.fix_utcs.partition_point(|utc| *utc <= last);
+        if keep == self.fixes.len() {
+            return;
+        }
+        self.fixes.truncate(keep);
+        self.fix_utcs.truncate(keep);
+        self.pending.retain(|&(index, _)| index < keep);
+        self.last_recorded = self.fix_utcs.last().copied();
+        if keep == 0 {
+            self.start = None;
+        }
+        self.revision += 1;
     }
 
     /// The fixes recorded so far.
@@ -234,6 +256,28 @@ mod tests {
             time: Timestamp::from_secs(secs),
             pressure_pa: altitude_to_pressure(altitude_m),
         }
+    }
+
+    #[test]
+    fn truncating_drops_the_fixes_after_the_given_time() {
+        let mut recorder = TrackRecorder::new(FlightMeta::default());
+        for second in 0..10 {
+            recorder.on_fix(&fix(f64::from(second), second));
+        }
+        let revision = recorder.revision();
+        recorder.truncate_after(fix(0.0, 6).utc);
+        assert_eq!(recorder.fixes().len(), 7, "fixes at 0 s to 6 s");
+        assert_ne!(recorder.revision(), revision);
+        // Pressure samples arriving later still fill in the kept fixes, and nothing else.
+        for second in 0..12 {
+            recorder.on_pressure(pressure(f64::from(second), 1600.0));
+        }
+        let file = recorder.to_igc().unwrap();
+        assert_eq!(file.fixes().count(), 7);
+        assert!(file.fixes().all(|fix| fix.pressure_altitude_m == 1600));
+        // Truncating before the first fix leaves nothing.
+        recorder.truncate_after(fix(0.0, 0).utc.plus_seconds(0));
+        assert_eq!(recorder.fixes().len(), 1);
     }
 
     #[test]

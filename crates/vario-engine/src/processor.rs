@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use flight_core::airspace::Airspace;
 use flight_core::airspace_warning::{Altitudes, Fix, Level, Warner, Warning, WarningSettings};
+use flight_core::flight_phase::{FlightPhaseDetector, HISTORY_S, Phase, PhaseEvent, PhaseSample};
 use flight_core::flightlog;
 use flight_core::glide::{self, Glide, GlideEstimator, GlideSample};
 use flight_core::igc::FlightMeta;
@@ -24,6 +25,8 @@ use serde::Serialize;
 use vario_audio::alert::Alert;
 use vario_audio::voice::ToneControl;
 
+use crate::flights;
+
 /// Number of summary lines kept for display.
 const MAX_SUMMARIES: usize = 400;
 /// Without a new GPS fix for this long, airspace warnings end: they would describe a
@@ -35,6 +38,10 @@ const TRACK_INTERVAL_S: f64 = 0.9;
 /// The glide ratio is only shown this far above the ground (when the ground is known):
 /// close to the ground the measurement is dominated by turbulence and slope effects.
 const MIN_HEIGHT_ABOVE_GROUND_M: f64 = 30.0;
+/// How long pressure samples and fixes are kept for a flight whose takeoff is detected
+/// later than it happened: the takeoff is dated back at most [`HISTORY_S`], the landing
+/// at most a minute.
+const BUFFER_S: f64 = HISTORY_S + 30.0;
 
 /// State of the flight recording.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -103,8 +110,11 @@ pub struct Status {
     pub accel_bias_mps2: Option<f64>,
     /// `true` while a test climb rate overrides the sensors for the tone.
     pub test_tone: bool,
-    /// The flight recording, if recording is on.
+    /// The flight recording, if recording is on: the flight in the air, otherwise the
+    /// session waiting for a takeoff (without a file name, its file is hidden).
     pub recording: Option<RecordingInfo>,
+    /// Where the pilot is: waiting for a takeoff, in the air, or landed.
+    pub flight: FlightInfo,
     pub fix: Option<FixInfo>,
     pub accel: SensorStats,
     pub pressure: SensorStats,
@@ -122,6 +132,24 @@ pub struct Status {
     pub wind: Option<WindInfo>,
     /// Filled by the engine loop (it needs the terrain search), never by the processor.
     pub landing: Option<LandingInfo>,
+}
+
+/// Phase of the flight, as the user interface receives it (`"ready"` ...).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FlightPhase {
+    #[default]
+    Ready,
+    Airborne,
+    Landed,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlightInfo {
+    pub phase: FlightPhase,
+    /// Seconds since the takeoff while airborne; length of the last flight when landed.
+    pub flight_s: Option<f64>,
 }
 
 /// One airspace warning, for the user interface.
@@ -266,10 +294,12 @@ struct Logs {
     raw_path: String,
 }
 
-/// Records the flight and keeps its IGC file up to date.
+/// Records a flight (or the whole session) and keeps its IGC file up to date.
 struct Recording {
     recorder: TrackRecorder,
     dir: PathBuf,
+    /// The hidden file of the whole session rather than a flight.
+    session: bool,
     /// Chosen when the first fix is saved, because the name contains the start time.
     path: Option<PathBuf>,
     /// Revision of the track that was last written.
@@ -278,11 +308,20 @@ struct Recording {
 }
 
 impl Recording {
-    /// Writes the flight to its file if the track changed since the last save.
-    ///
-    /// The whole file is written to a temporary file which then replaces the old one.
-    /// Whatever happens (crash, battery empty), the file on disk is always a complete,
-    /// valid IGC file, at most one save interval behind.
+    fn new(dir: &Path, session: bool) -> Self {
+        Recording {
+            recorder: TrackRecorder::new(FlightMeta::default()),
+            dir: dir.to_owned(),
+            session,
+            path: None,
+            saved_revision: 0,
+            error: None,
+        }
+    }
+
+    /// Writes the track to its file if it changed since the last save. The file on
+    /// disk is always a complete, valid IGC file, at most one save interval behind
+    /// (see [`flights::write_file`]).
     fn save(&mut self) -> io::Result<()> {
         let revision = self.recorder.revision();
         if revision == self.saved_revision {
@@ -294,32 +333,53 @@ impl Recording {
         let path = match &self.path {
             Some(path) => path.clone(),
             None => {
-                std::fs::create_dir_all(&self.dir)?;
-                let path = unused_path(&self.dir, &flightlog::file_name(start));
+                let name = if self.session {
+                    flights::session_file_name(start)
+                } else {
+                    flightlog::file_name(start)
+                };
+                let path = flights::unused_path(&self.dir, &name);
                 self.path = Some(path.clone());
                 path
             }
         };
-        let temporary = path.with_extension("tmp");
-        std::fs::write(&temporary, file.to_string())?;
-        std::fs::rename(&temporary, &path)?;
+        flights::write_file(&path, &file)?;
         self.saved_revision = revision;
         Ok(())
     }
+
+    /// Saved completely and without error.
+    fn is_saved(&self) -> bool {
+        self.error.is_none() && self.saved_revision == self.recorder.revision()
+    }
+
+    fn info(&self) -> RecordingInfo {
+        RecordingInfo {
+            file_name: self
+                .path
+                .as_ref()
+                .filter(|_| !self.session)
+                .and_then(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned()),
+            fix_count: self.recorder.fixes().len(),
+            error: self.error.clone(),
+        }
+    }
 }
 
-/// `dir/name`, or with `-2`, `-3`, ... before the extension if that file exists, so an
-/// existing flight is never overwritten.
-fn unused_path(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if !first.exists() {
-        return first;
-    }
-    let stem = name.strip_suffix(".igc").unwrap_or(name);
-    (2..)
-        .map(|number| dir.join(format!("{stem}-{number}.igc")))
-        .find(|path| !path.exists())
-        .unwrap_or(first)
+/// Saves the recording and remembers the outcome. Returns a line for the log when a new
+/// problem appears: reported once, not every few seconds; saving is retried anyway,
+/// because the track is still in memory and the next attempt may succeed.
+fn save_reporting(recording: &mut Recording) -> Option<String> {
+    let error = recording.save().err().map(|error| error.to_string());
+    let line = (error.is_some() && error != recording.error).then(|| {
+        format!(
+            "saving the flight failed: {}",
+            error.as_deref().unwrap_or("")
+        )
+    });
+    recording.error = error;
+    line
 }
 
 pub struct Processor {
@@ -335,7 +395,20 @@ pub struct Processor {
     gps: Tracker,
     summaries: VecDeque<String>,
     logs: Option<Logs>,
-    recording: Option<Recording>,
+    /// Folder of the flights; `None` records nothing.
+    flights_dir: Option<PathBuf>,
+    /// The whole session in a hidden file, so that nothing is lost if no takeoff is
+    /// detected (see [`Processor::finish_session`] and [`flights::recover_sessions`]).
+    session: Option<Recording>,
+    /// The flight in the air, from its takeoff on.
+    flight: Option<Recording>,
+    /// Flights that ended but are not saved yet; retried at every save.
+    unsaved: Vec<Recording>,
+    flights_recorded: usize,
+    phase: FlightPhaseDetector,
+    /// Pressure samples and fixes of the last [`BUFFER_S`], in the order they arrived:
+    /// a flight starts with those from its (dated back) takeoff on.
+    buffer: VecDeque<SensorEvent>,
     warner: Warner,
     /// Ground elevation for airspace limits and the glide. `Arc<dyn Terrain>` is a shared
     /// pointer to any type that implements the trait (decided at run time); `Arc` lets
@@ -374,7 +447,13 @@ impl Processor {
             gps: Tracker::default(),
             summaries: VecDeque::new(),
             logs: None,
-            recording: None,
+            flights_dir: None,
+            session: None,
+            flight: None,
+            unsaved: Vec::new(),
+            flights_recorded: 0,
+            phase: FlightPhaseDetector::new(settings.takeoff_speed_mps),
+            buffer: VecDeque::new(),
             warner: Warner::new(Arc::new(Vec::new()), WarningSettings::default()),
             terrain: Arc::new(NoTerrain),
             glide: GlideEstimator::new(settings.glide_window_s),
@@ -519,36 +598,65 @@ impl Processor {
         Ok(())
     }
 
-    /// Turns on flight recording: the track is saved as an IGC file in `dir`, named
-    /// after the time of the first GPS fix. Nothing is written before the first fix.
-    pub fn record_flight(&mut self, dir: &Path) {
-        self.recording = Some(Recording {
-            recorder: TrackRecorder::new(FlightMeta::default()),
-            dir: dir.to_owned(),
-            path: None,
-            saved_revision: 0,
-            error: None,
-        });
+    /// Turns on flight recording into `dir`: each flight from its detected takeoff to
+    /// its landing as an IGC file named after its first fix, and the whole session in a
+    /// hidden file. Nothing is written before the first fix.
+    pub fn record_flights(&mut self, dir: &Path) {
+        self.flights_dir = Some(dir.to_owned());
+        self.session = Some(Recording::new(dir, true));
     }
 
-    /// Brings the flight file up to date. Called regularly and at the end.
+    /// Brings the files of the session and the flights up to date. Called regularly.
     pub fn save_flight(&mut self) {
-        let Some(recording) = &mut self.recording else {
+        let lines: Vec<String> = self
+            .session
+            .iter_mut()
+            .chain(self.flight.iter_mut())
+            .chain(self.unsaved.iter_mut())
+            .filter_map(save_reporting)
+            .collect();
+        // Finished flights are kept only until they are on disk.
+        self.unsaved.retain(|flight| !flight.is_saved());
+        for line in lines {
+            self.push_summary(line);
+        }
+    }
+
+    /// Ends the session ("Stopp"): a flight still in the air ends here, everything is
+    /// saved. Then the session file goes if the session had its flights saved or did not
+    /// move; a session that moved without any takeoff is kept as a flight marked
+    /// [`flights::NO_TAKEOFF_MARK`]. If a flight could not be saved, the session file
+    /// stays, and the next start deals with it ([`flights::recover_sessions`]).
+    pub fn finish_session(&mut self) {
+        if let Some(flight) = self.flight.take() {
+            self.unsaved.push(flight);
+        }
+        self.save_flight();
+        let Some(session) = self.session.take() else {
             return;
         };
-        let error = recording.save().err().map(|error| error.to_string());
-        // Report a problem once, not every few seconds; and keep trying, because the
-        // track is still in memory and the next attempt may succeed.
-        if error.is_some() && error != recording.error {
-            let line = format!(
-                "saving the flight failed: {}",
-                error.as_deref().unwrap_or("")
-            );
-            recording.error = error;
-            self.push_summary(line);
-        } else {
-            recording.error = error;
+        // No path: nothing was written, there was not a single fix.
+        let Some(path) = session.path.clone() else {
+            return;
+        };
+        if !self.unsaved.is_empty() {
+            self.push_summary("session file kept: a flight could not be saved".to_owned());
+            return;
         }
+        let result = match session.recorder.to_igc() {
+            Some(file) if self.flights_recorded == 0 && flights::moved(&file) => {
+                flights::keep_session(&session.dir, &path, file)
+                    .map(|name| format!("session without takeoff saved as {name}"))
+            }
+            _ => flights::remove_if_present(&path).map(|()| "session file removed".to_owned()),
+        };
+        let line = result.unwrap_or_else(|error| format!("session file: {error}"));
+        self.push_summary(line);
+    }
+
+    /// Adds a line to the log shown in the app.
+    pub fn note(&mut self, line: String) {
+        self.push_summary(line);
     }
 
     /// Applies changed settings: thresholds and volume to the tone, damping to the
@@ -557,6 +665,7 @@ impl Processor {
         self.control.set_settings(settings);
         self.filter.set_damping(settings.damping_s);
         self.glide.set_window(settings.glide_window_s);
+        self.phase.set_takeoff_speed(settings.takeoff_speed_mps);
         self.update_tone();
     }
 
@@ -577,10 +686,26 @@ impl Processor {
             }
         }
         self.filter.handle(event);
+        if !matches!(event, SensorEvent::Accel(_)) {
+            self.buffer.push_back(*event);
+            let newest = event.time();
+            while self
+                .buffer
+                .front()
+                .is_some_and(|oldest| newest.seconds_since(oldest.time()) > BUFFER_S)
+            {
+                self.buffer.pop_front();
+            }
+        }
+        // `flatten` skips the `None`s: only the recordings that exist get the event.
+        for recording in [&mut self.session, &mut self.flight].into_iter().flatten() {
+            recording.recorder.handle(event);
+        }
         match event {
             SensorEvent::Gps(fix) => {
                 self.check_airspaces(fix);
                 self.update_glide_and_wind(fix);
+                self.update_phase(fix);
             }
             // The other sensors keep running when the GPS fails: their time tells how
             // old the last fix is.
@@ -591,9 +716,6 @@ impl Processor {
                 self.note_gps_age(age);
             }
         }
-        if let Some(recording) = &mut self.recording {
-            recording.recorder.handle(event);
-        }
         self.update_tone();
 
         let written = match &mut self.logs {
@@ -601,6 +723,78 @@ impl Processor {
             None => Ok(()),
         };
         self.note_log_result(written);
+    }
+
+    /// Feeds the takeoff and landing detection; starts and ends flights.
+    fn update_phase(&mut self, fix: &GpsFix) {
+        let height_above_terrain_m = if fix.fix_3d {
+            self.terrain
+                .elevation_m(fix.latitude_deg, fix.longitude_deg)
+                .map(|ground_m| fix.altitude_m - ground_m)
+        } else {
+            None
+        };
+        let sample = PhaseSample {
+            time_s: fix.time.as_secs(),
+            latitude_deg: fix.latitude_deg,
+            longitude_deg: fix.longitude_deg,
+            ground_speed_mps: fix.ground_speed_mps,
+            climb_rate_mps: self.filter.reading().map(|reading| reading.climb_rate_mps),
+            height_above_terrain_m,
+        };
+        match self.phase.push(sample) {
+            Some(PhaseEvent::Takeoff { time_s, .. }) => {
+                self.push_summary(format!(
+                    "takeoff detected, {:.0} s ago",
+                    sample.time_s - time_s
+                ));
+                self.start_flight(time_s);
+            }
+            Some(PhaseEvent::Landing { time_s }) => {
+                self.push_summary(format!(
+                    "landing detected, {:.0} s ago",
+                    sample.time_s - time_s
+                ));
+                self.end_flight(time_s);
+            }
+            None => {}
+        }
+    }
+
+    /// Opens the flight file with what was buffered since the takeoff at `time_s`.
+    fn start_flight(&mut self, time_s: f64) {
+        let Some(dir) = &self.flights_dir else {
+            return;
+        };
+        let mut flight = Recording::new(dir, false);
+        for event in &self.buffer {
+            // Earlier pressure samples help to fill in the altitude of the first fixes.
+            let wanted = match event {
+                SensorEvent::Gps(fix) => fix.time.as_secs() >= time_s,
+                _ => true,
+            };
+            if wanted {
+                flight.recorder.handle(event);
+            }
+        }
+        self.flight = Some(flight);
+        self.flights_recorded += 1;
+    }
+
+    /// Ends the flight at the landing at `time_s`: the fixes after it are dropped.
+    fn end_flight(&mut self, time_s: f64) {
+        let Some(mut flight) = self.flight.take() else {
+            return;
+        };
+        let landed = self.buffer.iter().find_map(|event| match event {
+            SensorEvent::Gps(fix) if fix.time.as_secs() == time_s => Some(fix.utc),
+            _ => None,
+        });
+        if let Some(utc) = landed {
+            flight.recorder.truncate_after(utc);
+        }
+        self.unsaved.push(flight);
+        self.save_flight();
     }
 
     /// Feeds the glide and wind estimators with a fix and prepares the landing query.
@@ -742,15 +936,8 @@ impl Processor {
             climb_rate_mps: reading.map(|r| r.climb_rate_mps),
             accel_bias_mps2: self.filter.accel_bias_mps2(),
             test_tone: self.test_climb_mps.is_some(),
-            recording: self.recording.as_ref().map(|recording| RecordingInfo {
-                file_name: recording
-                    .path
-                    .as_ref()
-                    .and_then(|path| path.file_name())
-                    .map(|name| name.to_string_lossy().into_owned()),
-                fix_count: recording.recorder.fixes().len(),
-                error: recording.error.clone(),
-            }),
+            recording: self.recording_info(),
+            flight: self.flight_info(),
             fix: self.last_fix.map(|fix| FixInfo {
                 latitude_deg: fix.latitude_deg,
                 longitude_deg: fix.longitude_deg,
@@ -788,6 +975,37 @@ impl Processor {
                     stars: estimate.stars,
                 }),
             landing: None,
+        }
+    }
+
+    fn recording_info(&self) -> Option<RecordingInfo> {
+        let mut info = self.flight.as_ref().or(self.session.as_ref())?.info();
+        // A flight that could not be saved must not go unnoticed after its landing.
+        if info.error.is_none() {
+            info.error = self.unsaved.iter().find_map(|flight| flight.error.clone());
+        }
+        Some(info)
+    }
+
+    fn flight_info(&self) -> FlightInfo {
+        let takeoff = self.phase.takeoff_time_s();
+        match self.phase.phase() {
+            Phase::Ready => FlightInfo::default(),
+            Phase::Airborne => FlightInfo {
+                phase: FlightPhase::Airborne,
+                flight_s: self
+                    .last_fix_time_s
+                    .zip(takeoff)
+                    .map(|(now, start)| now - start),
+            },
+            Phase::Landed => FlightInfo {
+                phase: FlightPhase::Landed,
+                flight_s: self
+                    .phase
+                    .landing_time_s()
+                    .zip(takeoff)
+                    .map(|(end, start)| end - start),
+            },
         }
     }
 
@@ -855,7 +1073,7 @@ fn write_raw(out: &mut impl Write, event: &SensorEvent) -> io::Result<()> {
 mod tests {
     use super::*;
     use flight_core::time::{Date, TimeOfDay, UtcDateTime};
-    use sensor_sim::synthetic::SyntheticFlight;
+    use sensor_sim::synthetic::{Segment, SyntheticFlight};
     use sensor_sim::{SimConfig, Simulation};
     use vario_audio::voice::VarioVoice;
 
@@ -907,9 +1125,11 @@ mod tests {
         assert_eq!(fix.utc, "10:00:20");
         assert_eq!(fix.ground_speed_mps, Some(10.0));
 
-        assert_eq!(status.summaries.len(), 1);
+        // 36 km/h without terrain: a takeoff after 5 s, dated back to the first fix.
+        assert_eq!(status.summaries.len(), 2);
+        assert_eq!(status.summaries[0], "takeoff detected, 5 s ago");
         assert_eq!(
-            status.summaries[0],
+            status.summaries[1],
             "10:00:20  accel  50.0 Hz gap  0.02 s | baro   1.1 Hz gap  1.00 s | \
              gps   1.1 Hz gap  1.00 s | alt 1540.0 m climb +2.00 m/s"
         );
@@ -947,7 +1167,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         let (mut first, _) = processor();
-        first.record_flight(&dir);
+        first.record_flights(&dir);
         first.save_flight();
         assert!(!dir.exists(), "nothing is written before the first fix");
 
@@ -966,6 +1186,7 @@ mod tests {
         assert_eq!(info.file_name.as_deref(), Some("2026-07-28-100000.igc"));
         assert_eq!(info.fix_count, 21);
         assert_eq!(info.error, None);
+        first.finish_session();
 
         let text = std::fs::read_to_string(dir.join("2026-07-28-100000.igc")).unwrap();
         let file = flight_core::igc::IgcFile::parse(&text).unwrap();
@@ -981,9 +1202,9 @@ mod tests {
 
         // A second flight starting in the same second gets a name of its own.
         let (mut second, _) = processor();
-        second.record_flight(&dir);
-        climb_simulation(3.0).run_fast(|event| second.handle(&event));
-        second.save_flight();
+        second.record_flights(&dir);
+        climb_simulation(8.0).run_fast(|event| second.handle(&event));
+        second.finish_session();
         assert!(dir.join("2026-07-28-100000-2.igc").exists());
         assert_eq!(
             std::fs::read_dir(&dir).unwrap().count(),
@@ -991,6 +1212,156 @@ mod tests {
             "no temporary files left"
         );
 
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vario-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn simulate(flight: SyntheticFlight) -> Simulation<sensor_sim::sources::SimGps> {
+        let start = UtcDateTime::new(
+            Date::new(2026, 7, 28).unwrap(),
+            TimeOfDay::new(10, 0, 0).unwrap(),
+        );
+        Simulation::synthetic(flight, start, &SimConfig::default())
+    }
+
+    /// Flat ground at 999 m; the flights below start with the phone 1 m above it.
+    fn processor_over_flat_ground(dir: &Path) -> Processor {
+        let (mut processor, _) = processor();
+        processor.set_terrain(Arc::new(flight_core::terrain::FlatTerrain(999.0)));
+        processor.record_flights(dir);
+        processor
+    }
+
+    /// Standing 60 s at launch, 60 s climbing at 0.5 m/s (takeoff when 20 m above the
+    /// ground, dated back to 59 s), 60 s sinking back down, landing at 180 s, 60 s
+    /// standing.
+    fn launch_and_landing() -> sensor_sim::synthetic::SyntheticFlightBuilder {
+        SyntheticFlight::builder()
+            .start(47.0, 11.0, 1000.0)
+            .segment(Segment::on_ground(60.0, 0.0))
+            .segment(Segment::straight(60.0, 0.5))
+            .segment(Segment::straight(60.0, -0.5))
+            .segment(Segment::on_ground(60.0, 0.0))
+    }
+
+    /// All file names in `dir`, hidden ones too, sorted; empty if there is no folder.
+    fn files(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    fn fix_times(dir: &Path, name: &str) -> (TimeOfDay, TimeOfDay) {
+        let text = std::fs::read_to_string(dir.join(name)).unwrap();
+        let file = flight_core::igc::IgcFile::parse(&text).unwrap();
+        (
+            file.fixes().next().unwrap().time,
+            file.fixes().last().unwrap().time,
+        )
+    }
+
+    #[test]
+    fn a_flight_is_recorded_from_launch_to_landing() {
+        let dir = test_dir("flight-phases");
+        let mut processor = processor_over_flat_ground(&dir);
+        let mut phases = vec![FlightPhase::Ready];
+        simulate(launch_and_landing().build()).run_fast(|event| {
+            processor.handle(&event);
+            let phase = processor.flight_info().phase;
+            if phases.last() != Some(&phase) {
+                phases.push(phase);
+            }
+        });
+        assert_eq!(
+            phases,
+            [
+                FlightPhase::Ready,
+                FlightPhase::Airborne,
+                FlightPhase::Landed
+            ]
+        );
+        assert_eq!(processor.flight_info().flight_s, Some(121.0));
+        // The session file exists until the session ends.
+        assert_eq!(
+            files(&dir),
+            [".session-2026-07-28-100000.igc", "2026-07-28-100059.igc"]
+        );
+
+        processor.finish_session();
+        assert_eq!(files(&dir), ["2026-07-28-100059.igc"]);
+        assert_eq!(
+            fix_times(&dir, "2026-07-28-100059.igc"),
+            (
+                TimeOfDay::new(10, 0, 59).unwrap(),
+                TimeOfDay::new(10, 3, 0).unwrap()
+            )
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn top_landing_and_relaunch_give_two_flights() {
+        let dir = test_dir("flight-relaunch");
+        let mut processor = processor_over_flat_ground(&dir);
+        let flight = launch_and_landing()
+            .segment(Segment::straight(60.0, 0.5))
+            .build();
+        simulate(flight).run_fast(|event| processor.handle(&event));
+        assert_eq!(processor.flight_info().phase, FlightPhase::Airborne);
+        // "Stopp" in the air ends the second flight there.
+        processor.finish_session();
+        assert_eq!(
+            files(&dir),
+            ["2026-07-28-100059.igc", "2026-07-28-100359.igc"]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn standing_around_leaves_no_file() {
+        let dir = test_dir("flight-standing");
+        let mut processor = processor_over_flat_ground(&dir);
+        let standing = SyntheticFlight::builder()
+            .start(47.0, 11.0, 1000.0)
+            .segment(Segment::on_ground(120.0, 0.0))
+            .build();
+        simulate(standing).run_fast(|event| processor.handle(&event));
+        processor.save_flight();
+        assert_eq!(files(&dir), [".session-2026-07-28-100000.igc"]);
+        processor.finish_session();
+        assert_eq!(files(&dir), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_session_that_moved_without_takeoff_is_kept_and_marked() {
+        // Walking 360 m along flat ground: no takeoff, but maybe a flight that was not
+        // detected; it is kept.
+        let dir = test_dir("flight-walking");
+        let mut processor = processor_over_flat_ground(&dir);
+        let walking = SyntheticFlight::builder()
+            .start(47.0, 11.0, 1000.0)
+            .segment(Segment::on_ground(300.0, 1.2))
+            .build();
+        simulate(walking).run_fast(|event| processor.handle(&event));
+        assert_eq!(processor.flight_info().phase, FlightPhase::Ready);
+        processor.finish_session();
+        let flights = flights::list(&dir).unwrap();
+        assert_eq!(flights.len(), 1);
+        assert_eq!(flights[0].file_name, "2026-07-28-100000.igc");
+        assert!(!flights[0].takeoff_detected);
+        assert_eq!(files(&dir), ["2026-07-28-100000.igc"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

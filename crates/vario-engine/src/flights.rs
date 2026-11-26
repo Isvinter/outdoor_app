@@ -4,7 +4,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use flight_core::flightlog::{self, FlightSummary};
-use flight_core::igc::IgcFile;
+use flight_core::geo::distance_m;
+use flight_core::igc::{IgcFile, Record};
+use flight_core::time::UtcDateTime;
 use serde::Serialize;
 
 use crate::processor::TrackPoint;
@@ -16,7 +18,21 @@ pub struct FlightEntry {
     pub file_name: String,
     /// `None` if the file could not be read as a flight.
     pub summary: Option<SummaryInfo>,
+    /// `false` for a session saved without a detected takeoff (see [`NO_TAKEOFF_MARK`]).
+    pub takeoff_detected: bool,
 }
+
+/// IGC comment record (`L`, then a three-letter code; `XZG` because ZeroGrid has no
+/// manufacturer code of its own) marking a session saved without a detected takeoff.
+pub const NO_TAKEOFF_MARK: &str = "LXZG NO TAKEOFF DETECTED";
+/// Start of the names of the hidden files that hold a whole session. They start with a
+/// dot, so the flight list and the iOS "Files" app leave them out.
+const SESSION_PREFIX: &str = ".session-";
+/// A session without takeoff is kept as a flight only if it got this far from its first
+/// fix ...
+const MOVED_DISTANCE_M: f64 = 200.0;
+/// ... or changed its GPS altitude by this much; otherwise the pilot only stood around.
+const MOVED_ALTITUDE_M: i32 = 50;
 
 /// [`FlightSummary`] in the form the user interface receives.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -70,11 +86,17 @@ pub fn list(dir: &Path) -> io::Result<Vec<FlightEntry>> {
         if !is_flight_file_name(&file_name) {
             continue;
         }
-        let summary = read(dir, &file_name)
-            .ok()
-            .and_then(|file| flightlog::summarize(&file))
+        let file = read(dir, &file_name).ok();
+        let summary = file
+            .as_ref()
+            .and_then(flightlog::summarize)
             .map(SummaryInfo::from);
-        flights.push(FlightEntry { file_name, summary });
+        let takeoff_detected = file.as_ref().is_none_or(takeoff_detected);
+        flights.push(FlightEntry {
+            file_name,
+            summary,
+            takeoff_detected,
+        });
     }
     // File names start with date and time, so sorting by name sorts by time.
     flights.sort_by(|a, b| b.file_name.cmp(&a.file_name));
@@ -97,6 +119,160 @@ pub fn track(dir: &Path, file_name: &str) -> io::Result<Vec<TrackPoint>> {
 /// Deletes one flight for good.
 pub fn delete(dir: &Path, file_name: &str) -> io::Result<()> {
     std::fs::remove_file(checked_path(dir, file_name)?)
+}
+
+/// Name of the hidden file that holds the whole session starting at `start`.
+pub fn session_file_name(start: UtcDateTime) -> String {
+    format!("{SESSION_PREFIX}{}", flightlog::file_name(start))
+}
+
+/// Whether the file was saved without a detected takeoff.
+pub fn takeoff_detected(file: &IgcFile) -> bool {
+    !file
+        .records
+        .iter()
+        .any(|record| matches!(record, Record::Other(text) if text == NO_TAKEOFF_MARK))
+}
+
+/// Whether the track got more than [`MOVED_DISTANCE_M`] from its first fix or changed
+/// its GPS altitude by more than [`MOVED_ALTITUDE_M`].
+pub fn moved(file: &IgcFile) -> bool {
+    let mut fixes = file.fixes();
+    let Some(first) = fixes.next() else {
+        return false;
+    };
+    let (mut lowest, mut highest) = (first.gps_altitude_m, first.gps_altitude_m);
+    for fix in fixes {
+        lowest = lowest.min(fix.gps_altitude_m);
+        highest = highest.max(fix.gps_altitude_m);
+        let far = distance_m(
+            first.latitude_deg,
+            first.longitude_deg,
+            fix.latitude_deg,
+            fix.longitude_deg,
+        ) > MOVED_DISTANCE_M;
+        if far || highest - lowest > MOVED_ALTITUDE_M {
+            return true;
+        }
+    }
+    false
+}
+
+/// Saves a session that never took off as a flight marked with [`NO_TAKEOFF_MARK`],
+/// then removes the session file. The flight is written completely before the session
+/// file goes, so the track is never only in neither. Returns the flight's file name.
+pub fn keep_session(dir: &Path, session_path: &Path, mut file: IgcFile) -> io::Result<String> {
+    let (start, _) = span(&file)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "session without fixes"))?;
+    let first_fix = file
+        .records
+        .iter()
+        .position(|record| matches!(record, Record::Fix(_)))
+        .unwrap_or(file.records.len());
+    file.records
+        .insert(first_fix, Record::Other(NO_TAKEOFF_MARK.to_owned()));
+    let path = unused_path(dir, &flightlog::file_name(start));
+    write_file(&path, &file)?;
+    remove_if_present(session_path)?;
+    Ok(path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default())
+}
+
+/// Deals with session files left over from a session that did not end with "Stopp"
+/// (the app was killed or crashed): a session whose flights are saved is removed; one
+/// without flights is kept as a marked flight if it moved, removed if not. A file that
+/// cannot be read stays where it is. Returns one note per file for the log.
+pub fn recover_sessions(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let names: Vec<String> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    let flight_spans: Vec<(UtcDateTime, UtcDateTime)> = names
+        .iter()
+        .filter(|name| is_flight_file_name(name))
+        .filter_map(|name| read(dir, name).ok())
+        .filter_map(|file| span(&file))
+        .collect();
+
+    let mut notes = Vec::new();
+    for name in names
+        .iter()
+        .filter(|name| name.starts_with(SESSION_PREFIX) && name.ends_with(".igc"))
+    {
+        let path = dir.join(name);
+        let file = match std::fs::read(&path).map(|bytes| IgcFile::parse_bytes(&bytes)) {
+            Ok(Ok(file)) => file,
+            Ok(Err(error)) => {
+                notes.push(format!("kept unreadable session file {name}: {error}"));
+                continue;
+            }
+            Err(error) => {
+                notes.push(format!("kept unreadable session file {name}: {error}"));
+                continue;
+            }
+        };
+        let note = match span(&file) {
+            None => remove_if_present(&path).map(|()| format!("removed empty session {name}")),
+            Some((start, end))
+                if flight_spans
+                    .iter()
+                    .any(|&(first, last)| first <= end && start <= last) =>
+            {
+                remove_if_present(&path)
+                    .map(|()| format!("removed session {name}: its flights are saved"))
+            }
+            Some(_) if moved(&file) => keep_session(dir, &path, file)
+                .map(|flight| format!("saved session {name} without takeoff as {flight}")),
+            Some(_) => remove_if_present(&path)
+                .map(|()| format!("removed session {name}: no flight, no movement")),
+        };
+        notes.push(note.unwrap_or_else(|error| format!("session file {name}: {error}")));
+    }
+    notes
+}
+
+/// First and last fix of the file in UTC.
+fn span(file: &IgcFile) -> Option<(UtcDateTime, UtcDateTime)> {
+    let summary = flightlog::summarize(file)?;
+    let start = UtcDateTime::new(summary.date?, summary.start);
+    Some((start, start.plus_seconds(u64::from(summary.duration_s))))
+}
+
+/// Writes the whole file to a temporary file which then replaces `path`. Whatever
+/// happens (crash, battery empty), the file on disk is always complete.
+pub(crate) fn write_file(path: &Path, file: &IgcFile) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let temporary = path.with_extension("tmp");
+    std::fs::write(&temporary, file.to_string())?;
+    std::fs::rename(&temporary, path)
+}
+
+/// `dir/name`, or with `-2`, `-3`, ... before the extension if that file exists, so an
+/// existing flight is never overwritten.
+pub(crate) fn unused_path(dir: &Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let stem = name.strip_suffix(".igc").unwrap_or(name);
+    (2..)
+        .map(|number| dir.join(format!("{stem}-{number}.igc")))
+        .find(|path| !path.exists())
+        .unwrap_or(first)
+}
+
+pub(crate) fn remove_if_present(path: &Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
 }
 
 fn read(dir: &Path, file_name: &str) -> io::Result<IgcFile> {
@@ -174,11 +350,83 @@ mod tests {
             ]
         );
         assert_eq!(flights[0].summary, None);
+        assert!(flights.iter().all(|flight| flight.takeoff_detected));
         let newest = flights[1].summary.as_ref().unwrap();
         assert_eq!(newest.start_utc.as_deref(), Some("2026-07-28T10:00:00Z"));
         assert_eq!(newest.duration_s, 9);
         assert_eq!(newest.max_altitude_m, 1009);
 
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Writes a hidden session file of `fixes` seconds starting at 10:00:00 on 28 July,
+    /// moving `step_m` metres north per second.
+    fn write_session(dir: &Path, fixes: u8, step_m: f64) -> PathBuf {
+        let mut file =
+            IgcFile::with_header(Date::new(2026, 7, 28).unwrap(), &FlightMeta::default());
+        for second in 0..fixes {
+            file.records.push(Record::Fix(IgcFix {
+                time: TimeOfDay::new(10, 0, second).unwrap(),
+                latitude_deg: 47.0 + f64::from(second) * step_m / 111_195.0,
+                longitude_deg: 11.0,
+                fix_3d: true,
+                pressure_altitude_m: 1000,
+                gps_altitude_m: 1000,
+                extension: String::new(),
+            }));
+        }
+        let path = dir.join(".session-2026-07-28-100000.igc");
+        std::fs::write(&path, file.to_string()).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_left_over_session_that_moved_becomes_a_marked_flight() {
+        let dir = test_dir("recover-moved");
+        let session = write_session(&dir, 50, 10.0);
+        let notes = recover_sessions(&dir);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(!session.exists());
+        let flights = list(&dir).unwrap();
+        assert_eq!(flights.len(), 1);
+        assert_eq!(flights[0].file_name, "2026-07-28-100000.igc");
+        assert!(!flights[0].takeoff_detected);
+        assert_eq!(flights[0].summary.as_ref().unwrap().fix_count, 50);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_left_over_session_without_movement_is_removed() {
+        let dir = test_dir("recover-still");
+        let session = write_session(&dir, 50, 1.0);
+        recover_sessions(&dir);
+        assert!(!session.exists());
+        assert_eq!(list(&dir).unwrap(), Vec::new());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_left_over_session_with_a_saved_flight_is_removed() {
+        let dir = test_dir("recover-flight");
+        let session = write_session(&dir, 50, 10.0);
+        // The flight of this session: 10:00:00 to 10:00:09.
+        write_flight(&dir, "2026-07-28-100000.igc", 28, 10);
+        recover_sessions(&dir);
+        assert!(!session.exists());
+        let flights = list(&dir).unwrap();
+        assert_eq!(flights.len(), 1);
+        assert!(flights[0].takeoff_detected);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_unreadable_session_file_is_left_alone() {
+        let dir = test_dir("recover-broken");
+        let path = dir.join(".session-2026-07-28-100000.igc");
+        std::fs::write(&path, "B123\n").unwrap();
+        let notes = recover_sessions(&dir);
+        assert!(path.exists());
+        assert!(notes[0].starts_with("kept unreadable"), "{notes:?}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

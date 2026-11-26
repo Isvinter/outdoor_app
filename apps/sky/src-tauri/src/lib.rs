@@ -558,6 +558,13 @@ pub fn run() {
         .setup(|app| {
             *app.state::<AppState>().settings() = settings::load(app.handle());
             *app.state::<AppState>().warning() = settings::load_warning(app.handle());
+            // Session files left by a crash become flights before the notice about the
+            // interrupted session looks for them.
+            if let Some(dir) = flights_dir(app.handle()) {
+                for note in vario_engine::flights::recover_sessions(&dir) {
+                    eprintln!("{note}");
+                }
+            }
             *app.state::<AppState>().interrupted() = session_marker::take_interrupted(app.handle());
             smoke::maybe_run(app.handle());
             Ok(())
