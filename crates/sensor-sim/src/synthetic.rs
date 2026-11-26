@@ -17,11 +17,14 @@ pub struct Segment {
     pub duration_s: f64,
     /// Climb rate in m/s the glider settles on, upwards positive.
     pub climb_rate_mps: f64,
-    /// Speed through the air (not over the ground; wind comes on top of it).
+    /// Speed through the air (not over the ground; wind comes on top of it). On the
+    /// ground: the speed over ground.
     pub airspeed_mps: f64,
     /// Seconds per full circle; positive turns right, negative left. `None` flies
     /// straight ahead.
     pub turn_period_s: Option<f64>,
+    /// Standing, walking or driving on the ground: not carried by the wind.
+    pub on_ground: bool,
 }
 
 impl Segment {
@@ -32,6 +35,7 @@ impl Segment {
             climb_rate_mps,
             airspeed_mps: 10.0,
             turn_period_s: None,
+            on_ground: false,
         }
     }
 
@@ -42,6 +46,20 @@ impl Segment {
             climb_rate_mps,
             airspeed_mps: 8.0,
             turn_period_s: Some(turn_period_s),
+            on_ground: false,
+        }
+    }
+
+    /// On the ground, moving straight along the heading at `speed_mps` over ground
+    /// (0 = standing) at constant altitude: waiting at launch, walking, driving, or
+    /// standing after the landing. The wind does not move it.
+    pub fn on_ground(duration_s: f64, speed_mps: f64) -> Self {
+        Segment {
+            duration_s,
+            climb_rate_mps: 0.0,
+            airspeed_mps: speed_mps,
+            turn_period_s: None,
+            on_ground: true,
         }
     }
 }
@@ -112,6 +130,7 @@ impl SyntheticFlightBuilder {
             north_m: 0.0,
             east_m: 0.0,
             heading_rad: self.heading_deg.to_radians(),
+            airborne_s: 0.0,
         };
 
         for segment in self.segments {
@@ -221,19 +240,31 @@ impl Trajectory for SyntheticFlight {
         let leg = &self.legs[index];
         let local = leg.at(t - leg.start.time_s);
 
+        // The legs describe the path through the air; the wind carries the whole air
+        // mass along, so its drift grows with the time spent in the air so far. On the
+        // ground the wind moves nothing.
+        let (wind_north, wind_east) = if leg.segment.on_ground {
+            (0.0, 0.0)
+        } else {
+            (self.wind_north_mps, self.wind_east_mps)
+        };
+        let airborne_s = leg.start.airborne_s
+            + if leg.segment.on_ground {
+                0.0
+            } else {
+                t - leg.start.time_s
+            };
         let (latitude_deg, longitude_deg) = offset_position(
             self.latitude_deg,
             self.longitude_deg,
-            // The legs describe the path through the air; the wind carries the whole
-            // air mass along, so its drift grows with the time since the flight start.
-            local.north_m + self.wind_north_mps * t,
-            local.east_m + self.wind_east_mps * t,
+            local.north_m + self.wind_north_mps * airborne_s,
+            local.east_m + self.wind_east_mps * airborne_s,
         );
         // Ground velocity = velocity through the air along the heading + wind.
         let air_north = leg.segment.airspeed_mps * local.heading_rad.cos();
         let air_east = leg.segment.airspeed_mps * local.heading_rad.sin();
-        let ground_north = air_north + self.wind_north_mps;
-        let ground_east = air_east + self.wind_east_mps;
+        let ground_north = air_north + wind_north;
+        let ground_east = air_east + wind_east;
         TruthState {
             latitude_deg,
             longitude_deg,
@@ -258,6 +289,8 @@ struct LegStart {
     north_m: f64,
     east_m: f64,
     heading_rad: f64,
+    /// Seconds spent in the air before this leg; the wind drift grows only with them.
+    airborne_s: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -333,6 +366,12 @@ impl Leg {
             north_m: state.north_m,
             east_m: state.east_m,
             heading_rad: state.heading_rad,
+            airborne_s: self.start.airborne_s
+                + if self.segment.on_ground {
+                    0.0
+                } else {
+                    self.segment.duration_s
+                },
         }
     }
 }
@@ -341,6 +380,74 @@ impl Leg {
 mod tests {
     use super::*;
     use flight_core::geo::distance_m;
+
+    #[test]
+    fn standing_on_the_ground_does_not_drift_with_the_wind() {
+        let flight = SyntheticFlight::builder()
+            .wind(270.0, 6.0)
+            .segment(Segment::on_ground(30.0, 0.0))
+            .build();
+        let start = flight.state_at(0.0);
+        let end = flight.state_at(30.0);
+        assert_eq!(
+            (start.latitude_deg, start.longitude_deg),
+            (end.latitude_deg, end.longitude_deg)
+        );
+        assert_eq!(end.ground_speed_mps, 0.0);
+        assert_eq!(end.altitude_m, start.altitude_m);
+    }
+
+    #[test]
+    fn driving_moves_at_the_given_speed_regardless_of_wind() {
+        let flight = SyntheticFlight::builder()
+            .heading(90.0)
+            .wind(270.0, 6.0)
+            .segment(Segment::on_ground(10.0, 14.0))
+            .build();
+        let state = flight.state_at(5.0);
+        assert!((state.ground_speed_mps - 14.0).abs() < 1e-9);
+        assert!((state.course_deg - 90.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn wind_drift_starts_only_when_airborne() {
+        // 20 s standing, then 10 s straight in 4 m/s wind from the west, heading north:
+        // the drift east is 40 m, not 120 m.
+        let flight = SyntheticFlight::builder()
+            .wind(270.0, 4.0)
+            .segment(Segment::on_ground(20.0, 0.0))
+            .segment(Segment::straight(10.0, -1.0))
+            .build();
+        let start = flight.state_at(0.0);
+        let end = flight.state_at(30.0);
+        let east = distance_m(
+            start.latitude_deg,
+            start.longitude_deg,
+            start.latitude_deg,
+            end.longitude_deg,
+        );
+        assert!((east - 40.0).abs() < 0.5, "{east}");
+    }
+
+    #[test]
+    fn landing_stops_the_drift() {
+        // Airborne 10 s in the wind, then standing: the position stays where it landed.
+        let flight = SyntheticFlight::builder()
+            .wind(270.0, 4.0)
+            .segment(Segment::straight(10.0, -1.0))
+            .segment(Segment::on_ground(30.0, 0.0))
+            .build();
+        let landed = flight.state_at(12.0);
+        let later = flight.state_at(40.0);
+        assert!(
+            distance_m(
+                landed.latitude_deg,
+                landed.longitude_deg,
+                later.latitude_deg,
+                later.longitude_deg
+            ) < 1e-6
+        );
+    }
 
     #[test]
     fn steady_climb_gains_rate_times_time() {
