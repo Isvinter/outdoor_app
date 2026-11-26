@@ -76,8 +76,9 @@ struct MapToolbar: View {
     }
 }
 
-/// Above the location button: start a recording, and the settings of the guidance.
+/// Above the location button: start a recording, and the settings of the guidance and the rests.
 struct MapSideButtons: View {
+    @ObservedObject var recording: RecordingController
     /// Starts a recording; nil while one runs.
     var record: (() -> Void)?
     @AppStorage(DeviationAlert.soundKey) private var deviationSound = true
@@ -93,6 +94,21 @@ struct MapSideButtons: View {
                     .accessibilityIdentifier("turn-notifications")
                 Toggle("Abbiegehinweise ansagen", isOn: $turnSpeech)
                     .accessibilityIdentifier("turn-speech")
+                Picker("Rast nach", selection: $recording.restDwellMin) {
+                    ForEach(RecordingController.restDwellChoices, id: \.self) { Text("\($0) min").tag($0) }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("rest-dwell")
+                Picker("Rastumkreis", selection: $recording.restRadiusM) {
+                    ForEach(RecordingController.restRadiusChoices, id: \.self) { Text("\($0) m").tag($0) }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("rest-radius")
+                Picker("Drosseln bei Rast", selection: $recording.throttle) {
+                    ForEach(RestThrottle.allCases, id: \.self) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("rest-throttle")
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.title3)

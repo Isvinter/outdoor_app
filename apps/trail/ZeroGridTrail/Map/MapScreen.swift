@@ -47,6 +47,8 @@ struct MapScreen: View {
                 }
                 if recording.active {
                     RecordingBar(recording: recording)
+                } else if recording.choosingActivity {
+                    StartRecordingPanel(recording: recording)
                 } else if let track = recording.ended {
                     SaveTrackPanel(recording: recording, track: track)
                         .id(track.id)
@@ -94,7 +96,10 @@ struct MapScreen: View {
             }
             .padding()
             VStack(alignment: .trailing, spacing: 12) {
-                MapSideButtons(record: recording.active || recording.ended != nil ? nil : { recording.start() })
+                MapSideButtons(
+                    recording: recording,
+                    record: recording.active || recording.ended != nil || recording.choosingActivity
+                        ? nil : { recording.requestStart() })
                 LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) {
                     controller.toggleLocation()
                 }
@@ -104,7 +109,9 @@ struct MapScreen: View {
                 .padding(.bottom, 108)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             if start.options.selftest {
-                SelfTestStatus(controller: controller, plan: plan, regions: regions, guide: guide, start: start)
+                SelfTestStatus(
+                    controller: controller, plan: plan, regions: regions, guide: guide, recording: recording,
+                    start: start)
             }
         }
         // The hits and the chosen one must not end up behind a raised sheet.
@@ -208,6 +215,7 @@ private struct SelfTestStatus: View {
     @ObservedObject var plan: PlanController
     @ObservedObject var regions: RegionsController
     @ObservedObject var guide: GuideController
+    @ObservedObject var recording: RecordingController
     let start: AppStart.Ready
 
     var body: some View {
@@ -267,6 +275,10 @@ private struct SelfTestStatus: View {
             parts.append("guide=off")
         }
         parts.append("following=\(guide.following ? 1 : 0)")
+        if recording.active {
+            parts.append("recording_sections=\(recording.sectionCount)")
+            parts.append("resting=\(recording.info.resting ? 1 : 0)")
+        }
         let waypoints = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         if let first = waypoints.first {
             parts.append("waypoint_xy=\(controller.screenPoints(of: waypoints))")

@@ -54,7 +54,7 @@ private struct RootView: View {
         case .success(let start):
             var replay: GPXReplay?
             if let path = start.options.replayGPX {
-                replay = try? GPXReplay(contentsOf: URL(fileURLWithPath: path))
+                replay = try? GPXReplay(contentsOf: URL(fileURLWithPath: path), speedUp: start.options.replaySpeed ?? 10)
             }
             let location = LocationService(core: start.host.core, manager: replay)
             let map = MapController(

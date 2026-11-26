@@ -7,13 +7,18 @@ import XCTest
 final class RecordingControllerTests: XCTestCase {
     private var sandbox: Sandbox!
     private var manager: FakeLocationManager!
+    private var defaults: UserDefaults!
+    private let suite = "RecordingControllerTests"
 
     override func setUp() async throws {
         sandbox = try Sandbox()
         manager = FakeLocationManager()
+        UserDefaults().removePersistentDomain(forName: suite)
+        defaults = UserDefaults(suiteName: suite)
     }
 
     override func tearDown() async throws {
+        UserDefaults().removePersistentDomain(forName: suite)
         sandbox.remove()
     }
 
@@ -21,7 +26,7 @@ final class RecordingControllerTests: XCTestCase {
         let host = host ?? sandbox.host
         let location = LocationService(core: host.core, manager: manager)
         let recording = RecordingController(
-            core: host.core, location: location, changes: host.recordingChanges)
+            core: host.core, location: location, changes: host.recordingChanges, defaults: defaults)
         return (recording, location)
     }
 
@@ -29,7 +34,7 @@ final class RecordingControllerTests: XCTestCase {
         let (recording, location) = controller()
         XCTAssertFalse(manager.updating)
 
-        recording.start()
+        recording.start(activity: "other")
         XCTAssertEqual(recording.info.phase, "recording")
         XCTAssertTrue(manager.updating)
         XCTAssertTrue(manager.allowsBackgroundLocationUpdates)
@@ -49,14 +54,14 @@ final class RecordingControllerTests: XCTestCase {
     func testStopKeepsTheMapsLocation() {
         let (recording, location) = controller()
         location.require(.map)
-        recording.start()
+        recording.start(activity: "other")
         recording.stop()
         XCTAssertTrue(manager.updating)
     }
 
     func testPauseAndResume() {
         let (recording, _) = controller()
-        recording.start()
+        recording.start(activity: "other")
         recording.pause()
         XCTAssertTrue(recording.paused)
         recording.resume()
@@ -70,12 +75,13 @@ final class RecordingControllerTests: XCTestCase {
         let overlay = TrackOverlay(mapView: .init(frame: .zero))
         let location = LocationService(core: sandbox.host.core, manager: manager)
         let recording = RecordingController(
-            core: sandbox.host.core, location: location, changes: changes.eraseToAnyPublisher(), overlay: overlay)
-        recording.start()
+            core: sandbox.host.core, location: location, changes: changes.eraseToAnyPublisher(), overlay: overlay,
+            defaults: defaults)
+        recording.start(activity: "other")
         let id = recording.info.trackId
         recording.stop()
         changes.send(RecordingInfo(
-            phase: "recording", trackId: id, activity: "bike", distanceM: 10, movingS: 1, elapsedS: 1, ascentM: nil,
+            phase: "recording", trackId: id, activity: "bike", resting: false, distanceM: 10, movingS: 1, elapsedS: 1, ascentM: nil,
             appended: [LineVertex(segment: 0, lat: 47.5, lon: 11.5), LineVertex(segment: 0, lat: 47.6, lon: 11.5)]))
         XCTAssertEqual(recording.info.phase, "idle")
         XCTAssertTrue(overlay.recording.isEmpty)
@@ -92,30 +98,131 @@ final class RecordingControllerTests: XCTestCase {
         XCTAssertEqual(RecordingController.name(startedMs: started, activity: "ski_tour"), "\(start) Skitour")
     }
 
-    private func recordWalk(_ recording: RecordingController, _ location: LocationService) throws -> TrackSummary {
-        recording.start()
+    private func recordWalk(
+        _ recording: RecordingController, _ location: LocationService, activity: String = "other"
+    ) throws -> TrackSummary {
+        recording.start(activity: activity)
         manager.deliver(FakeLocationManager.walk(count: 60, step: 0.00001))
         location.drain()
         recording.stop()
         return try XCTUnwrap(recording.ended)
     }
 
-    /// Ended, the track is stored and named; "Speichern" sets the activity.
-    func testSaveWithActivity() throws {
+    /// Ended, the track is stored and named after the activity it started with.
+    func testSaveKeepsTheStartActivity() throws {
         let (recording, location) = controller()
         var changed = 0
         recording.onTracksChanged = { changed += 1 }
-        let track = try recordWalk(recording, location)
-        XCTAssertEqual(track.activity, "other")
+        let track = try recordWalk(recording, location, activity: "hike")
+        XCTAssertEqual(track.activity, "hike")
         let stored = try XCTUnwrap(sandbox.host.core.listTracks().first)
-        XCTAssertEqual(stored.name, RecordingController.name(startedMs: track.startedMs, activity: "other"))
+        XCTAssertEqual(stored.name, RecordingController.name(startedMs: track.startedMs, activity: "hike"))
 
-        recording.save(activity: "hike")
+        recording.save()
         XCTAssertNil(recording.ended)
-        let saved = try XCTUnwrap(sandbox.host.core.listTracks().first)
-        XCTAssertEqual(saved.activity, "hike")
-        XCTAssertEqual(saved.name, RecordingController.name(startedMs: track.startedMs, activity: "hike"))
+        XCTAssertEqual(try sandbox.host.core.listTracks().first?.activity, "hike")
         XCTAssertEqual(changed, 2)
+    }
+
+    /// The record button asks first; the activity started with is chosen next time.
+    func testStartAsksAndRemembersTheActivity() {
+        let (recording, location) = controller()
+        XCTAssertEqual(recording.lastActivity, "other")
+        recording.requestStart()
+        XCTAssertTrue(recording.choosingActivity)
+        XCTAssertFalse(recording.active)
+        recording.cancelStart()
+        XCTAssertFalse(recording.choosingActivity)
+
+        recording.requestStart()
+        recording.start(activity: "mtb")
+        XCTAssertFalse(recording.choosingActivity)
+        XCTAssertEqual(recording.activity, "mtb")
+        XCTAssertEqual(location.activity, "mtb")
+        recording.stop()
+        let (again, _) = controller()
+        XCTAssertEqual(again.lastActivity, "mtb")
+    }
+
+    /// A switch makes a section of its own; the GPS follows the activity.
+    func testSwitchActivity() throws {
+        let (recording, location) = controller()
+        recording.start(activity: "bike")
+        manager.deliver(FakeLocationManager.walk(count: 30, step: 0.00001))
+        location.drain()
+        recording.switchActivity("hike")
+        XCTAssertEqual(recording.activity, "hike")
+        XCTAssertEqual(location.activity, "hike")
+        // Later than the first walk, which ends now.
+        let on = FakeLocationManager.walk(count: 30, step: 0.00001, from: .init(latitude: 47.5751, longitude: 11.55))
+            .map { fix in
+                CLLocation(
+                    coordinate: fix.coordinate, altitude: fix.altitude, horizontalAccuracy: 5, verticalAccuracy: 5,
+                    course: 0, speed: fix.speed, timestamp: fix.timestamp.addingTimeInterval(31))
+            }
+        manager.deliver(on)
+        location.drain()
+        XCTAssertEqual(recording.sectionCount, 2)
+        recording.stop()
+        let track = try XCTUnwrap(recording.ended)
+        let detail = try sandbox.host.core.trackDetail(id: track.id)
+        XCTAssertEqual(detail.sections.map(\.activity), ["bike", "hike"])
+    }
+
+    /// `count` fixes `seconds` apart at one spot, ending `before` seconds ago.
+    private static func standing(count: Int, seconds: TimeInterval = 10, before: TimeInterval = 0) -> [CLLocation] {
+        let spot = CLLocationCoordinate2D(latitude: 47.575, longitude: 11.55)
+        let end = Date().addingTimeInterval(-before)
+        return (0..<count).map { index in
+            CLLocation(
+                coordinate: spot, altitude: 800, horizontalAccuracy: 5, verticalAccuracy: 5, course: -1, speed: 0,
+                timestamp: end.addingTimeInterval(Double(index - count + 1) * seconds))
+        }
+    }
+
+    /// During a rest the GPS is throttled after the chosen level, and no longer after it.
+    func testThrottleFollowsRestingAndLevel() async throws {
+        let (recording, location) = controller()
+        XCTAssertEqual(recording.throttle, .strong)
+        recording.start(activity: "hike")
+        // Six minutes at one spot, ending a minute ago.
+        manager.deliver(Self.standing(count: 37, before: 60))
+        location.drain()
+        // The core tells the rest at once, through the listener on the main queue.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(recording.info.resting)
+        XCTAssertEqual(location.restProfile, .restStrong)
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyHundredMeters)
+
+        recording.throttle = .moderate
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyNearestTenMeters)
+        recording.throttle = .off
+        XCTAssertNil(location.restProfile)
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyBest)
+        XCTAssertEqual(defaults.string(forKey: RecordingController.throttleKey), "off")
+        recording.throttle = .strong
+
+        // On the way again: two fixes well away from the spot end the rest.
+        manager.deliver(FakeLocationManager.walk(count: 20, step: 0.0001, from: .init(latitude: 47.576, longitude: 11.55)))
+        location.drain()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertFalse(recording.info.resting)
+        XCTAssertNil(location.restProfile)
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyBest)
+        recording.stop()
+    }
+
+    /// The settings of the rest reach the core: with 15 min, six minutes are no rest.
+    func testRestSettingsReachTheCore() async throws {
+        let (recording, location) = controller()
+        recording.restDwellMin = 15
+        XCTAssertEqual(defaults.integer(forKey: RecordingController.restDwellKey), 15)
+        recording.start(activity: "hike")
+        manager.deliver(Self.standing(count: 37, before: 60))
+        location.drain()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertFalse(recording.info.resting)
+        recording.stop()
     }
 
     func testDiscardDeletesTheTrack() throws {
@@ -129,7 +236,7 @@ final class RecordingControllerTests: XCTestCase {
     /// Without a point there is nothing to ask about.
     func testEmptyRecordingIsGone() {
         let (recording, _) = controller()
-        recording.start()
+        recording.start(activity: "other")
         recording.stop()
         XCTAssertNil(recording.ended)
         XCTAssertEqual(recording.notice, "Es wurde kein Punkt aufgezeichnet.")
@@ -138,7 +245,7 @@ final class RecordingControllerTests: XCTestCase {
     /// More than two minutes without a fix is told once a fix comes again.
     func testGapIsTold() {
         let (recording, location) = controller()
-        recording.start()
+        recording.start(activity: "other")
         let start = CLLocationCoordinate2D(latitude: 47.6, longitude: 11.5)
         manager.deliver([CLLocation(coordinate: start, altitude: 700, horizontalAccuracy: 5, verticalAccuracy: 5,
                                     timestamp: Date())])
@@ -155,8 +262,9 @@ final class RecordingControllerTests: XCTestCase {
         let overlay = TrackOverlay(mapView: .init(frame: .zero))
         let location = LocationService(core: sandbox.host.core, manager: manager)
         let recording = RecordingController(
-            core: sandbox.host.core, location: location, changes: sandbox.host.recordingChanges, overlay: overlay)
-        recording.start()
+            core: sandbox.host.core, location: location, changes: sandbox.host.recordingChanges, overlay: overlay,
+            defaults: defaults)
+        recording.start(activity: "other")
         manager.deliver(FakeLocationManager.walk(count: 10))
         location.drain()
         // The core tells about new points at most four times a second; a pause tells at once.
