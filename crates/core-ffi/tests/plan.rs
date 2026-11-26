@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use outdoor_core::{
     CoreApp, CoreError, CoreListener, EngineFailure, GuidanceInfo, LatLon, LegInput, OptionValue,
     PlanInput, RecordingInfo, ValhallaEngine, failed_leg_color, plan_add_waypoint, plan_empty,
-    plan_move_waypoint, plan_remove_waypoint, plan_toggle_stage_end,
+    plan_move_waypoint, plan_remove_waypoint, plan_split_leg, plan_toggle_stage_end,
 };
 use sha2::{Digest, Sha256};
 
@@ -357,4 +357,28 @@ fn profiles_have_colors() {
     );
     core.set_valhalla_engine(engine("3.9.1"));
     assert!(core.route_profiles().iter().all(|p| p.available));
+}
+
+#[test]
+fn split_leg_keeps_its_profile() {
+    let [a, b, c] = points();
+    let request = PlanInput {
+        waypoints: vec![a, b, c],
+        legs: vec![leg("hike"), leg("mtb")],
+        stage_ends: Vec::new(),
+    };
+    let split = plan_split_leg(request.clone(), 1, vec![b, c]);
+    let profiles: Vec<&str> = split.legs.iter().map(|l| l.profile.as_str()).collect();
+    assert_eq!(profiles, ["hike", "mtb", "mtb"]);
+    assert_eq!(split.waypoints.len(), 4);
+    assert_eq!(
+        split.waypoints[2],
+        ll((b.lat + c.lat) / 2.0, (b.lon + c.lon) / 2.0)
+    );
+
+    let unknown = PlanInput {
+        legs: vec![leg("hike"), leg("rocket")],
+        ..request
+    };
+    assert_eq!(plan_split_leg(unknown.clone(), 0, Vec::new()), unknown);
 }

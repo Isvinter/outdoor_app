@@ -300,6 +300,32 @@ fn only_changed_legs_are_computed() {
 }
 
 #[test]
+fn splitting_a_leg_computes_only_its_two_halves() {
+    let (app, router) = counting_app("split");
+    let calls = || router.calls.load(Ordering::SeqCst);
+    let request = route(
+        Profile::Hike,
+        vec![
+            position(10.0, 32.0),
+            position(20.0, 32.0),
+            position(30.0, 32.0),
+        ],
+    );
+    let plan = app.plan_route(&request).unwrap();
+    assert_eq!(calls(), 2);
+
+    let split = request.split_leg(1, &plan.legs[1].line);
+    let result = app.plan_route(&split).unwrap();
+    assert_eq!(calls(), 4, "splitting computes only the two halves");
+    assert_eq!(result.legs.len(), 3);
+    let halves = result.legs[1].distance_m + result.legs[2].distance_m;
+    assert!(
+        (halves - plan.legs[1].distance_m).abs() < 1.0,
+        "the route stays the same"
+    );
+}
+
+#[test]
 fn a_failing_leg_keeps_the_others() {
     let (app, _router) = counting_app("failing-leg");
     let request = route(
