@@ -293,6 +293,10 @@ fn sections_round_trip() {
     let xml = write_gpx(&doc).unwrap();
     assert!(xml.contains(r#"xmlns:zg="urn:zerogrid:gpx:1""#));
     assert!(xml.contains(r#"<zg:section activity="hike" reason="rest"/>"#));
+    // GPX 1.1: `extensions` follows the `trkpt` elements of its `trkseg`.
+    for seg in xml.split("<trkseg>").skip(1) {
+        assert!(seg.rfind("<trkpt").unwrap() < seg.find("<extensions>").unwrap());
+    }
     let back = parse_gpx(&xml).unwrap();
     let got: Vec<_> = back.tracks[0]
         .segments

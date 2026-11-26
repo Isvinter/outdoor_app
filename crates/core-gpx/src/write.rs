@@ -51,6 +51,9 @@ pub fn write_gpx(doc: &GpxDocument) -> Result<String, GpxError> {
         }
         for segment in &track.segments {
             out.push_str("    <trkseg>\n");
+            for point in &segment.points {
+                write_point(&mut out, point)?;
+            }
             out.push_str("      <extensions><zg:section");
             if let Some(activity) = segment.activity {
                 let _ = write!(out, " activity=\"{}\"", activity.as_str());
@@ -60,9 +63,6 @@ pub fn write_gpx(doc: &GpxDocument) -> Result<String, GpxError> {
                 " reason=\"{}\"/></extensions>",
                 segment.reason.as_str()
             );
-            for point in &segment.points {
-                write_point(&mut out, point)?;
-            }
             out.push_str("    </trkseg>\n");
         }
         out.push_str("  </trk>\n");
