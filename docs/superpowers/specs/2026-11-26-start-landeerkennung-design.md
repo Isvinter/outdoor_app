@@ -1,6 +1,6 @@
 # Start- und Landeerkennung für ZeroGrid Sky
 
-Stand: 26.11.2026, Entwurf zur Freigabe. Code, Kommentare und Commits auf Englisch, sichtbare
+Stand: 26.11.2026, vom Nutzer freigegeben. Code, Kommentare und Commits auf Englisch, sichtbare
 Texte auf Deutsch.
 
 ## Absicht
@@ -220,14 +220,15 @@ das Soaren im Wind ist eine Ergänzung.
 - Klar benennen, was nur im Simulator geprüft ist. Ob die Erkennung bei echten Starts
   taugt, zeigt erst der Flug.
 
-## Fragen an den Nutzer
+## Entscheidungen des Nutzers (26.11.2026)
 
-1. Starterkennung über **Höhe über Gelände** (Weg 2), oder lieber genau wie der
-   Flymaster nur über die Geschwindigkeit (Weg 1)?
-2. **„Ton erst ab Start“** voreingestellt an (wie der Flymaster)?
-3. Nach der Landung **bereit bleiben** für den nächsten Start (vorgeschlagen), oder die
-   Sitzung von selbst beenden?
-4. Flüge **ohne erkannten Start** bei „Stopp“ speichern und kennzeichnen (vorgeschlagen)?
+Alle vier Vorschläge übernommen:
+
+1. Starterkennung über **Höhe über Gelände** (Weg 2), ohne Gelände über die
+   Geschwindigkeit.
+2. **„Ton erst ab Start“** voreingestellt an (wie der Flymaster).
+3. Nach der Landung **bereit bleiben** für den nächsten Start.
+4. Flüge **ohne erkannten Start** bei „Stopp“ speichern und kennzeichnen.
 
 ## Dem Builder überlassen
 
