@@ -42,7 +42,7 @@ final class DeviationAlertTests: XCTestCase {
         GuidanceInfo(
             phase: "off_route", alongM: 0, nextWaypoint: next, deviation: 1, wayBack: [], wayBackM: wayBack,
             toStageEndM: nil, toStageEndS: nil, toDestinationM: 5000, toDestinationS: nil, turn: nil,
-            turnSeq: 0, hasTurns: true)
+            turnSeq: 0, hasTurns: true, offNetwork: nil, offNetworkSeq: 0)
     }
 
     func testBackgroundDeviationSchedulesOneNotification() {
@@ -78,6 +78,15 @@ final class DeviationAlertTests: XCTestCase {
         defaults.set(true, forKey: TurnAnnouncer.speechKey)
         alert.handle(info(next: 3), appActive: false, waypoints: 6)
         XCTAssertEqual(center.scheduled.first?.sound, false)
+    }
+
+    func testOffNetworkSaysWhereTheRouteLies() {
+        var lost = info(next: 3)
+        lost.offNetwork = GuideControllerTests.forest
+        XCTAssertEqual(
+            DeviationAlert.body(lost, waypoints: 6), "Die Route liegt 100 m bei 150°. Weg zurück zu Wegpunkt 4: 650 m.")
+        lost.wayBackM = nil
+        XCTAssertEqual(DeviationAlert.body(lost, waypoints: 6), "Die Route liegt 100 m bei 150°. Kein Weg zurück gefunden.")
     }
 
     func testWithoutWayBack() {

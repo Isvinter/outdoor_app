@@ -15,7 +15,7 @@ pub use app::{App, AppListener, LinePoint, RecordingPhase, RecordingStatus, Trac
 pub use error::AppError;
 pub use guide::{
     Guide, GuideParams, GuidePhase, GuideStatus, HintParams, HintStage, LegKind, LegSpan, LineTurn,
-    NextWaypoint, Projection, Remaining, RouteLine, TurnHint, WayBack, WayBackRouter,
+    NextWaypoint, OffNetwork, Projection, Remaining, RouteLine, TurnHint, WayBack, WayBackRouter,
     WayBackTarget,
 };
 pub use plan::{

@@ -210,6 +210,17 @@ echten Tracks nachgestellt werden.
   auf der neuen Route neu angesetzt und läuft weiter. Die Route gilt danach nicht mehr als die
   gespeicherte (`detach_planned_route`): „Speichern“ legt eine neue an, die gespeicherte bleibt.
   Ohne Weg zurück bleibt die Route, und die Leiste sagt „Kein Weg zurück gefunden“.
+- **Abseits des Wegenetzes (nach dem Test draußen vom Nutzer gewünscht):** Umgeplant wird nur auf
+  dem Wegenetz, still und ohne Hinweis; danach gelten die Abbiegehinweise der neuen Route. Ob der
+  Nutzer auf dem Netz ist, zeigt der Weg zurück: Das Routing beginnt ihn auf dem nächsten Weg, der
+  für das Profil taugt. Liegt sein Anfang mehr als 25 m (`on_network_m`) vom Fix entfernt (GPS-
+  Fehler und Wegbreite) oder gibt es keinen Weg zurück, ist der Nutzer abseits des Netzes, etwa
+  weglos im Wald. Dann bleibt die Route, und `off_network_seq` wächst einmal; weitere Wege zurück
+  während desselben Ausflugs zählen nicht neu. Kommt der Nutzer dem Weg zurück auf 25 m nahe, ist
+  er wieder auf dem Netz, und Trail plant von dort um. Zurück auf der Route endet der Zustand.
+  Solange er gilt, nennt der Kern Luftlinie und Richtung zum nächsten Punkt der Route ab 200 m vor
+  dem Fortschritt: „Die Route liegt 120 m bei 150°“, die Richtung auf 10° gerundet (Norden 0°),
+  die Distanz wie bei den Abbiegehinweisen.
 - **Rest:** Strecke und Zeit bis zum Etappenende und zum Ziel, mit dem Rest des Wegs zurück
   eingerechnet. Die Zeit ist `None`, sobald ein Abschnitt voraus keine Zeit hat.
 - **Aufzeichnung:** Führung und Aufzeichnung sind unabhängig (Entscheidung des Nutzers nach dem
@@ -221,10 +232,11 @@ echten Tracks nachgestellt werden.
   kann sich mit einem anderen Thread verklemmen); der Status kommt mit dem Aufruf. Trail folgt nur
   diesen Meldungen, nicht den Rückgabewerten von Start und Stopp: Die Meldungen hängen auf dem
   Hauptthread hinterher, und ein Status nach dem Stopp sähe sonst wie ein neuer Start aus.
-- **Hinweis in Trail:** Je Abweichung (wenn `deviation` wächst) eine Vibration, im Hintergrund dazu
-  eine Mitteilung „Abseits der Route“ mit „Weg zurück zu Wegpunkt {n}: {Distanz}.“ bzw. „Weg zurück
-  zum Ziel: {Distanz}.“. Scheitert der Weg zurück schon bei der Abweichung, lautet der Text „Kein
-  Weg zurück gefunden.“: Auch dann soll der Nutzer merken, dass er abseits ist. Die Distanz ist die
+- **Hinweis in Trail:** Nur abseits des Wegenetzes (wenn `off_network_seq` wächst) eine
+  Vibration, im Hintergrund dazu eine Mitteilung „Abseits der Route“ mit „Die Route liegt 120 m
+  bei 150°.“ und „Weg zurück zu Wegpunkt {n}: {Distanz}.“ bzw. „Weg zurück zum Ziel: {Distanz}.“
+  bzw. „Kein Weg zurück gefunden.“. Bei eingeschalteter Sprache sagt Trail „Abseits der Route. Die
+  Route liegt 120 m bei 150 Grad.“; die Leiste zeigt Luftlinie und Richtung laufend. Die Distanz ist die
   ganze Länge des Wegs zurück im Moment der Abweichung; die Leiste zeigt sie unverändert, bis die
   Abweichung endet. Den gefahrenen Teil der Route misst Trail wie der Kern (Haversine,
   `EARTH_RADIUS_M`).
@@ -289,7 +301,9 @@ erste Werte nach dem Vorbild ähnlicher Apps und werden mit abgespielten echten 
   der ersten bis zu ihrem eigenen „Jetzt“. Liegt sie weniger als 10 m hinter der ersten, gilt auch
   ihr „Jetzt“ als gesagt. Ein Etappenziel kommt nicht in den Satz und wird immer für sich gesagt.
 - **Nur auf der Route:** Hinweise gibt es nur in der Phase `on_route`. Abseits der Route, auf dem
-  Weg zurück und nach der Ankunft ist `turn` leer; der Weg zurück hat keine eigenen Hinweise.
+  Weg zurück und nach der Ankunft ist `turn` leer; der Weg zurück hat keine eigenen Hinweise. Auf
+  dem Wegenetz plant Trail nach einer Abweichung gleich um (Abschnitt 7), dann gelten die Hinweise
+  der neuen Route.
   Zurück auf der Route geht es bei der nächsten Abzweigung weiter, ohne schon Gesagtes zu
   wiederholen.
 - **An Swift** (`core-ffi`, `TurnInfo`): `kind` ist der Serde-Name der Art (etwa `right`,

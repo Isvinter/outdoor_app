@@ -28,7 +28,7 @@ final class TurnAnnouncerTests: XCTestCase {
         XCTAssertFalse(announcer.notifications, "off by default")
         XCTAssertFalse(announcer.speech, "off by default")
         announcer.turn(ahead, appActive: false)
-        announcer.deviation()
+        announcer.offNetwork("Abseits der Route.")
         announcer.arrived()
         XCTAssertTrue(center.scheduled.isEmpty)
         XCTAssertTrue(speaker.spoken.isEmpty)
@@ -75,10 +75,10 @@ final class TurnAnnouncerTests: XCTestCase {
         XCTAssertEqual(speaker.spoken, ["In 200 m rechts"])
     }
 
-    func testSpeaksDeviationAndArrival() {
+    func testSpeaksOffNetworkAndArrival() {
         announcer.speech = true
-        announcer.deviation()
+        announcer.offNetwork("Abseits der Route. Die Route liegt 100 m bei 150 Grad.")
         announcer.arrived()
-        XCTAssertEqual(speaker.spoken, ["Abseits der Route", "Ziel erreicht"])
+        XCTAssertEqual(speaker.spoken, ["Abseits der Route. Die Route liegt 100 m bei 150 Grad.", "Ziel erreicht"])
     }
 }

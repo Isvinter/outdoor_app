@@ -3,9 +3,11 @@
 
 use core_location::Fix;
 use core_routing::LatLon;
+use core_routing::turns::bearing_deg;
 
 use super::hints::{Announcer, TurnHint};
 use super::line::{LegKind, RouteLine};
+use super::turn_text::{off_network_spoken, off_network_text};
 use crate::error::AppError;
 use crate::plan::LegSpec;
 
@@ -38,6 +40,9 @@ pub struct GuideParams {
     pub retry_after_m: f64,
     /// Within this distance of the end, the destination is reached.
     pub arrived_m: f64,
+    /// A way back that starts farther than this from the user (the router
+    /// found no way nearer) means they are off the network of ways.
+    pub on_network_m: f64,
 }
 
 impl Default for GuideParams {
@@ -51,6 +56,7 @@ impl Default for GuideParams {
             retry_after_s: 60.0,
             retry_after_m: 200.0,
             arrived_m: 30.0,
+            on_network_m: 25.0,
         }
     }
 }
@@ -104,6 +110,19 @@ pub enum GuidePhase {
     Arrived,
 }
 
+/// Where the route lies from a user off the network of ways.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OffNetwork {
+    /// Straight line to the nearest point of the route ahead.
+    pub distance_m: f64,
+    /// Direction of that point, degrees clockwise from north.
+    pub bearing_deg: f64,
+    /// "Die Route liegt 120 m bei 150°", for the screen.
+    pub text: String,
+    /// "Abseits der Route. Die Route liegt 120 m bei 150 Grad.", to be told.
+    pub spoken: String,
+}
+
 /// Distance and time still to go.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Remaining {
@@ -118,8 +137,15 @@ pub struct GuideStatus {
     /// Distance from the last fix to the active line.
     pub offset_m: Option<f64>,
     pub next_waypoint: Option<usize>,
-    /// Counts up with every new deviation; Trail tells the user when it grows.
+    /// Counts up with every new deviation, also on the network of ways,
+    /// where Trail plans the route anew without a word.
     pub deviation: u32,
+    /// Set while the user is off the route and off the network of ways
+    /// (no way nearby, or none back at all).
+    pub off_network: Option<OffNetwork>,
+    /// Counts up each time the user gets off the network of ways; Trail
+    /// tells the user when it grows.
+    pub off_network_seq: u32,
     pub way_back: Option<WayBack>,
     pub to_stage_end: Option<Remaining>,
     pub to_destination: Remaining,
@@ -169,6 +195,9 @@ pub struct Guide {
     last_fix: Option<(LatLon, i64)>,
     off: Option<OffCount>,
     deviation: u32,
+    /// Off the network of ways, while off the route.
+    off_network: bool,
+    off_network_seq: u32,
     way_back: Option<ActiveWayBack>,
     failed: Option<Attempt>,
     /// When the user left the route, while they are off it.
@@ -208,6 +237,8 @@ impl Guide {
             last_fix: None,
             off: None,
             deviation: 0,
+            off_network: false,
+            off_network_seq: 0,
             way_back: None,
             failed: None,
             left_ms: None,
@@ -228,6 +259,7 @@ impl Guide {
         self.last_fix = None;
         self.off = None;
         self.way_back = None;
+        self.off_network = false;
         self.failed = None;
         self.left_ms = None;
         self.start_target = Some(index);
@@ -290,6 +322,7 @@ impl Guide {
             {
                 self.phase = GuidePhase::OnRoute;
                 self.way_back = None;
+                self.off_network = false;
                 self.failed = None;
                 self.off = None;
                 self.left_ms = None;
@@ -305,6 +338,10 @@ impl Guide {
                 if let Some((wb, hit)) = on_way {
                     wb.along_m = hit.along_m;
                     self.offset_m = Some(hit.offset_m);
+                    // The way back lies on the network of ways.
+                    if hit.offset_m <= self.params.on_network_m {
+                        self.off_network = false;
+                    }
                     if self.count_off(hit.offset_m > self.params.off_route_m, fix.time_ms) {
                         self.deviation += 1;
                         self.route_back(p, fix, router);
@@ -404,6 +441,8 @@ impl Guide {
             offset_m: self.offset_m,
             next_waypoint,
             deviation: self.deviation,
+            off_network: self.off_network_status(),
+            off_network_seq: self.off_network_seq,
             way_back: self.way_back.as_ref().map(|wb| wb.way.clone()),
             to_stage_end,
             to_destination,
@@ -414,6 +453,35 @@ impl Guide {
             turn_seq: self.announcer.seq(),
             has_turns: self.line.has_turns,
         }
+    }
+
+    /// While off the network of ways: the straight line from the last fix to
+    /// the nearest point of the route from a little behind the progress on.
+    fn off_network_status(&self) -> Option<OffNetwork> {
+        if !self.off_network || !matches!(self.phase, GuidePhase::OffRoute | GuidePhase::NoWayBack)
+        {
+            return None;
+        }
+        let (p, _) = self.last_fix?;
+        let window = (self.along_m - WINDOW_BACK_M, f64::INFINITY);
+        let hit = self.line.project(p, Some(window))?;
+        let nearest = self.line.point_at(hit.along_m);
+        let bearing_deg = bearing_deg(&p, &nearest);
+        Some(OffNetwork {
+            distance_m: hit.offset_m,
+            bearing_deg,
+            text: off_network_text(hit.offset_m, bearing_deg),
+            spoken: off_network_spoken(hit.offset_m, bearing_deg),
+        })
+    }
+
+    /// Notes whether the user is off the network of ways after a way back
+    /// was asked for; counts each time they get off it.
+    fn set_off_network(&mut self, off: bool) {
+        if off && !self.off_network {
+            self.off_network_seq += 1;
+        }
+        self.off_network = off;
     }
 
     /// The part of the planned line searched for the fix at `now_ms`, `dt_s`
@@ -476,18 +544,25 @@ impl Guide {
         });
         self.phase = GuidePhase::NoWayBack;
         let Some(target) = self.target() else {
+            self.set_off_network(true);
             return;
         };
         let Some(spec) = self.way_back_spec() else {
+            self.set_off_network(true);
             return;
         };
         let to = self.line.point_at(self.waypoint_at(target));
-        let Ok(way) = router.way_back(p, heading(fix), to, spec) else {
+        let way = router
+            .way_back(p, heading(fix), to, spec)
+            .ok()
+            .filter(|way| way.line.len() >= 2);
+        let Some(way) = way else {
+            // Without a way back there is nothing to plan the route on.
+            self.set_off_network(true);
             return;
         };
-        if way.line.len() < 2 {
-            return;
-        }
+        // The router starts the way on the way nearest to the user.
+        self.set_off_network(way.line[0].distance_m(&p) > self.params.on_network_m);
         let line = RouteLine::from_points(&way.line, spec, way.time_s);
         let hit = line.project(p, None);
         self.offset_m = hit.map(|h| h.offset_m);
@@ -584,11 +659,13 @@ mod tests {
         leg: LegSpec,
     }
 
-    /// Returns a straight way back, or an error if `fail` is set.
+    /// Returns a straight way back, or an error if `fail` is set. The way
+    /// starts `snap_m` south of `from`, where the router found a way.
     #[derive(Default)]
     struct FakeRouter {
         calls: RefCell<Vec<Call>>,
         fail: Cell<bool>,
+        snap_m: Cell<f64>,
     }
 
     impl FakeRouter {
@@ -609,9 +686,10 @@ mod tests {
             if self.fail.get() {
                 return Err(RoutingError::NoRoute("off the map".into()).into());
             }
-            let distance_m = from.distance_m(&to);
+            let start = north(from, -self.snap_m.get());
+            let distance_m = start.distance_m(&to);
             Ok(WayBack {
-                line: vec![from, to],
+                line: vec![start, to],
                 distance_m,
                 time_s: Some(distance_m),
             })
@@ -748,6 +826,82 @@ mod tests {
         let call = &router.calls.borrow()[0];
         assert!(call.to.distance_m(&wp1) < 1.0);
         assert!(call.from.distance_m(&at(340.0, 45.0)) < 1.0);
+    }
+
+    #[test]
+    fn deviation_on_the_network_is_silent() {
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        router.snap_m.set(10.0);
+        let status = deviate(&mut guide, &router);
+        assert_eq!(status.phase, GuidePhase::OffRoute);
+        assert_eq!(status.deviation, 1);
+        assert_eq!(status.off_network, None);
+        assert_eq!(status.off_network_seq, 0);
+    }
+
+    #[test]
+    fn off_the_network_is_told_once_with_the_way_to_the_route() {
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        router.snap_m.set(120.0);
+        let status = deviate(&mut guide, &router);
+        assert_eq!(status.phase, GuidePhase::OffRoute);
+        assert_eq!(status.off_network_seq, 1);
+        let off = status.off_network.expect("off the network");
+        // Due south to the route, 45 m.
+        assert!((off.distance_m - 45.0).abs() < 1.0, "{off:?}");
+        assert!((off.bearing_deg - 180.0).abs() < 1.0, "{off:?}");
+
+        // On through the forest: new ways back, but nothing new to tell.
+        let status = walk(
+            &mut guide,
+            &router,
+            (0..30).map(|i| (340.0, 45.0 + 10.0 * f64::from(i), 21.0 + 2.0 * f64::from(i))),
+        );
+        assert!(router.count() > 1);
+        assert_eq!(status.off_network_seq, 1);
+        let off = status.off_network.expect("still off the network");
+        assert!((off.distance_m - 335.0).abs() < 2.0, "{off:?}");
+    }
+
+    #[test]
+    fn reaching_the_way_back_is_on_the_network() {
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        router.snap_m.set(80.0);
+        assert_eq!(deviate(&mut guide, &router).off_network_seq, 1);
+        // Where the way back starts, 35 m south of the route.
+        let status = walk(&mut guide, &router, [(340.0, -35.0, 25.0)]);
+        assert_eq!(status.phase, GuidePhase::OffRoute);
+        assert_eq!(status.off_network, None);
+        assert_eq!(status.off_network_seq, 1);
+    }
+
+    #[test]
+    fn no_way_back_is_off_the_network() {
+        let mut guide = Guide::new(two_legs(), GuideParams::default());
+        let router = FakeRouter::default();
+        router.fail.set(true);
+        let status = deviate(&mut guide, &router);
+        assert_eq!(status.phase, GuidePhase::NoWayBack);
+        assert_eq!(status.off_network_seq, 1);
+        assert!(status.off_network.is_some());
+
+        // Back on the route, then off the network again: told again.
+        walk(&mut guide, &router, along(400.0, 600.0, 30.0));
+        assert_eq!(guide.status().off_network, None);
+        let status = walk(
+            &mut guide,
+            &router,
+            [
+                (620.0, 60.0, 40.0),
+                (630.0, 60.0, 42.0),
+                (640.0, 60.0, 44.0),
+                (650.0, 60.0, 50.0),
+            ],
+        );
+        assert_eq!(status.off_network_seq, 2);
     }
 
     #[test]

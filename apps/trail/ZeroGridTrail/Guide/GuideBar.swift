@@ -13,6 +13,12 @@ struct GuideBar: View {
                         Text(line)
                     }
                     .font(.headline.monospacedDigit())
+                    if let off = info.offNetwork {
+                        Text(off.text)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(Color(GuideOverlay.wayBackColor))
+                            .accessibilityIdentifier("guide-off-network")
+                    }
                     if let wayBack = Self.wayBackText(info, waypoints: guide.waypointCount) {
                         Text(wayBack)
                             .font(.callout.weight(.semibold))

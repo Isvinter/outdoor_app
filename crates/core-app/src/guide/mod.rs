@@ -13,8 +13,8 @@ mod turn_text;
 
 pub(crate) use app::ActiveGuide;
 pub use guide::{
-    Guide, GuideParams, GuidePhase, GuideStatus, NextWaypoint, Remaining, WayBack, WayBackRouter,
-    WayBackTarget,
+    Guide, GuideParams, GuidePhase, GuideStatus, NextWaypoint, OffNetwork, Remaining, WayBack,
+    WayBackRouter, WayBackTarget,
 };
 pub use hints::{HintParams, TurnHint};
 pub use line::{LegKind, LegSpan, LineTurn, Projection, RouteLine};

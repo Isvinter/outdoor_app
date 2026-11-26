@@ -54,7 +54,7 @@ final class SystemSpeaker: NSObject, Speaking, AVSpeechSynthesizerDelegate {
 
 /// Tells the turn hints as they come, after two switches, both off by default:
 /// as a notification in the background or on the locked screen, and by voice.
-/// With the voice on, a deviation and the arrival are spoken too.
+/// With the voice on, getting off the network of ways and the arrival are spoken too.
 final class TurnAnnouncer {
     static let notificationsKey = "turnNotifications"
     static let speechKey = "turnSpeech"
@@ -98,8 +98,9 @@ final class TurnAnnouncer {
         center.remove(id: Self.notificationID)
     }
 
-    func deviation() {
-        if speech { speaker.speak(DeviationAlert.title) }
+    /// Off the network of ways: "Abseits der Route. Die Route liegt 120 m bei 150 Grad."
+    func offNetwork(_ spoken: String) {
+        if speech { speaker.speak(spoken) }
     }
 
     func arrived() {

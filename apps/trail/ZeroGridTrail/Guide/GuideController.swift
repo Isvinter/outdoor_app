@@ -12,8 +12,9 @@ protocol GuideCamera: AnyObject {
 }
 
 /// The guidance along the planned route: switches it in the core, holds the
-/// GPS while it runs, lets the map follow the position, and tells about each
-/// new deviation once.
+/// GPS while it runs, lets the map follow the position, plans the route anew
+/// without a word when the user leaves it on the network of ways, and tells
+/// once each time they get off the network.
 @MainActor
 final class GuideController: ObservableObject {
     /// Where the guidance stands; nil while it is off.
@@ -44,10 +45,10 @@ final class GuideController: ObservableObject {
     /// Off the route with a way back found: the route should go on from
     /// `from` to waypoint `toWaypoint` (from 0), in place of the old one.
     var onReroute: ((_ from: LatLon, _ toWaypoint: Int) -> Void)?
-    /// Tells the user about each new deviation.
+    /// Tells the user each time they get off the network of ways.
     var alert: DeviationAlert? {
         didSet {
-            alerting = newDeviation.sink { [weak self] info in
+            alerting = newOffNetwork.sink { [weak self] info in
                 guard let self else { return }
                 self.alert?.handle(
                     info, appActive: UIApplication.shared.applicationState == .active, waypoints: self.waypointCount)
@@ -60,9 +61,9 @@ final class GuideController: ObservableObject {
     private let location: LocationService
     let overlay: GuideOverlay?
     private weak var camera: GuideCamera?
-    private let deviations = PassthroughSubject<GuidanceInfo, Never>()
+    private let offNetworks = PassthroughSubject<GuidanceInfo, Never>()
     private let turns = PassthroughSubject<TurnInfo, Never>()
-    /// The deviation counted last, so that each is told once.
+    /// The time off the network of ways counted last, so that each is told once.
     private var counted: UInt32 = 0
     /// The turn hint counted last, so that each is told once.
     private var countedTurns: UInt32 = 0
@@ -74,8 +75,8 @@ final class GuideController: ObservableObject {
     private var watches: [AnyCancellable] = []
     private var arrivedUntil = 0
 
-    /// Fires once per deviation, when `deviation` grows.
-    var newDeviation: AnyPublisher<GuidanceInfo, Never> { deviations.eraseToAnyPublisher() }
+    /// Fires once each time the user gets off the network of ways, when `offNetworkSeq` grows.
+    var newOffNetwork: AnyPublisher<GuidanceInfo, Never> { offNetworks.eraseToAnyPublisher() }
     /// Fires once per turn hint, when `turnSeq` grows.
     var newTurn: AnyPublisher<TurnInfo, Never> { turns.eraseToAnyPublisher() }
     var active: Bool { info != nil }
@@ -133,11 +134,11 @@ final class GuideController: ObservableObject {
             showArrived()
         }
         // A guide set anew (another start, a changed route) counts from zero again.
-        if new.deviation < counted { counted = new.deviation }
-        if new.deviation > counted {
-            counted = new.deviation
-            deviations.send(new)
-            announcer?.deviation()
+        if new.offNetworkSeq < counted { counted = new.offNetworkSeq }
+        if new.offNetworkSeq > counted {
+            counted = new.offNetworkSeq
+            offNetworks.send(new)
+            announcer?.offNetwork(new.offNetwork?.spoken ?? DeviationAlert.title)
         }
         // As the deviations: a guide set anew counts from zero again.
         if new.turnSeq < countedTurns { countedTurns = new.turnSeq }
@@ -154,10 +155,11 @@ final class GuideController: ObservableObject {
             noTurnsTold = true
             showNoTurns()
         }
-        // The way back may come later than the deviation (a retry after "no way back").
+        // The way back may come later than the deviation (a retry after "no way back"),
+        // and the user may reach the network only later. Off it, the route stays.
         if new.deviation < rerouted { rerouted = new.deviation }
-        if new.phase == "off_route", new.deviation > rerouted, let from = new.wayBack.first,
-            let next = new.nextWaypoint
+        if new.phase == "off_route", new.offNetwork == nil, new.deviation > rerouted,
+            let from = new.wayBack.first, let next = new.nextWaypoint
         {
             rerouted = new.deviation
             onReroute?(from, Int(next))

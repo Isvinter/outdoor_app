@@ -1,6 +1,6 @@
 //! Guidance along the planned route for the apps.
 
-use core_app::{GuidePhase, GuideStatus, HintStage, TurnHint};
+use core_app::{GuidePhase, GuideStatus, HintStage, OffNetwork, TurnHint};
 use core_routing::TurnKind;
 
 use crate::{CoreApp, CoreError, LatLon};
@@ -14,7 +14,8 @@ pub struct GuidanceInfo {
     pub along_m: f64,
     /// The waypoint ahead (or the one the way back leads to).
     pub next_waypoint: Option<u32>,
-    /// Counts up with every new deviation.
+    /// Counts up with every new deviation, also on the network of ways,
+    /// where Trail plans the route anew without a word.
     pub deviation: u32,
     /// The way back to the route; empty if there is none.
     pub way_back: Vec<LatLon>,
@@ -30,6 +31,33 @@ pub struct GuidanceInfo {
     /// Whether the route has its turns; `false` for routes stored before
     /// turns existed.
     pub has_turns: bool,
+    /// Set while off the route and off the network of ways.
+    pub off_network: Option<OffNetworkInfo>,
+    /// Counts up each time the user gets off the network of ways; Trail
+    /// tells the user when it grows.
+    pub off_network_seq: u32,
+}
+
+/// Where the route lies from a user off the network of ways.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct OffNetworkInfo {
+    /// Straight line to the nearest point of the route.
+    pub distance_m: f64,
+    /// Direction of that point, degrees clockwise from north.
+    pub bearing_deg: f64,
+    /// "Die Route liegt 120 m bei 150°", for the screen.
+    pub text: String,
+    /// "Abseits der Route. Die Route liegt 120 m bei 150 Grad.", to be told.
+    pub spoken: String,
+}
+
+fn off_network_info(off: &OffNetwork) -> OffNetworkInfo {
+    OffNetworkInfo {
+        distance_m: off.distance_m,
+        bearing_deg: off.bearing_deg,
+        text: off.text.clone(),
+        spoken: off.spoken.clone(),
+    }
 }
 
 /// The hint for the next turn, with its texts ready to show and speak.
@@ -100,6 +128,8 @@ pub(crate) fn guidance_info(status: &GuideStatus) -> GuidanceInfo {
         turn: status.turn.as_ref().map(turn_info),
         turn_seq: status.turn_seq,
         has_turns: status.has_turns,
+        off_network: status.off_network.as_ref().map(off_network_info),
+        off_network_seq: status.off_network_seq,
     }
 }
 
@@ -151,6 +181,8 @@ mod tests {
             turn,
             turn_seq: 2,
             has_turns: true,
+            off_network: None,
+            off_network_seq: 0,
         }
     }
 
@@ -187,6 +219,28 @@ mod tests {
         assert_eq!(turn_kind_name(TurnKind::Roundabout), "roundabout");
         assert_eq!(turn_kind_name(TurnKind::UTurn), "u_turn");
         assert_eq!(turn_kind_name(TurnKind::SlightLeft), "slight_left");
+    }
+
+    #[test]
+    fn guidance_info_carries_off_network() {
+        let mut off = status(None);
+        off.phase = GuidePhase::NoWayBack;
+        off.off_network = Some(OffNetwork {
+            distance_m: 118.0,
+            bearing_deg: 147.0,
+            text: "Die Route liegt 100 m bei 150°".into(),
+            spoken: "Abseits der Route. Die Route liegt 100 m bei 150 Grad.".into(),
+        });
+        off.off_network_seq = 1;
+        let info = guidance_info(&off);
+        assert_eq!(info.off_network_seq, 1);
+        let shown = info.off_network.unwrap();
+        assert_eq!(shown.text, "Die Route liegt 100 m bei 150°");
+        assert_eq!(
+            shown.spoken,
+            "Abseits der Route. Die Route liegt 100 m bei 150 Grad."
+        );
+        assert_eq!(shown.bearing_deg, 147.0);
     }
 
     #[test]

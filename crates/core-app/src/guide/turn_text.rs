@@ -73,6 +73,31 @@ pub fn spoken(
     text
 }
 
+/// A compass bearing as told to the user, rounded to 10°, north as 0°.
+fn bearing_text(deg: f64) -> u32 {
+    ((deg.rem_euclid(360.0) / 10.0).round() as u32 * 10) % 360
+}
+
+/// Where the route lies from a user off the network of ways, for the screen:
+/// "Die Route liegt 120 m bei 150°".
+pub fn off_network_text(distance_m: f64, bearing_deg: f64) -> String {
+    format!(
+        "Die Route liegt {} bei {}°",
+        distance_text(distance_m),
+        bearing_text(bearing_deg)
+    )
+}
+
+/// The same, as said when the user leaves the network of ways:
+/// "Abseits der Route. Die Route liegt 120 m bei 150 Grad."
+pub fn off_network_spoken(distance_m: f64, bearing_deg: f64) -> String {
+    format!(
+        "Abseits der Route. Die Route liegt {} bei {} Grad.",
+        distance_text(distance_m),
+        bearing_text(bearing_deg)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +136,23 @@ mod tests {
         }
         assert_eq!(label(Roundabout, Some(2)), "Kreisverkehr, 2. Ausfahrt");
         assert_eq!(label(Roundabout, None), "Kreisverkehr");
+    }
+
+    #[test]
+    fn off_the_network() {
+        assert_eq!(
+            off_network_text(118.0, 147.0),
+            "Die Route liegt 100 m bei 150°"
+        );
+        assert_eq!(
+            off_network_spoken(118.0, 147.0),
+            "Abseits der Route. Die Route liegt 100 m bei 150 Grad."
+        );
+        assert_eq!(
+            off_network_text(1240.0, 356.0),
+            "Die Route liegt 1,2 km bei 0°"
+        );
+        assert_eq!(off_network_text(40.0, 4.0), "Die Route liegt 40 m bei 0°");
     }
 
     #[test]

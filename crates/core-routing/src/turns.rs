@@ -56,7 +56,7 @@ fn reach<'a>(
 }
 
 /// Initial great-circle bearing from `a` to `b`, degrees clockwise from north.
-fn bearing_deg(a: &LatLon, b: &LatLon) -> f64 {
+pub fn bearing_deg(a: &LatLon, b: &LatLon) -> f64 {
     let (lat1, lat2) = (a.lat.to_radians(), b.lat.to_radians());
     let dlon = (b.lon - a.lon).to_radians();
     let y = dlon.sin() * lat2.cos();
