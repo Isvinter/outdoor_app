@@ -8,7 +8,7 @@
 //! turned down while a warning sounds.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 use flight_core::settings::VarioSettings;
 
@@ -41,6 +41,8 @@ struct Shared {
     climb_threshold_mps: AtomicF32,
     sink_threshold_mps: AtomicF32,
     volume: AtomicF32,
+    /// The vario tone is silent, e.g. before the takeoff; warnings are not affected.
+    vario_muted: AtomicBool,
     /// [`Alert::to_u8`] of the warning to play.
     alert: AtomicU8,
     alert_volume: AtomicF32,
@@ -67,6 +69,7 @@ impl ToneControl {
                 climb_threshold_mps: AtomicF32::new(0.0),
                 sink_threshold_mps: AtomicF32::new(0.0),
                 volume: AtomicF32::new(0.0),
+                vario_muted: AtomicBool::new(false),
                 alert: AtomicU8::new(Alert::None.to_u8()),
                 alert_volume: AtomicF32::new(0.8),
             }),
@@ -88,6 +91,17 @@ impl ToneControl {
             .sink_threshold_mps
             .set(settings.sink_threshold_mps as f32);
         self.shared.volume.set(settings.volume as f32);
+    }
+
+    /// Silences the vario tone (or lets it sound again) without touching its settings.
+    /// The synth fades the volume, so this never clicks.
+    pub fn set_vario_muted(&self, muted: bool) {
+        self.shared.vario_muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// Whether the vario tone is silenced (see [`ToneControl::set_vario_muted`]).
+    pub fn vario_muted(&self) -> bool {
+        self.shared.vario_muted.load(Ordering::Relaxed)
     }
 
     /// Starts, changes or ends a warning sound.
@@ -137,7 +151,9 @@ impl VarioVoice {
         };
         self.synth
             .set_tone(tone_for(shared.climb_rate_mps.get(), thresholds));
-        self.synth.set_volume(shared.volume.get());
+        let muted = shared.vario_muted.load(Ordering::Relaxed);
+        self.synth
+            .set_volume(if muted { 0.0 } else { shared.volume.get() });
         self.alert
             .set_alert(Alert::from_u8(shared.alert.load(Ordering::Relaxed)));
         self.alert.set_volume(shared.alert_volume.get());

@@ -393,9 +393,9 @@ Mittelpunkt der Windvektor ist (die Fluggeschwindigkeit dreht sich, der Wind ble
 Die Engine (`Processor`) zeigt Gleitzahl und Landepunkt nur, wenn sie gerade etwas aussagen:
 
 - **Geschwindigkeit:** mindestens 1,4 m/s (ca. 5 km/h) über Grund im Fenster (Modul `glide`).
-- **Höhe:** bei bekanntem Gelände mindestens 30 m darüber, gemessen mit der GPS-Höhe; dafür ist
-  ein 3D-Fix nötig, mit 2D-Fix gibt es nichts. Ohne bekanntes Gelände gilt nur die
-  Geschwindigkeit.
+- **In der Luft:** nur zwischen erkanntem Start und erkannter Landung (Abschnitt 9). Das
+  ersetzt die frühere Sperre „mindestens 30 m über Gelände“.
+- **3D-Fix:** Mit 2D-Fix gibt es nichts; die Position kann dann hunderte Meter daneben liegen.
 - **GPS-Verlust:** Ist der letzte Fix älter als 3 s, verschwinden beide (gemessen an der Zeit der
   übrigen Sensoren, ohne jeden Sensor an der Uhr der Engine). Die Luftraumwarnungen enden erst
   nach 30 s.
@@ -439,3 +439,5 @@ das Gelände bekannt ist, entscheidet Sky über die Höhe statt über die Geschw
   bereit macht, bekommt einen kurzen Scheinflug bis zur Bergstation. Ohne Gelände startet wie
   beim Flymaster auch eine Autofahrt einen Flug. Die Höhe über Gelände schwankt mit GPS-Höhe
   und Geländemodell (Zoom 13, am Brauneck ca. 13 m je Pixel) um einige Meter.
+- **Ton:** Mit „Ton erst ab Start“ (Standard an) bleiben Vario- und Warnton außerhalb eines
+  Flugs stumm; Warnbanner und Hervorhebung auf der Karte bleiben. Die Testknöpfe spielen immer.

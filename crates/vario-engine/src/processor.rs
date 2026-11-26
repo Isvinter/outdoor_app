@@ -35,9 +35,6 @@ pub const WARNING_GPS_TIMEOUT_S: f64 = 30.0;
 /// Shortest time between two track points. Slightly below one second so that a GPS
 /// delivering at 1 Hz with a little jitter does not lose every other point.
 const TRACK_INTERVAL_S: f64 = 0.9;
-/// The glide ratio is only shown this far above the ground (when the ground is known):
-/// close to the ground the measurement is dominated by turbulence and slope effects.
-const MIN_HEIGHT_ABOVE_GROUND_M: f64 = 30.0;
 /// How long pressure samples and fixes are kept for a flight whose takeoff is detected
 /// later than it happened: the takeoff is dated back at most [`HISTORY_S`], the landing
 /// at most a minute.
@@ -416,8 +413,8 @@ pub struct Processor {
     terrain: Arc<dyn Terrain>,
     glide: GlideEstimator,
     wind: WindEstimator,
-    /// Whether the last fix was high enough above the ground to show the glide ratio.
-    height_ok: bool,
+    /// Silence the vario and the warning sound outside a flight ("Ton erst ab Start").
+    tone_after_takeoff: bool,
     /// Age of the last fix in seconds, `None` before the first one. Hides the glide ratio
     /// once it is older than [`glide::MAX_GAP_S`].
     fix_age_s: Option<f64>,
@@ -458,7 +455,7 @@ impl Processor {
             terrain: Arc::new(NoTerrain),
             glide: GlideEstimator::new(settings.glide_window_s),
             wind: WindEstimator::new(),
-            height_ok: false,
+            tone_after_takeoff: settings.tone_after_takeoff,
             fix_age_s: None,
             last_fix_time_s: None,
             landing_query: None,
@@ -565,6 +562,11 @@ impl Processor {
             self.control.set_alert(alert);
             return;
         }
+        // Banner and map still show the warnings; only the sound waits for the takeoff.
+        if self.quiet_outside_flight() {
+            self.control.set_alert(Alert::None);
+            return;
+        }
         let level = self
             .warnings
             .iter()
@@ -666,7 +668,9 @@ impl Processor {
         self.filter.set_damping(settings.damping_s);
         self.glide.set_window(settings.glide_window_s);
         self.phase.set_takeoff_speed(settings.takeoff_speed_mps);
+        self.tone_after_takeoff = settings.tone_after_takeoff;
         self.update_tone();
+        self.update_alert();
     }
 
     /// See [`crate::Engine::set_test_climb`].
@@ -757,8 +761,9 @@ impl Processor {
                 ));
                 self.end_flight(time_s);
             }
-            None => {}
+            None => return,
         }
+        self.update_alert();
     }
 
     /// Opens the flight file with what was buffered since the takeoff at `time_s`.
@@ -819,14 +824,6 @@ impl Processor {
                 altitude_m: reading.altitude_m,
             });
         }
-        // Known ground needs a 3D fix and enough height; unknown ground only the speed gate.
-        self.height_ok = match self
-            .terrain
-            .elevation_m(fix.latitude_deg, fix.longitude_deg)
-        {
-            Some(ground_m) => fix.fix_3d && fix.altitude_m - ground_m >= MIN_HEIGHT_ABOVE_GROUND_M,
-            None => true,
-        };
         self.landing_query = match (self.shown_glide(), fix.fix_3d) {
             (Some(glide), true) => Some(LandingQuery {
                 latitude_deg: fix.latitude_deg,
@@ -839,13 +836,15 @@ impl Processor {
         };
     }
 
-    /// The glide, unless it says nothing right now: the last fix is older than
-    /// [`glide::MAX_GAP_S`], the glider is too low above known ground (or has only a 2D fix
-    /// there), or it turned less than a whole window ago (right after circling the window
-    /// would still hold part of the climb or the circles).
+    /// The glide, unless it says nothing right now: not in the air (no takeoff detected,
+    /// or landed), the last fix is older than [`glide::MAX_GAP_S`] or only 2D (its
+    /// position can be hundreds of metres off), or it turned less than a whole window
+    /// ago (right after circling the window would still hold part of the climb or the
+    /// circles).
     fn shown_glide(&self) -> Option<Glide> {
         let fix_fresh = self.fix_age_s.is_some_and(|age| age <= glide::MAX_GAP_S);
-        if !fix_fresh || !self.height_ok {
+        let fix_3d = self.last_fix.is_some_and(|fix| fix.fix_3d);
+        if !fix_fresh || !fix_3d || self.phase.phase() != Phase::Airborne {
             return None;
         }
         let turned_recently = match (self.last_fix_time_s, self.wind.last_turn_s()) {
@@ -1016,6 +1015,14 @@ impl Processor {
         if let Some(climb) = climb {
             self.control.set_climb_rate(climb);
         }
+        // The test tone plays regardless, so it can be tried on the ground.
+        self.control
+            .set_vario_muted(self.test_climb_mps.is_none() && self.quiet_outside_flight());
+    }
+
+    /// "Ton erst ab Start" is on and the glider is not in the air.
+    fn quiet_outside_flight(&self) -> bool {
+        self.tone_after_takeoff && self.phase.phase() != Phase::Airborne
     }
 
     fn push_summary(&mut self, line: String) {
@@ -1090,6 +1097,19 @@ mod tests {
     }
 
     fn processor() -> (Processor, ToneControl) {
+        // The tests of tone and warnings below fly from the first second; "Ton erst ab
+        // Start" has tests of its own.
+        let settings = VarioSettings {
+            damping_s: 0.0,
+            tone_after_takeoff: false,
+            ..VarioSettings::default()
+        };
+        let control = ToneControl::new(&settings);
+        (Processor::new(control.clone(), &settings), control)
+    }
+
+    /// Like [`processor`], with "Ton erst ab Start" on.
+    fn quiet_processor() -> (Processor, ToneControl) {
         let settings = VarioSettings {
             damping_s: 0.0,
             ..VarioSettings::default()
@@ -1363,6 +1383,78 @@ mod tests {
         assert!(!flights[0].takeoff_detected);
         assert_eq!(files(&dir), ["2026-07-28-100000.igc"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_tone_waits_for_the_takeoff_and_ends_with_the_landing() {
+        let (mut processor, control) = quiet_processor();
+        processor.set_terrain(Arc::new(flight_core::terrain::FlatTerrain(999.0)));
+        let mut muted = vec![(FlightPhase::Ready, true)];
+        simulate(launch_and_landing().build()).run_fast(|event| {
+            processor.handle(&event);
+            let now = (processor.flight_info().phase, control.vario_muted());
+            if muted.last() != Some(&now) {
+                muted.push(now);
+            }
+        });
+        assert_eq!(
+            muted,
+            [
+                (FlightPhase::Ready, true),
+                (FlightPhase::Airborne, false),
+                (FlightPhase::Landed, true)
+            ]
+        );
+        // The test tone plays on the ground anyway.
+        processor.set_test_climb(Some(2.5));
+        assert!(!control.vario_muted());
+        assert!(is_audible(&control));
+        processor.set_test_climb(None);
+        assert!(control.vario_muted());
+        // Turning the setting off lets the vario sound on the ground at once.
+        processor.set_settings(&VarioSettings {
+            tone_after_takeoff: false,
+            ..VarioSettings::default()
+        });
+        assert!(!control.vario_muted());
+    }
+
+    #[test]
+    fn the_warning_sound_waits_for_the_takeoff_but_the_warning_shows() {
+        // Standing at launch 1 m above flat ground, close to the CTR.
+        let (mut processor, control) = quiet_processor();
+        processor.set_terrain(Arc::new(flight_core::terrain::FlatTerrain(1499.0)));
+        processor.set_airspaces(ctr_ahead());
+        let standing = SyntheticFlight::builder()
+            .segment(Segment::on_ground(30.0, 0.0))
+            .build();
+        simulate(standing).run_fast(|event| processor.handle(&event));
+        assert_eq!(processor.flight_info().phase, FlightPhase::Ready);
+        assert!(!processor.status(30.0, true).airspace_warnings.is_empty());
+        assert_eq!(control.alert(), Alert::None);
+        // The test buttons for the warning sound work on the ground.
+        processor.set_test_alert(Some(Alert::Near));
+        assert_eq!(control.alert(), Alert::Near);
+        processor.set_test_alert(None);
+        assert_eq!(control.alert(), Alert::None);
+    }
+
+    #[test]
+    fn no_glide_ratio_before_the_takeoff() {
+        // Gliding at 36 km/h, but the takeoff speed is set above that and there is no
+        // terrain: no takeoff, so no glide ratio, although the glide itself is fine.
+        let (mut processor, _) = processor();
+        processor.set_settings(&VarioSettings {
+            takeoff_speed_mps: 15.0,
+            ..VarioSettings::default()
+        });
+        let glide = SyntheticFlight::builder()
+            .segment(Segment::straight(60.0, -1.25))
+            .build();
+        simulate(glide).run_fast(|event| processor.handle(&event));
+        assert_eq!(processor.flight_info().phase, FlightPhase::Ready);
+        assert_eq!(processor.status(60.0, true).glide_ratio, None);
+        assert_eq!(processor.take_landing_query(), None);
     }
 
     #[test]
@@ -1851,7 +1943,7 @@ mod tests {
     }
 
     #[test]
-    fn a_2d_fix_over_known_ground_hides_the_glide_ratio() {
+    fn a_2d_fix_hides_the_glide_ratio() {
         use flight_core::terrain::FlatTerrain;
         use sensor_sim::synthetic::Segment;
         let (mut processor, _control) = processor();
