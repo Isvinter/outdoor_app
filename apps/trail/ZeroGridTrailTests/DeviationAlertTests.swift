@@ -1,18 +1,21 @@
 import XCTest
 @testable import ZeroGridTrail
 
-private final class FakeCenter: NotificationScheduling {
+final class FakeCenter: NotificationScheduling {
     var asked = 0
-    var scheduled: [(title: String, body: String, sound: Bool)] = []
+    var scheduled: [(id: String, title: String, body: String, sound: Bool)] = []
+    var removed: [String] = []
     func requestAuthorization() { asked += 1 }
     func schedule(id: String, title: String, body: String, sound: Bool) {
-        scheduled.append((title, body, sound))
+        scheduled.append((id, title, body, sound))
     }
+    func remove(id: String) { removed.append(id) }
 }
 
 private final class FakeHaptics: Haptics {
     var count = 0
     func deviation() { count += 1 }
+    func turn() {}
 }
 
 @MainActor
@@ -38,7 +41,8 @@ final class DeviationAlertTests: XCTestCase {
     private func info(next: UInt32?, wayBack: Double? = 650) -> GuidanceInfo {
         GuidanceInfo(
             phase: "off_route", alongM: 0, nextWaypoint: next, deviation: 1, wayBack: [], wayBackM: wayBack,
-            toStageEndM: nil, toStageEndS: nil, toDestinationM: 5000, toDestinationS: nil)
+            toStageEndM: nil, toStageEndS: nil, toDestinationM: 5000, toDestinationS: nil, turn: nil,
+            turnSeq: 0, hasTurns: true, offNetwork: nil, offNetworkSeq: 0)
     }
 
     func testBackgroundDeviationSchedulesOneNotification() {
@@ -67,6 +71,22 @@ final class DeviationAlertTests: XCTestCase {
         alert.sound = false
         alert.handle(info(next: 3), appActive: false, waypoints: 6)
         XCTAssertEqual(center.scheduled.first?.sound, false)
+    }
+
+    /// With the turns spoken, the voice says it; the notification comes without sound.
+    func testSilentWhenTurnsAreSpoken() {
+        defaults.set(true, forKey: TurnAnnouncer.speechKey)
+        alert.handle(info(next: 3), appActive: false, waypoints: 6)
+        XCTAssertEqual(center.scheduled.first?.sound, false)
+    }
+
+    func testOffNetworkSaysWhereTheRouteLies() {
+        var lost = info(next: 3)
+        lost.offNetwork = GuideControllerTests.forest
+        XCTAssertEqual(
+            DeviationAlert.body(lost, waypoints: 6), "Die Route liegt 100 m bei 150°. Weg zurück zu Wegpunkt 4: 650 m.")
+        lost.wayBackM = nil
+        XCTAssertEqual(DeviationAlert.body(lost, waypoints: 6), "Die Route liegt 100 m bei 150°. Kein Weg zurück gefunden.")
     }
 
     func testWithoutWayBack() {

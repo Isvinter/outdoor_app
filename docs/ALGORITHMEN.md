@@ -210,6 +210,19 @@ echten Tracks nachgestellt werden.
   auf der neuen Route neu angesetzt und läuft weiter. Die Route gilt danach nicht mehr als die
   gespeicherte (`detach_planned_route`): „Speichern“ legt eine neue an, die gespeicherte bleibt.
   Ohne Weg zurück bleibt die Route, und die Leiste sagt „Kein Weg zurück gefunden“.
+- **Abseits des Wegenetzes (nach dem Test draußen vom Nutzer gewünscht):** Umgeplant wird nur auf
+  dem Wegenetz, still und ohne Hinweis; danach gelten die Abbiegehinweise der neuen Route. Ob der
+  Nutzer auf dem Netz ist, zeigt der Weg zurück: Das Routing beginnt ihn auf dem nächsten Weg, der
+  für das Profil taugt. Liegt sein Anfang mehr als 25 m (`on_network_m`) vom Fix entfernt (GPS-
+  Fehler und Wegbreite) oder gibt es keinen Weg zurück, ist der Nutzer abseits des Netzes, etwa
+  weglos im Wald. Dann bleibt die Route, und `off_network_seq` wächst einmal; weitere Wege zurück
+  während desselben Ausflugs zählen nicht neu. Kommt der Nutzer dem Weg zurück auf 10 m nahe
+  (`back_on_network_m`, kleiner als 25 m, damit GPS-Rauschen nicht hin und her schaltet), ist er
+  wieder auf dem Netz, und Trail plant von seiner Position aus um (nicht vom Anfang des Wegs
+  zurück, an dem er inzwischen vorbei sein kann). Zurück auf der Route endet der Zustand.
+  Solange er gilt, nennt der Kern Luftlinie und Richtung zum nächsten Punkt der Route ab 200 m vor
+  dem Fortschritt: „Die Route liegt 120 m bei 150°“, die Richtung auf 10° gerundet (Norden 0°),
+  die Distanz wie bei den Abbiegehinweisen.
 - **Rest:** Strecke und Zeit bis zum Etappenende und zum Ziel, mit dem Rest des Wegs zurück
   eingerechnet. Die Zeit ist `None`, sobald ein Abschnitt voraus keine Zeit hat.
 - **Aufzeichnung:** Führung und Aufzeichnung sind unabhängig (Entscheidung des Nutzers nach dem
@@ -221,13 +234,90 @@ echten Tracks nachgestellt werden.
   kann sich mit einem anderen Thread verklemmen); der Status kommt mit dem Aufruf. Trail folgt nur
   diesen Meldungen, nicht den Rückgabewerten von Start und Stopp: Die Meldungen hängen auf dem
   Hauptthread hinterher, und ein Status nach dem Stopp sähe sonst wie ein neuer Start aus.
-- **Hinweis in Trail:** Je Abweichung (wenn `deviation` wächst) eine Vibration, im Hintergrund dazu
-  eine Mitteilung „Abseits der Route“ mit „Weg zurück zu Wegpunkt {n}: {Distanz}.“ bzw. „Weg zurück
-  zum Ziel: {Distanz}.“. Scheitert der Weg zurück schon bei der Abweichung, lautet der Text „Kein
-  Weg zurück gefunden.“: Auch dann soll der Nutzer merken, dass er abseits ist. Die Distanz ist die
+- **Hinweis in Trail:** Nur abseits des Wegenetzes (wenn `off_network_seq` wächst) eine
+  Vibration, im Hintergrund dazu eine Mitteilung „Abseits der Route“ mit „Die Route liegt 120 m
+  bei 150°.“ und „Weg zurück zu Wegpunkt {n}: {Distanz}.“ bzw. „Weg zurück zum Ziel: {Distanz}.“
+  bzw. „Kein Weg zurück gefunden.“. Bei eingeschalteter Sprache sagt Trail „Abseits der Route. Die
+  Route liegt 120 m bei 150 Grad.“; die Leiste zeigt Luftlinie und Richtung laufend. Die Distanz ist die
   ganze Länge des Wegs zurück im Moment der Abweichung; die Leiste zeigt sie unverändert, bis die
   Abweichung endet. Den gefahrenen Teil der Route misst Trail wie der Kern (Haversine,
   `EARTH_RADIUS_M`).
+
+## 7b. Abbiegehinweise (`core-routing`, `core-app`, Modul `guide`)
+
+Der Kern entscheidet, welcher Hinweis gilt; Trail zeigt ihn nur, vibriert, schickt eine Mitteilung
+oder spricht ihn, sobald `turn_seq` wächst. Die Hinweise verändern die Route nie. Alle Werte sind
+erste Werte nach dem Vorbild ähnlicher Apps und werden mit abgespielten echten Tracks nachgestellt.
+
+- **Abzweigungen von Valhalla** (`valhalla_api.rs`, Nummern von `DirectionsLeg_Maneuver_Type`,
+  Valhalla 3.x): 9/16 leicht rechts/links, 10/15 rechts/links, 11/14 scharf rechts/links, 12 und 13
+  wenden; rechts halten bei Rampe, Ausfahrt, „bleiben“ und Einfädeln nach rechts (18, 20, 23, 37),
+  links halten entsprechend (19, 21, 24, 38); 26 Kreisverkehr mit `roundabout_exit_count` als
+  Ausfahrt (ohne bekannte Ausfahrt nur „Kreisverkehr“). „Wird zu“, „geradeaus weiter“, Rampe
+  geradeaus, „geradeaus bleiben“ und Einfädeln (7, 8, 17, 22, 25) gelten nur als Abzweigung, wenn
+  die Linie dort um mindestens 45° abknickt: Valhalla fasst Wege mit gleichem oder ohne Namen
+  zusammen und meldet sonst „geradeaus“ über echte Kreuzungen, vor allem auf Wander- und
+  MTB-Wegen. Alles andere (Start, Ziel, Verlassen des Kreisverkehrs, Fähre …) wird nicht angesagt.
+  Die Lage wird von Valhallas Index in die Linie ohne doppelte Punkte an den Grenzen umgerechnet.
+- **Winkel und Reichweite** (`turns.rs`): Die Richtung vor und nach einem Punkt wird zwischen dem
+  Punkt und dem Punkt etwa 20 m davor bzw. dahinter auf der Linie gemessen (oder dem Ende der
+  Linie, wenn sie kürzer ist); so zählen Knicke einzelner Stützpunkte nicht. Unter 30° geradeaus
+  (kein Hinweis), 30–60° leicht, 60–120° normal, 120–160° scharf, ab 160° wenden.
+- **Nähte an Wegpunkten** (`line.rs`): Jedes Teilstück wird einzeln geroutet, Valhalla sieht an
+  einem inneren Wegpunkt nur Ziel und Start. Zwischen zwei gerouteten Teilstücken bestimmt der
+  Kern die Abzweigung deshalb aus dem Winkel der zusammengefügten Linie am Wegpunkt (wie oben,
+  20 m, unter 30° kein Hinweis). Liegt schon eine Abzweigung von Valhalla höchstens 20 m vom
+  Wegpunkt entfernt, gilt diese, und keine zweite kommt dazu: So weit reicht die Messung des
+  Winkels, eine so nahe Abzweigung knickt ihn mit. An einer Naht zu oder von einem
+  Teilstück `Manual` oder einem gescheiterten gibt es keinen Hinweis. Am Ende jeder Etappe vor dem
+  Ziel kommt „Etappenziel erreicht“; liegt es an einer Abzweigung, steht diese davor. Das Ziel
+  selbst meldet die Phase `arrived`. Teilstücke aus der Zeit vor den Abzweigungen (Format 2)
+  haben keine; dann ist `has_turns` falsch und die Leiste sagt einmal „Diese Route hat keine
+  Abbiegehinweise“.
+- **Abstände:** Die Klasse kommt vom Profil des Teilstücks, auf dem der Fortschritt liegt;
+  `Manual` hat keine Abbiegehinweise; ein Etappenziel kommt dort mit den Abständen zu Fuß. Vorankündigung und „Jetzt“ kommen beim größeren Wert aus Zeit ×
+  Tempo und Untergrenze in Metern. Die Untergrenzen sorgen dafür, dass der Hinweis bei einem Halt
+  (Tempo 0) trotzdem kommt; beim Wandern gelten feste Abstände, das Tempo ist dort zu klein und
+  zu schwankend.
+
+  | Klasse | Profile | Vorankündigung | Unmittelbar („Jetzt“) | Tempo ohne GPS |
+  |---|---|---|---|---|
+  | Zu Fuß | `Hike` | 50 m | 12 m | — |
+  | Rad | `RoadBike`, `Trekking`, `Mtb` | 25 s, mindestens 100 m | 6 s, mindestens 30 m | 4,5 m/s |
+  | Auto | `Car` | 35 s, mindestens 400 m; ab 22 m/s (80 km/h) mindestens 1500 m | 9 s, mindestens 100 m | 14 m/s |
+
+  Ist die Abzweigung schon näher als der Abstand für „Jetzt“ (nach dem Start oder einer
+  Neuplanung), kommt gleich „Jetzt …“ ohne Vorankündigung. Jede Stufe kommt je Abzweigung
+  höchstens einmal und fällt nie zurück, auch wenn GPS-Sprünge den Fortschritt vor und zurück
+  werfen. Ein Etappenziel kommt nur als „Jetzt“, ohne „Jetzt“ im Text.
+- **Tempo:** der Mittelwert der Fixes der letzten 5 s. Je Fix zählt das GPS-Tempo, ohne
+  brauchbares (fehlend, negativ) der Fortschritt seit dem Fix davor, aber nur, wenn dieser in den
+  5 s liegt: Über eine GPS-Lücke hinweg wird kein Tempo abgeleitet. Ohne jedes Tempo gilt das der
+  Tabelle. Fixes mit mehr als 50 m Ungenauigkeit nimmt der Guide gar nicht an (Abschnitt 7).
+- **Vorbei:** 10 m hinter einer Abzweigung gilt sie als passiert; bis dahin bleibt das Feld
+  stehen, der Abstand zählt bis 0 herunter. Folgt innerhalb dieser 10 m ein Etappenziel, gilt
+  die Abzweigung schon an ihrer Stelle als passiert, sobald ihr „Jetzt“ kam, damit das
+  Etappenziel rechtzeitig kommt. Ebenso gilt ein Etappenziel an seiner Stelle als passiert,
+  sobald es gesagt ist, damit eine Abzweigung kurz dahinter gleich danach kommt.
+- **Dicht beieinander:** Liegt die nächste Abzweigung höchstens so weit hinter der ersten, wie der
+  Abstand für „Jetzt“ beim aktuellen Tempo beträgt, kommen beide in einen Hinweis („Jetzt rechts,
+  dann gleich links“). Die zweite bekommt dann keine eigene Vorankündigung; das Feld zeigt sie nach
+  der ersten bis zu ihrem eigenen „Jetzt“. Liegt sie weniger als 10 m hinter der ersten, gilt auch
+  ihr „Jetzt“ als gesagt. Ein Etappenziel kommt nicht in den Satz und wird immer für sich gesagt.
+- **Nur auf der Route:** Hinweise gibt es nur in der Phase `on_route` und nur, solange der Fix
+  höchstens 40 m von der Linie liegt: Von weiter weg (etwa beim Start fern der Route, bevor die
+  Abweichung feststeht) ist der Fortschritt nur der nächste Punkt der Linie. Eine neue Führung
+  (Start, Umplanen) sagt beim Platzieren mit dem letzten Fix noch nichts; die Apps zählen die
+  Hinweise ab ihrem ersten Status neu, der erste Hinweis kommt mit dem nächsten Fix. Abseits der Route, auf dem
+  Weg zurück und nach der Ankunft ist `turn` leer; der Weg zurück hat keine eigenen Hinweise. Auf
+  dem Wegenetz plant Trail nach einer Abweichung gleich um (Abschnitt 7), dann gelten die Hinweise
+  der neuen Route.
+  Zurück auf der Route geht es bei der nächsten Abzweigung weiter, ohne schon Gesagtes zu
+  wiederholen.
+- **An Swift** (`core-ffi`, `TurnInfo`): `kind` ist der Serde-Name der Art (etwa `right`,
+  `roundabout`, `stage_end`), `stage` `ahead` oder `now`, dazu Abstand, Abstandstext, Kurztext und
+  der Satz für Mitteilung und Sprache. Texte rundet der Kern: unter 100 m auf 10 m (mindestens
+  „10 m“), bis 1 km auf 50 m, ab 975 m auf 0,1 km mit Komma („1,2 km“).
 
 ## 8. Gleitzahl, Landepunkt, Wind (`flight-core`)
 

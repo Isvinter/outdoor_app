@@ -13,6 +13,12 @@ struct GuideBar: View {
                         Text(line)
                     }
                     .font(.headline.monospacedDigit())
+                    if let off = info.offNetwork {
+                        Text(off.text)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(Color(GuideOverlay.wayBackColor))
+                            .accessibilityIdentifier("guide-off-network")
+                    }
                     if let wayBack = Self.wayBackText(info, waypoints: guide.waypointCount) {
                         Text(wayBack)
                             .font(.callout.weight(.semibold))
@@ -23,6 +29,12 @@ struct GuideBar: View {
                         Text("Kein Weg zurück gefunden")
                             .font(.callout.weight(.semibold))
                             .accessibilityIdentifier("guide-no-way-back")
+                    }
+                    if guide.noTurnsNotice {
+                        Text("Diese Route hat keine Abbiegehinweise")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("guide-no-turns")
                     }
                     if info.phase == "waiting" {
                         Text("Warte auf die Position …")

@@ -17,7 +17,7 @@ mod search;
 mod share;
 mod track;
 
-pub use guide::GuidanceInfo;
+pub use guide::{GuidanceInfo, TurnInfo};
 pub use plan::{
     ElevationSample, EngineFailure, LatLon, LegInput, OptionInfo, OptionValue, PlanInput, PlanLeg,
     PlanResult, PlanTotals, ProfileChoice, SavedRoute, StageSummary, ValhallaEngine,

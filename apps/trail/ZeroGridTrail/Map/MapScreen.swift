@@ -37,6 +37,9 @@ struct MapScreen: View {
                     MapPointCard(flow: routeHere, location: controller.location, point: point)
                 }
                 LocationBlockedNotice(location: controller.location)
+                if let turn = guide.info?.turn {
+                    TurnBanner(info: turn)
+                }
                 GuideBar(guide: guide)
                 if let message = guide.message {
                     Notice(text: message, warning: true)

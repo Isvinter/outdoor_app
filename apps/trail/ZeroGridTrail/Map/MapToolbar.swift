@@ -81,12 +81,18 @@ struct MapSideButtons: View {
     /// Starts a recording; nil while one runs.
     var record: (() -> Void)?
     @AppStorage(DeviationAlert.soundKey) private var deviationSound = true
+    @AppStorage(TurnAnnouncer.notificationsKey) private var turnNotifications = false
+    @AppStorage(TurnAnnouncer.speechKey) private var turnSpeech = false
 
     var body: some View {
         VStack(spacing: 12) {
             Menu {
                 Toggle("Signalton bei Abweichung", isOn: $deviationSound)
                     .accessibilityIdentifier("deviation-sound")
+                Toggle("Abbiegehinweise als Mitteilung", isOn: $turnNotifications)
+                    .accessibilityIdentifier("turn-notifications")
+                Toggle("Abbiegehinweise ansagen", isOn: $turnSpeech)
+                    .accessibilityIdentifier("turn-speech")
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.title3)

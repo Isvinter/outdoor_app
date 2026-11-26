@@ -33,6 +33,7 @@ pub fn manual_route(waypoints: &[LatLon]) -> Result<Route, RoutingError> {
         line,
         distance_m,
         duration_s: None,
+        turns: None,
     })
 }
 

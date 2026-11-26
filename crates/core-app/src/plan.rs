@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use core_maps::{ProfilePoint, RoutingTiles};
 use core_routing::{
-    DinParams, LatLon, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError,
+    DinParams, LatLon, Profile, Route, RouteOptions, RouteRequest, Router, RoutingError, Turn,
     din_time_s, manual_route,
 };
 use core_track::elevation_gain;
@@ -26,7 +26,7 @@ const ELE_THRESHOLD_M: f64 = 3.0;
 /// A position older than this no longer says where the user is.
 pub const MAX_POSITION_AGE_S: f64 = 120.0;
 /// Format of [`RoutePlan`] as saved; plans without it are older.
-pub const PLAN_FORMAT: u32 = 2;
+pub const PLAN_FORMAT: u32 = 3;
 /// More computed legs than this are forgotten all at once.
 const MAX_CACHED_LEGS: usize = 5000;
 
@@ -107,6 +107,10 @@ pub struct Leg {
     pub region: Option<String>,
     /// Ways above this `mtb:scale` are closed to bicycles in that routing data.
     pub max_mtb_scale: Option<u8>,
+    /// Where the leg turns off, as indices into `line`. `None` if not computed
+    /// (a manual leg, a failed one, or a plan saved before format 3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turns: Option<Vec<Turn>>,
     pub error: Option<LegError>,
 }
 
@@ -386,6 +390,7 @@ fn failed_leg(spec: &LegSpec, error: &AppError) -> Leg {
         time_s: None,
         region: None,
         max_mtb_scale: None,
+        turns: None,
         error: Some(LegError {
             code: error.code().to_string(),
             message: error.to_string(),
@@ -567,6 +572,7 @@ impl Shared {
                 time_s,
                 region: tiles.map(|t| t.region.clone()),
                 max_mtb_scale: tiles.and_then(|t| t.info.as_ref()).map(|i| i.max_mtb_scale),
+                turns: route.turns,
                 error: None,
             },
             elevation,
@@ -638,5 +644,76 @@ fn stage(from: usize, to: usize, legs: &[Leg]) -> Stage {
         descent_m: sum_known(computed().map(|leg| leg.descent_m)),
         time_s: sum_known(computed().map(|leg| leg.time_s)),
         profiles,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use std::sync::Arc;
+
+    use core_location::{Fix, SourceStatus};
+    use core_routing::TurnKind;
+
+    use super::*;
+    use crate::{AppListener, RecordingStatus};
+
+    struct Quiet;
+
+    impl AppListener for Quiet {
+        fn on_position(&self, _: &Fix) {}
+        fn on_recording(&self, _: &RecordingStatus) {}
+        fn on_source_status(&self, _: &SourceStatus) {}
+        fn on_error(&self, _: &str) {}
+    }
+
+    fn point(lat: f64, lon: f64) -> LatLon {
+        LatLon { lat, lon }
+    }
+
+    fn spec() -> LegSpec {
+        LegSpec {
+            profile: Profile::Hike,
+            options: RouteOptions::default(),
+        }
+    }
+
+    #[test]
+    fn measured_leg_keeps_turns() {
+        let dir = std::env::temp_dir().join(format!("core-app-plan-turns-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = App::open(&dir.join("app.sqlite"), Arc::new(Quiet)).unwrap();
+        let turns = vec![Turn {
+            at: 3,
+            kind: TurnKind::Left,
+            exit: None,
+        }];
+        let route = Route {
+            profile: Profile::Hike,
+            waypoints: vec![point(48.0, 11.0), point(48.0, 11.01)],
+            line: (0..5)
+                .map(|i| point(48.0, 11.0 + 0.002 * f64::from(i)))
+                .collect(),
+            distance_m: 745.0,
+            duration_s: Some(600.0),
+            turns: Some(turns.clone()),
+        };
+        let measured = app.shared.measure(route, &spec(), None).unwrap();
+        assert_eq!(measured.leg.turns, Some(turns));
+    }
+
+    #[test]
+    fn new_plans_have_format_3() {
+        let request = PlanRequest {
+            waypoints: vec![point(48.0, 11.0), point(48.0, 11.01)],
+            legs: vec![spec()],
+            stage_ends: Vec::new(),
+        };
+        let leg = failed_leg(&spec(), &AppError::RoutePlan("x".into()));
+        assert_eq!(leg.turns, None);
+        let plan = assemble(&request, vec![leg], &[Vec::new()]);
+        assert_eq!(plan.format, 3);
+        assert_eq!(PLAN_FORMAT, 3);
     }
 }

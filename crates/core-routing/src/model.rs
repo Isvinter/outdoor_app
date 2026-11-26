@@ -190,6 +190,40 @@ pub struct Route {
     pub distance_m: f64,
     /// Travel time as estimated by the router; `None` for manual routes.
     pub duration_s: Option<f64>,
+    /// Where the way turns off, in the order of the line. `None` when turns
+    /// were not computed (manual routes), `Some(vec![])` when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turns: Option<Vec<Turn>>,
+}
+
+/// What to do at a turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnKind {
+    SlightLeft,
+    SlightRight,
+    Left,
+    Right,
+    SharpLeft,
+    SharpRight,
+    UTurn,
+    KeepLeft,
+    KeepRight,
+    /// Enter a roundabout; [`Turn::exit`] tells which exit to take.
+    Roundabout,
+    /// The end of a stage (a waypoint between two legs) is reached.
+    StageEnd,
+}
+
+/// A turn along a route line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Turn {
+    /// Index of the point in the line this turn belongs to.
+    pub at: usize,
+    pub kind: TurnKind,
+    /// Number of the exit to take at a roundabout, counted from 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<u8>,
 }
 
 #[derive(Debug, Error)]
