@@ -21,8 +21,8 @@ extension XCUIApplication {
     }
 
     /// Starts with the fixture `mini` at zoom 14 and waits for the map.
-    static func planning(profile: String? = "Skitour (manuell)") -> XCUIApplication {
-        let app = XCUIApplication.selftest(withMini: true, zoom: 14)
+    static func planning(profile: String? = "Skitour (manuell)", arguments: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication.selftest(withMini: true, zoom: 14, arguments: arguments)
         app.waitForStatus("map rendered") { $0.rendered }
         if let profile { app.chooseProfile(profile) }
         return app
@@ -296,6 +296,31 @@ final class PlanUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1)
         XCTAssertEqual(app.mapStatus.values["selected_leg"], "-")
         XCTAssertEqual(zoomed.int("waypoints"), 3)
+    }
+
+    /// A computation that fails as a whole takes the choice of the leg with it:
+    /// without a plan its summary cannot show, and the next profile is for the last leg.
+    func testFailedPlanningLetsGoOfTheLeg() {
+        // Two routes are computed: through two and through three points.
+        let app = XCUIApplication.planning(arguments: ["-failPlansAfter", "2"])
+        app.setWaypoints(Array(places.prefix(3)))
+        app.waitForPlan(waypoints: 3)
+        app.buttons["plan-pick"].tap()
+        app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
+        app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
+
+        app.chooseProfile("Wandern")
+
+        let failed = app.waitForStatus("planning failed") {
+            $0.int("planning") == 0 && $0.list("leg_profiles") == ["hike", "manual"]
+                && $0.list("route_colors").isEmpty
+        }
+        XCTAssertEqual(failed.values["selected_leg"], "-")
+        XCTAssertTrue(app.staticTexts["plan-totals"].waitForExistence(timeout: 5))
+        app.chooseProfile("MTB")
+        app.waitForStatus("last leg is a mountain bike leg") {
+            $0.int("planning") == 0 && $0.list("leg_profiles") == ["hike", "mtb"]
+        }
     }
 
     // MARK: Splitting a leg

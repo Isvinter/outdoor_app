@@ -588,7 +588,7 @@ pub fn run() {
 /// (that call waits for the main thread); the process ends right after anyway. If iOS
 /// kills the app outright (low memory, crash, empty battery), nothing runs here and
 /// the files keep the state of their last save.
-fn end_session_on_exit(app: &AppHandle) {
+pub(crate) fn end_session_on_exit(app: &AppHandle) {
     let session = app.state::<AppState>().session().take();
     if session.is_some() {
         sensor_bridge::disconnect();
