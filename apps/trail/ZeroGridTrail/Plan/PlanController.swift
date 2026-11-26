@@ -153,6 +153,8 @@ final class PlanController: ObservableObject {
     private let newest = Newest()
     /// From the user's input to the drawn route, per computed plan; for the self-test.
     private(set) var planTimes: [TimeInterval] = []
+    /// Self-test: after this many computed routes every computation fails as a whole.
+    var failPlansAfter: Int?
     /// A tap on the map that sets no waypoint.
     var onFreeTap: ((CLLocationCoordinate2D) -> Void)?
     /// A tap that set a waypoint; whether it was the first of the route.
@@ -256,7 +258,8 @@ final class PlanController: ObservableObject {
     /// that leg, or again the last one; nothing is computed anew.
     func selectLeg(_ index: Int?) {
         if let index {
-            guard !replacing, request.legs.indices.contains(index) else { return }
+            // A tap on the line arrives late; plan mode may have come on meanwhile.
+            guard !replacing, !picking, request.legs.indices.contains(index) else { return }
         }
         guard index != selectedLeg else { return }
         selectedLeg = index
@@ -620,10 +623,14 @@ final class PlanController: ObservableObject {
         planning = true
         let request = request
         let newest = newest
+        let fail = failPlansAfter.map { planTimes.count >= $0 } ?? false
         queue.async { [weak self] in
             // The user went on meanwhile: only the newest request is worth computing.
             guard newest.current == number else { return }
-            let result = Result { try core.planRoute(request: request) }
+            let result = Result {
+                if fail { throw CoreError.Failed(code: "routing", message: "self-test: planning fails") }
+                return try core.planRoute(request: request)
+            }
             DispatchQueue.main.async {
                 guard let self, newest.current == number else { return }
                 self.computed(result, started: started)
@@ -654,6 +661,9 @@ final class PlanController: ObservableObject {
             plan = nil
             message = PlanTexts.error(error)
             after = nil
+            // Without a plan the summary of the chosen leg cannot show, and an
+            // unseen choice would take the next profile away from the last leg.
+            selectLeg(nil)
         }
         drawLegs()
         planTimes.append(Date().timeIntervalSince(started))
