@@ -265,3 +265,21 @@ Expected: alle PASS (auch Hell/Dunkel-Ansicht des Teilstücks im Simulator kurz 
 - [ ] **Step 6: Commit** — `git commit -m "Split the selected leg in the middle"`.
 
 - [ ] **Step 7: Anhalten**, dem Nutzer zum Test auf dem iPhone geben; danach PR nach Rückfrage.
+
+---
+
+## Ergebnis (2026-11-26)
+
+- Task 1 unter Linux (Rust-Tests, Clippy, fmt grün).
+- Tasks 2 und 3 auf dem Mac: alle Plan-UI-Tests (19) im Simulator grün, ebenso Abnahme- und
+  „Route hierher“-Tests. Ein Lauf der ganzen Suite vor der letzten Änderung: 60 UI-Tests, nur
+  `AcceptanceUITests.testLegTimes` fehlgeschlagen (siehe unten), danach behoben.
+- **Abweichung vom Plan, Entscheidung des Nutzers:** Im Setzmodus setzt jeder Tipp einen Punkt,
+  auch auf der Linie (`testLegTimes` tippte auf die eigene Route; Hin- und Rückweg auf demselben
+  Pfad). Teilstücke wählt man außerhalb des Setzmodus; Einschalten hebt die Auswahl auf.
+  `testTapOnLegInPickModeSetsNoPoint` wurde zu `testTapOnLegInPickModeSetsPoint`.
+- Doppeltipp: Der zweite Tipp konnte nach dem Abbrechen der wartenden Tipps noch ankommen und
+  als Einzeltipp zählen; jetzt verworfen.
+- Auf dem iPhone 13 Pro Max (Debug-Build) vom Nutzer geprüft: Teilstück wählen, Sportart nur
+  dafür, In der Mitte teilen, Auswahl aufheben – alles wie vorgesehen.
+- Offen: „Rückgängig“ nimmt nur den letzten Punkt zurück, nicht das Teilen.
