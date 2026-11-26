@@ -133,6 +133,20 @@ impl SegmentReason {
             SegmentReason::Continue => "continue",
         }
     }
+
+    /// Whether a segment beginning for this reason carries on the recording of the
+    /// previous one without a pause: the time between their fixes belongs to the tour.
+    /// Not after a pause ([`SegmentReason::Resume`]) nor after the app had ended
+    /// ([`SegmentReason::Continue`]).
+    pub fn continues_previous(self) -> bool {
+        matches!(
+            self,
+            SegmentReason::ActivityChange
+                | SegmentReason::Gap
+                | SegmentReason::Rest
+                | SegmentReason::RestEnd
+        )
+    }
 }
 
 impl FromStr for SegmentReason {

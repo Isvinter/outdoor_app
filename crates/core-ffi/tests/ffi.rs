@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use outdoor_core::{
     CoreApp, CoreError, CoreListener, FixInput, GuidanceInfo, LegInput, RecordingInfo,
-    plan_add_waypoint, plan_empty,
+    RestSettings, plan_add_waypoint, plan_empty,
 };
 
 struct Quiet;
@@ -298,4 +298,100 @@ fn listener_gets_recording_and_guidance() {
     core.stop_guidance();
     assert_eq!(core.guidance_status(), None);
     assert_eq!(listener.guidance.lock().unwrap().last(), Some(&None));
+}
+
+/// A fix at second `t`, `north_m` north of the start.
+fn bike_fix(north_m: f64, t: i64) -> FixInput {
+    FixInput {
+        lat: 47.572 + north_m / 111_195.08,
+        lon: 11.543,
+        ele: Some(800.0 + north_m / 10.0),
+        time_ms: 1_700_000_000_000 + t * 1000,
+        h_accuracy_m: Some(5.0),
+        speed_mps: None,
+        course_deg: None,
+    }
+}
+
+/// Rides 10 s at 5 m/s, stands 6 min, rides on 20 s.
+fn ride_rest_ride(core: &CoreApp) -> RecordingInfo {
+    for t in 0..=10 {
+        core.handle_fix(bike_fix(t as f64 * 5.0, t));
+    }
+    for t in 11..=370 {
+        core.handle_fix(bike_fix(50.0, t));
+    }
+    let resting = core.recording_status();
+    for k in 1..=20 {
+        core.handle_fix(bike_fix(50.0 + k as f64 * 5.0, 370 + k));
+    }
+    resting
+}
+
+#[test]
+fn recording_info_has_resting() {
+    let (data, _) = setup("resting");
+    let core = open(&data);
+    core.set_rest_detection(Some(RestSettings {
+        dwell_s: 300,
+        radius_m: 50.0,
+    }));
+    assert!(!core.start_recording("bike".into()).unwrap().resting);
+    assert!(ride_rest_ride(&core).resting);
+    assert!(!core.recording_status().resting);
+    let switched = core.switch_recording_activity("hike".into()).unwrap();
+    assert_eq!(switched.activity.as_deref(), Some("hike"));
+    let CoreError::Failed { code, .. } = core.switch_recording_activity("swim".into()).unwrap_err();
+    assert_eq!(code, "unknown_activity");
+
+    core.set_rest_detection(None);
+    core.stop_recording().unwrap();
+    core.start_recording("bike".into()).unwrap();
+    assert!(!ride_rest_ride(&core).resting, "turned off again");
+}
+
+#[test]
+fn track_view_has_sections() {
+    let (data, _) = setup("sections");
+    let core = open(&data);
+    core.set_rest_detection(Some(RestSettings {
+        dwell_s: 300,
+        radius_m: 50.0,
+    }));
+    core.start_recording("bike".into()).unwrap();
+    ride_rest_ride(&core);
+    let id = core.stop_recording().unwrap().unwrap().id;
+    let view = core.track_detail(id.clone()).unwrap();
+    let sections = &view.sections;
+    assert_eq!(sections.len(), 3);
+    assert_eq!(
+        sections.iter().map(|s| s.index).collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(
+        sections.iter().map(|s| s.rest).collect::<Vec<_>>(),
+        [false, true, false]
+    );
+    assert!(sections.iter().all(|s| s.activity == "bike"));
+    let (first, rest) = (&sections[0], &sections[1]);
+    assert_eq!(first.start_ms, 1_700_000_000_000);
+    assert_eq!(first.end_ms, rest.start_ms);
+    assert!(rest.end_ms - rest.start_ms > 50_000, "{rest:?}");
+    assert_eq!(
+        (rest.distance_m, rest.moving_s, rest.ascent_m),
+        (0.0, 0.0, None)
+    );
+    assert!(first.distance_m > 30.0 && first.moving_s > 5.0, "{first:?}");
+    assert!(first.ascent_m.is_some());
+    let sum: f64 = sections.iter().map(|s| s.distance_m).sum();
+    assert!((sum - view.summary.distance_m).abs() < 1e-6);
+
+    let changed = core
+        .set_section_activity(id.clone(), 2, "mtb".into())
+        .unwrap();
+    assert_eq!(changed.sections[2].activity, "mtb");
+    assert_eq!(changed.summary.activity, "bike");
+    let CoreError::Failed { code, .. } =
+        core.set_section_activity(id, 1, "hike".into()).unwrap_err();
+    assert_eq!(code, "invalid_section");
 }

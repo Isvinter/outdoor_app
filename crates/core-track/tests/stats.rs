@@ -474,9 +474,10 @@ fn rest_counts_total_time_only() {
 
     let (before, _) = compute_section_stats(&without, StatsParams::for_activity);
     let (after, sections) = compute_section_stats(&with, StatsParams::for_activity);
+    // The rest's own hour, and the minute from the last fix of the ride to its first.
     assert_close(
         after.total_time_s,
-        before.total_time_s + 3600.0,
+        before.total_time_s + 3660.0,
         1e-9,
         "total time",
     );
@@ -576,4 +577,51 @@ fn rest_end_with_sparse_fixes_measures_from_the_rest_spot() {
         "section after the rest",
     );
     assert_close(total.distance_m, d_ride + d_on + 160.0, 1.0, "distance");
+}
+
+#[test]
+fn time_between_joined_sections_counts_towards_total_time() {
+    // Two straight rides of 100 s, the second one starting 30 s after the first ends.
+    let first = north_line(47.0, 101, 5.0, T0, 1.0);
+    let second = north_line(47.01, 101, 5.0, T0 + 130_000, 1.0);
+    let alone = compute_stats(&track(vec![first.clone()]), &bike());
+    for (reason, joined) in [
+        (SegmentReason::ActivityChange, true),
+        (SegmentReason::Gap, true),
+        (SegmentReason::Rest, true),
+        (SegmentReason::RestEnd, true),
+        (SegmentReason::Resume, false),
+        (SegmentReason::Continue, false),
+        (SegmentReason::Start, false),
+    ] {
+        assert_eq!(reason.continues_previous(), joined, "{reason:?}");
+        let t = Track {
+            name: None,
+            activity: Some(Activity::Bike),
+            segments: vec![
+                section(first.clone(), Activity::Bike, SegmentReason::Start),
+                section(second.clone(), Activity::Bike, reason),
+            ],
+        };
+        let (total, sections) = compute_section_stats(&t, StatsParams::for_activity);
+        let between = if joined { 30.0 } else { 0.0 };
+        assert_close(
+            sections[0].total_time_s,
+            alone.total_time_s + between,
+            1e-9,
+            &format!("{reason:?}: first section"),
+        );
+        assert_close(
+            total.total_time_s,
+            sections.iter().map(|s| s.total_time_s).sum(),
+            1e-9,
+            &format!("{reason:?}: sum"),
+        );
+        assert_close(
+            total.moving_time_s,
+            sections.iter().map(|s| s.moving_time_s).sum(),
+            1e-9,
+            &format!("{reason:?}: the time between is not moving"),
+        );
+    }
 }

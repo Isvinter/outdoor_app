@@ -42,6 +42,11 @@ pub fn compute_stats(track: &Track, params: &StatsParams) -> TrackStats {
 /// detected at, near the rest spot) to its own first fix as distance. Fixes during a
 /// rest may be coarse or sparse, and the last ones are already on the way out, so that
 /// part of the way is otherwise lost.
+///
+/// The time from the last fix of a section to the first fix of the next counts towards
+/// the total time of the earlier one if the next continues it
+/// ([`SegmentReason::continues_previous`]), so that the tour's total time runs from its
+/// first to its last fix without the manual pauses. It is never moving time.
 pub fn compute_section_stats(
     track: &Track,
     params_of: impl Fn(Activity) -> StatsParams,
@@ -55,6 +60,17 @@ pub fn compute_section_stats(
                 std::slice::from_ref(segment),
                 &params_of(track.segment_activity(i)),
             );
+            let s = match track
+                .segments
+                .get(i + 1)
+                .and_then(|next| time_between(segment, next))
+            {
+                Some(dt) => with_averages(TrackStats {
+                    total_time_s: s.total_time_s + dt,
+                    ..s
+                }),
+                None => s,
+            };
             if segment.is_rest() {
                 return TrackStats {
                     total_time_s: s.total_time_s,
@@ -91,6 +107,16 @@ pub fn compute_section_stats(
         total.max_ele_m = merge_option(total.max_ele_m, s.max_ele_m, f64::max);
     }
     (with_averages(total), sections)
+}
+
+/// Seconds from the last fix of `segment` to the first of `next`, if `next` continues it.
+fn time_between(segment: &Segment, next: &Segment) -> Option<f64> {
+    if !next.reason.continues_previous() {
+        return None;
+    }
+    let last = segment.points.iter().rev().find_map(|p| p.time_ms)?;
+    let first = next.points.iter().find_map(|p| p.time_ms)?;
+    (first > last).then(|| (first - last) as f64 / 1000.0)
 }
 
 /// Distance from the first valid fix of `from` to the first valid fix of `to`.

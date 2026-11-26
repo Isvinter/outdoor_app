@@ -26,7 +26,9 @@ pub use plan::{
 };
 pub use search::{KnownPosition, RouteStart, SearchHit, SearchResults};
 pub use share::{ImportedRoute, RegionEntry, RegionList, RemoteRouteEntry};
-pub use track::{FixInput, LineVertex, RecordingInfo, TrackSummary, TrackView};
+pub use track::{
+    FixInput, LineVertex, RecordingInfo, RestSettings, TrackSection, TrackSummary, TrackView,
+};
 
 uniffi::setup_scaffolding!();
 

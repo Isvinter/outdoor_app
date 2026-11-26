@@ -31,6 +31,8 @@ pub enum AppError {
     NothingInterrupted,
     #[error("the file does not say which activity the track is; choose one")]
     ActivityRequired,
+    #[error("no such section, or a rest, whose activity cannot be set")]
+    InvalidSection,
     #[error("unknown search category: {0}")]
     SearchCategory(String),
 }
@@ -59,6 +61,7 @@ impl AppError {
             AppError::RecordingActive => "recording_active",
             AppError::NothingInterrupted => "nothing_interrupted",
             AppError::ActivityRequired => "activity_required",
+            AppError::InvalidSection => "invalid_section",
             AppError::SearchCategory(_) => "search_category",
         }
     }

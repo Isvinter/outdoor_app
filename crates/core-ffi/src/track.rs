@@ -1,10 +1,10 @@
 //! Recording and tracks for the apps: the position fixes go in, the state of
 //! the recording and the stored tracks come out.
 
-use core_app::{LinePoint, RecordingPhase, RecordingStatus};
+use core_app::{LinePoint, RecordingPhase, RecordingStatus, SectionDetail, TrackDetail};
 use core_location::Fix;
 use core_storage::TrackRecord;
-use core_track::{Activity, TrackStats};
+use core_track::{Activity, RestParams, SegmentReason, TrackStats};
 use uuid::Uuid;
 
 use crate::{CoreApp, CoreError, LatLon};
@@ -36,8 +36,10 @@ pub struct RecordingInfo {
     /// "idle", "recording" or "paused".
     pub phase: String,
     pub track_id: Option<String>,
-    /// "bike", "mtb", "hike" or "ski_tour".
+    /// Activity of the running section: "bike", "mtb", "hike", "ski_tour" or "other".
     pub activity: Option<String>,
+    /// Whether a rest is detected; told at once when it begins or ends.
+    pub resting: bool,
     pub distance_m: f64,
     pub moving_s: f64,
     pub elapsed_s: f64,
@@ -66,6 +68,58 @@ pub struct TrackView {
     pub descent_m: Option<f64>,
     pub max_ele_m: Option<f64>,
     pub elapsed_s: f64,
+    /// The sections, in the order of `segments`.
+    pub sections: Vec<TrackSection>,
+}
+
+/// A section of a stored track.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TrackSection {
+    /// Position among the segments.
+    pub index: u32,
+    pub activity: String,
+    /// Whether it is a detected rest; its activity cannot be set.
+    pub rest: bool,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub distance_m: f64,
+    pub moving_s: f64,
+    /// `None` without elevation, and for a rest.
+    pub ascent_m: Option<f64>,
+}
+
+/// When standing counts as a rest.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct RestSettings {
+    /// Time to stay within `radius_m` before a rest begins, in seconds.
+    pub dwell_s: u32,
+    pub radius_m: f64,
+}
+
+impl From<RestSettings> for RestParams {
+    fn from(settings: RestSettings) -> Self {
+        RestParams {
+            dwell_ms: i64::from(settings.dwell_s) * 1000,
+            radius_m: settings.radius_m,
+        }
+    }
+}
+
+impl From<&SectionDetail> for TrackSection {
+    fn from(section: &SectionDetail) -> Self {
+        let rest = section.reason == SegmentReason::Rest;
+        let stats = &section.stats;
+        TrackSection {
+            index: u32::try_from(section.index).unwrap_or(u32::MAX),
+            activity: section.activity.as_str().into(),
+            rest,
+            start_ms: section.start_ms,
+            end_ms: section.end_ms,
+            distance_m: stats.distance_m,
+            moving_s: stats.moving_time_s,
+            ascent_m: stats.max_ele_m.filter(|_| !rest).map(|_| stats.ascent_m),
+        }
+    }
 }
 
 impl From<FixInput> for Fix {
@@ -103,6 +157,7 @@ pub(crate) fn recording_info(status: &RecordingStatus) -> RecordingInfo {
         .into(),
         track_id: status.track_id.map(|id| id.to_string()),
         activity: status.activity.map(|a| a.as_str().into()),
+        resting: status.resting,
         distance_m: stats.map_or(0.0, |s| s.distance_m),
         moving_s: stats.map_or(0.0, |s| s.moving_time_s),
         elapsed_s: stats.map_or(0.0, |s| s.total_time_s),
@@ -141,6 +196,29 @@ fn finished(record: Option<TrackRecord>) -> Option<TrackSummary> {
     record.map(|r| summary(&r, r.stats.as_ref()))
 }
 
+/// A track for the detail view; statistics use the terrain model's elevations
+/// where it covers the track.
+fn track_view(detail: TrackDetail) -> TrackView {
+    let stats = detail.dem_stats.as_ref().or(detail.record.stats.as_ref());
+    TrackView {
+        summary: summary(&detail.record, stats),
+        segments: detail
+            .line
+            .iter()
+            .map(|segment| {
+                segment
+                    .iter()
+                    .map(|&[lon, lat]| LatLon { lat, lon })
+                    .collect()
+            })
+            .collect(),
+        descent_m: stats.map(|s| s.descent_m),
+        max_ele_m: stats.and_then(|s| s.max_ele_m),
+        elapsed_s: stats.map_or(0.0, |s| s.total_time_s),
+        sections: detail.sections.iter().map(TrackSection::from).collect(),
+    }
+}
+
 #[uniffi::export]
 impl CoreApp {
     /// A position of the receiver: recorded if a recording runs, and followed
@@ -153,6 +231,22 @@ impl CoreApp {
     pub fn start_recording(&self, activity: String) -> Result<RecordingInfo, CoreError> {
         let status = self.app.start_recording(parse_activity(&activity)?)?;
         Ok(recording_info(&status))
+    }
+
+    /// Switches the activity of the running recording; the next fix begins a
+    /// new section with it.
+    pub fn switch_recording_activity(&self, activity: String) -> Result<RecordingInfo, CoreError> {
+        let status = self
+            .app
+            .switch_recording_activity(parse_activity(&activity)?)?;
+        Ok(recording_info(&status))
+    }
+
+    /// Turns rest detection on, or off with `None` (the default); applies at
+    /// once and to recordings started or continued later. Not stored: set it
+    /// on every launch.
+    pub fn set_rest_detection(&self, settings: Option<RestSettings>) {
+        self.app.set_rest_detection(settings.map(RestParams::from));
     }
 
     pub fn pause_recording(&self) -> Result<RecordingInfo, CoreError> {
@@ -214,24 +308,22 @@ impl CoreApp {
     /// A track with its geometry; statistics use the terrain model's
     /// elevations where it covers the track.
     pub fn track_detail(&self, id: String) -> Result<TrackView, CoreError> {
-        let detail = self.app.track_detail(track_id(&id)?)?;
-        let stats = detail.dem_stats.as_ref().or(detail.record.stats.as_ref());
-        Ok(TrackView {
-            summary: summary(&detail.record, stats),
-            segments: detail
-                .line
-                .into_iter()
-                .map(|segment| {
-                    segment
-                        .into_iter()
-                        .map(|[lon, lat]| LatLon { lat, lon })
-                        .collect()
-                })
-                .collect(),
-            descent_m: stats.map(|s| s.descent_m),
-            max_ele_m: stats.and_then(|s| s.max_ele_m),
-            elapsed_s: stats.map_or(0.0, |s| s.total_time_s),
-        })
+        Ok(track_view(self.app.track_detail(track_id(&id)?)?))
+    }
+
+    /// Sets the activity of one section of a finished track (not of a rest:
+    /// code "invalid_section") and computes its statistics anew.
+    pub fn set_section_activity(
+        &self,
+        id: String,
+        index: u32,
+        activity: String,
+    ) -> Result<TrackView, CoreError> {
+        let index = usize::try_from(index).unwrap_or(usize::MAX);
+        let detail =
+            self.app
+                .set_section_activity(track_id(&id)?, index, parse_activity(&activity)?)?;
+        Ok(track_view(detail))
     }
 
     /// Sets the activity of a finished track ("bike", "mtb", "hike",
