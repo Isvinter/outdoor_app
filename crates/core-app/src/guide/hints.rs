@@ -180,9 +180,15 @@ impl Announcer {
         if self.told.as_ref().is_some_and(|t| t.turn != self.next) {
             self.told = None;
         }
-        let params = HintParams::for_profile(profile)?;
         let index = self.next;
         let turn = *self.turns.get(index)?;
+        // A stage end is told on any leg, also on a straight one, with the
+        // fixed distances of walking there.
+        let params = HintParams::for_profile(profile).or_else(|| {
+            (turn.kind == TurnKind::StageEnd)
+                .then(|| HintParams::for_profile(Profile::Hike))
+                .flatten()
+        })?;
         let speed = speed.or(params.default_speed_mps).unwrap_or(0.0);
         let distance_m = turn.at_m - along_m;
         let now_m = params.now_m(speed);
@@ -196,11 +202,12 @@ impl Announcer {
         if let Some(stage) = due.filter(|&stage| self.reached[index] < Some(stage)) {
             self.reached[index] = Some(stage);
             // A turn right behind this one is told with it, and gets no
-            // announcement of its own.
+            // announcement of its own. A stage end is always told alone; the
+            // turn after it comes as soon as it is passed.
             let then = self
                 .turns
                 .get(index + 1)
-                .filter(|after| after.at_m - turn.at_m <= now_m);
+                .filter(|after| after.at_m - turn.at_m <= now_m && turn.kind != TurnKind::StageEnd);
             if let Some(after) = then {
                 // Within the distance for "passed", its "now" is this one;
                 // a stage end is still told on its own.
@@ -258,9 +265,10 @@ impl Announcer {
         let stage_end_follows = self.turns.get(index + 1).is_some_and(|after| {
             after.kind == TurnKind::StageEnd && after.at_m - turn.at_m < PASSED_M
         });
+        let told_now = self.reached[index] == Some(HintStage::Now);
         along_m >= turn.at_m + PASSED_M
-            || (stage_end_follows
-                && self.reached[index] == Some(HintStage::Now)
+            || ((stage_end_follows || turn.kind == TurnKind::StageEnd)
+                && told_now
                 && along_m >= turn.at_m)
     }
 
@@ -606,6 +614,29 @@ mod tests {
     fn stage_end_is_told_only_now() {
         let mut announcer = Announcer::new(&[turn(300.0, StageEnd)]);
         let (events, _) = feed(&mut announcer, Profile::Hike, ride(0.0, 320.0, 1.2, 0.0));
+        assert_eq!(
+            events,
+            [event(288.0, HintStage::Now, "Etappenziel erreicht")]
+        );
+    }
+
+    #[test]
+    fn turn_right_after_stage_end_is_told() {
+        let mut announcer = Announcer::new(&[turn(300.0, StageEnd), turn(304.0, Right)]);
+        let (events, _) = feed(&mut announcer, Profile::Hike, ride(0.0, 330.0, 1.2, 0.0));
+        assert_eq!(
+            events,
+            [
+                event(288.0, HintStage::Now, "Etappenziel erreicht"),
+                event(300.0, HintStage::Now, "Jetzt rechts"),
+            ]
+        );
+    }
+
+    #[test]
+    fn stage_end_on_a_straight_leg_is_told() {
+        let mut announcer = Announcer::new(&[turn(300.0, StageEnd)]);
+        let (events, _) = feed(&mut announcer, Profile::Manual, ride(0.0, 320.0, 1.2, 0.0));
         assert_eq!(
             events,
             [event(288.0, HintStage::Now, "Etappenziel erreicht")]

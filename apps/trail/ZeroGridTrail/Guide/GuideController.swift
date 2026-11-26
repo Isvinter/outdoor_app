@@ -72,6 +72,8 @@ final class GuideController: ObservableObject {
     private var noTurnsUntil = 0
     /// The deviation rerouted last, so that each is rerouted once.
     private var rerouted: UInt32 = 0
+    /// The deviation whose reroute waits while the user is off the network of ways.
+    private var heldOffNetwork: UInt32?
     private var watches: [AnyCancellable] = []
     private var arrivedUntil = 0
 
@@ -124,6 +126,7 @@ final class GuideController: ObservableObject {
             counted = 0
             countedTurns = 0
             rerouted = 0
+            heldOffNetwork = nil
             noTurnsTold = false
             arrived = false
             location.require(.guidance)
@@ -158,10 +161,19 @@ final class GuideController: ObservableObject {
         // The way back may come later than the deviation (a retry after "no way back"),
         // and the user may reach the network only later. Off it, the route stays.
         if new.deviation < rerouted { rerouted = new.deviation }
+        if new.phase != "off_route" { heldOffNetwork = nil }
+        if new.offNetwork != nil { heldOffNetwork = new.deviation }
         if new.phase == "off_route", new.offNetwork == nil, new.deviation > rerouted,
-            let from = new.wayBack.first, let next = new.nextWaypoint
+            let start = new.wayBack.first, let next = new.nextWaypoint
         {
             rerouted = new.deviation
+            // Held while off the network, the way back started where the user
+            // was then; they have walked on since and are on a way now.
+            var from = start
+            if heldOffNetwork == new.deviation, let last = location.last {
+                from = LatLon(lat: last.coordinate.latitude, lon: last.coordinate.longitude)
+            }
+            heldOffNetwork = nil
             onReroute?(from, Int(next))
         }
     }

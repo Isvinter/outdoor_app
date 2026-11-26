@@ -54,8 +54,9 @@ pub struct LineTurn {
 }
 
 /// A turn the router gave this close to a waypoint stands for the turn there;
-/// no second one is taken from the directions of the legs.
-const SEAM_TURN_M: f64 = 5.0;
+/// no second one is taken from the directions of the legs. As far as the
+/// direction is measured: a router turn that near bends the angle there too.
+const SEAM_TURN_M: f64 = TURN_REACH_M;
 
 /// All legs of a plan joined into one line.
 #[derive(Debug, Clone, PartialEq)]
@@ -739,6 +740,24 @@ mod tests {
         ));
         assert_eq!(line.turns.len(), 1, "{:?}", line.turns);
         assert_eq!(line.turns[0].kind, TurnKind::KeepRight);
+    }
+
+    #[test]
+    fn valhalla_turn_within_reach_of_seam_is_not_doubled() {
+        let a = origin();
+        let b = north(a, 100.0);
+        let j = north(b, 8.0);
+        let line = RouteLine::from_plan(&plan(
+            vec![a, b, east(j, 100.0)],
+            vec![
+                routed_leg(vec![a, b], Vec::new()),
+                routed_leg(vec![b, j, east(j, 100.0)], vec![turn(1, TurnKind::Right)]),
+            ],
+            Vec::new(),
+        ));
+        assert_eq!(line.turns.len(), 1, "{:?}", line.turns);
+        assert_eq!(line.turns[0].kind, TurnKind::Right);
+        assert!((line.turns[0].at_m - line.waypoint_m[1] - 8.0).abs() < 1e-6);
     }
 
     #[test]

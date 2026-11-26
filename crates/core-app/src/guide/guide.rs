@@ -43,6 +43,9 @@ pub struct GuideParams {
     /// A way back that starts farther than this from the user (the router
     /// found no way nearer) means they are off the network of ways.
     pub on_network_m: f64,
+    /// Off the network, closer than this to the way back is on it again;
+    /// below `on_network_m`, so that GPS noise does not flip it back and forth.
+    pub back_on_network_m: f64,
 }
 
 impl Default for GuideParams {
@@ -57,6 +60,7 @@ impl Default for GuideParams {
             retry_after_m: 200.0,
             arrived_m: 30.0,
             on_network_m: 25.0,
+            back_on_network_m: 10.0,
         }
     }
 }
@@ -208,6 +212,8 @@ pub struct Guide {
     announcer: Announcer,
     /// The hint after the last fix on the route.
     turn: Option<TurnHint>,
+    /// While [`Guide::place`] runs.
+    placing: bool,
 }
 
 impl Guide {
@@ -227,6 +233,7 @@ impl Guide {
         Guide {
             announcer: Announcer::new(&line.turns),
             turn: None,
+            placing: false,
             line,
             params,
             target_rule,
@@ -263,6 +270,16 @@ impl Guide {
         self.failed = None;
         self.left_ms = None;
         self.start_target = Some(index);
+    }
+
+    /// Places a new guide by a fix: like [`Guide::update`], but no hint is
+    /// told yet. The apps count hints anew from the first status of a new
+    /// guide; a hint told with it would look like one already counted.
+    pub fn place(&mut self, fix: &Fix, router: &dyn WayBackRouter) -> GuideStatus {
+        self.placing = true;
+        let status = self.update(fix, router);
+        self.placing = false;
+        status
     }
 
     /// Takes in the next fix; asks `router` for a way back on a deviation.
@@ -339,7 +356,7 @@ impl Guide {
                     wb.along_m = hit.along_m;
                     self.offset_m = Some(hit.offset_m);
                     // The way back lies on the network of ways.
-                    if hit.offset_m <= self.params.on_network_m {
+                    if hit.offset_m <= self.params.back_on_network_m {
                         self.off_network = false;
                     }
                     if self.count_off(hit.offset_m > self.params.off_route_m, fix.time_ms) {
@@ -382,7 +399,12 @@ impl Guide {
             self.phase = GuidePhase::Arrived;
         }
         self.turn = None;
+        // Only near the line: from afar (before a deviation is certain) the
+        // progress is just the nearest point, and a hint there would be told
+        // long before the turn.
         if self.phase == GuidePhase::OnRoute
+            && !self.placing
+            && on_plan.offset_m <= self.params.off_route_m
             && let Some(leg) = self.current_leg()
         {
             let profile = self.line.legs[leg].spec.profile;
@@ -871,6 +893,9 @@ mod tests {
         let router = FakeRouter::default();
         router.snap_m.set(80.0);
         assert_eq!(deviate(&mut guide, &router).off_network_seq, 1);
+        // 20 m from the way back: GPS noise, still off the network.
+        let status = walk(&mut guide, &router, [(340.0, -55.0, 23.0)]);
+        assert!(status.off_network.is_some());
         // Where the way back starts, 35 m south of the route.
         let status = walk(&mut guide, &router, [(340.0, -35.0, 25.0)]);
         assert_eq!(status.phase, GuidePhase::OffRoute);
@@ -1264,6 +1289,38 @@ mod tests {
             .collect();
         line.has_turns = true;
         line
+    }
+
+    #[test]
+    fn no_hint_from_far_off_the_route() {
+        let mut guide = Guide::new(
+            two_legs_with_turns(&[(320.0, TurnKind::Right)]),
+            GuideParams::default(),
+        );
+        let router = FakeRouter::default();
+        // Started 600 m away, nearest to a point just before the turn.
+        let status = walk(&mut guide, &router, [(310.0, 600.0, 0.0)]);
+        assert_eq!(status.phase, GuidePhase::OnRoute);
+        assert_eq!((status.turn_seq, status.turn), (0, None));
+        // Arriving there later, the turn is told.
+        let status = walk(&mut guide, &router, along(300.0, 300.0, 100.0));
+        assert_eq!(status.turn_seq, 1);
+        assert_eq!(status.turn.unwrap().stage, HintStage::Ahead);
+    }
+
+    #[test]
+    fn placing_tells_no_hint_yet() {
+        let mut guide = Guide::new(
+            two_legs_with_turns(&[(320.0, TurnKind::Right)]),
+            GuideParams::default(),
+        );
+        let router = FakeRouter::default();
+        let status = guide.place(&fix(at(310.0, 0.0), 0.0), &router);
+        assert_eq!(status.phase, GuidePhase::OnRoute);
+        assert_eq!((status.turn_seq, status.turn), (0, None));
+        let status = walk(&mut guide, &router, [(311.0, 0.0, 1.0)]);
+        assert_eq!(status.turn_seq, 1);
+        assert_eq!(status.turn.unwrap().stage, HintStage::Now);
     }
 
     #[test]

@@ -222,6 +222,19 @@ final class GuideControllerTests: XCTestCase {
         forest.offNetwork = nil
         changes.send(forest)
         XCTAssertEqual(asked.count, 2)
+        XCTAssertEqual(asked[1].0, off, "no position known: from the start of the way back")
+        asked.removeLast()
+
+        // With a position, from there: the user has walked on since the way back was found.
+        let here = CLLocation(latitude: 47.58, longitude: 11.57)
+        manager.deliver([here])
+        changes.send(status("on_route", 0, back: false, next: 1))
+        forest.offNetwork = Self.forest
+        changes.send(forest)
+        forest.offNetwork = nil
+        changes.send(forest)
+        XCTAssertEqual(asked.count, 2)
+        XCTAssertEqual(asked[1].0, LatLon(lat: 47.58, lon: 11.57))
         asked.removeLast()
 
         // The guide set anew on the new route counts from zero.
