@@ -89,6 +89,11 @@ final class RecordingController: ObservableObject {
     /// Longer than this without a fix is a gap, as in the core (`GAP_MS`).
     static let gap: TimeInterval = 120
     static let interruptedNotice = "Eine Aufzeichnung wurde unterbrochen und als Track gespeichert."
+    nonisolated static func gapNotice(minutes: Int) -> String {
+        "GPS war \(minutes) min weg. Die Aufzeichnung läuft weiter."
+    }
+    /// How long the notice of a gap stays.
+    static var gapNoticeSeconds: TimeInterval = 15
     static let throttleKey = "restThrottle"
     static let restDwellKey = "restDwellMin"
     static let restRadiusKey = "restRadiusM"
@@ -205,12 +210,18 @@ final class RecordingController: ObservableObject {
         core.setRestDetection(settings: RestSettings(dwellS: UInt32(restDwellMin * 60), radiusM: Double(restRadiusM)))
     }
 
-    /// A gap of more than two minutes without GPS is told once the GPS is back.
+    /// A gap of more than two minutes without GPS is told once the GPS is back,
+    /// for a while: it is over by then.
     private func received(_ fix: CLLocation) {
         guard active else { return }
         if let lastFix, fix.timestamp.timeIntervalSince(lastFix) > Self.gap {
             let minutes = Int((fix.timestamp.timeIntervalSince(lastFix) / 60).rounded())
-            notice = "Kein GPS für \(minutes) min. Die Aufzeichnung läuft weiter."
+            let told = Self.gapNotice(minutes: minutes)
+            notice = told
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(Self.gapNoticeSeconds * 1_000_000_000))
+                if self?.notice == told { self?.notice = nil }
+            }
         }
         lastFix = max(lastFix ?? fix.timestamp, fix.timestamp)
     }

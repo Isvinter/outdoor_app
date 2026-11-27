@@ -253,7 +253,26 @@ final class RecordingControllerTests: XCTestCase {
         manager.deliver([CLLocation(coordinate: start, altitude: 700, horizontalAccuracy: 5, verticalAccuracy: 5,
                                     timestamp: Date().addingTimeInterval(300))])
         location.drain()
-        XCTAssertEqual(recording.notice, "Kein GPS für 5 min. Die Aufzeichnung läuft weiter.")
+        XCTAssertEqual(recording.notice, "GPS war 5 min weg. Die Aufzeichnung läuft weiter.")
+        recording.stop()
+    }
+
+    /// The notice of a gap goes by itself: the GPS is back.
+    func testGapNoticeGoes() async throws {
+        let seconds = RecordingController.gapNoticeSeconds
+        RecordingController.gapNoticeSeconds = 0.2
+        defer { RecordingController.gapNoticeSeconds = seconds }
+        let (recording, location) = controller()
+        recording.start(activity: "other")
+        let start = CLLocationCoordinate2D(latitude: 47.6, longitude: 11.5)
+        manager.deliver([CLLocation(coordinate: start, altitude: 700, horizontalAccuracy: 5, verticalAccuracy: 5,
+                                    timestamp: Date())])
+        manager.deliver([CLLocation(coordinate: start, altitude: 700, horizontalAccuracy: 5, verticalAccuracy: 5,
+                                    timestamp: Date().addingTimeInterval(300))])
+        location.drain()
+        XCTAssertNotNil(recording.notice)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertNil(recording.notice)
         recording.stop()
     }
 
