@@ -73,8 +73,7 @@ final class RemoteRoutesUITests: XCTestCase {
         // Load it, add a point, save: the iPhone's version is its own now.
         app.buttons["route-row-1"].tap()
         let loaded = app.waitForStatus("route loaded") { $0.int("waypoints") == 2 && $0.int("planning") == 0 }
-        app.buttons["plan-pick"].tap()
-        app.place(0.5, 0.2).tap()
+        app.place(0.5, 0.3).tap()
         app.waitForPlan(waypoints: 3)
         app.pullSheet(by: -250)
         app.saveRoute()
@@ -91,6 +90,7 @@ final class RemoteRoutesUITests: XCTestCase {
         XCTAssertEqual(copied.int("waypoints"), 3)
         closeRemote(app)
 
+        app.showSavedRoutes()
         let copy = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Sylvenstein Test (Desktop)"))
         XCTAssertEqual(copy.count, 1)
     }
@@ -105,8 +105,7 @@ final class RemoteRoutesUITests: XCTestCase {
 
         app.buttons["route-row-1"].tap()
         let loaded = app.waitForStatus("route loaded") { $0.int("waypoints") == 2 && $0.int("planning") == 0 }
-        app.buttons["plan-pick"].tap()
-        app.place(0.5, 0.2).tap()
+        app.place(0.5, 0.3).tap()
         let edited = app.waitForPlan(waypoints: 3)
         XCTAssertEqual(edited.int("route_rev"), loaded.int("route_rev"), "nothing was saved")
 

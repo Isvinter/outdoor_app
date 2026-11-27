@@ -40,8 +40,15 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
     var onTap: ((CLLocationCoordinate2D) -> Void)?
     /// A tap on the line of a leg, with its index; only while `choosesLegs`.
     var onLegTap: ((Int) -> Void)?
-    /// Whether a tap on the line chooses its leg; otherwise it is a tap on the map.
-    var choosesLegs = true
+    /// Whether a tap on a line chooses its leg or section ("Abschnitte bearbeiten");
+    /// otherwise it is a tap on the map.
+    var choosesLegs = false
+    /// The section of a recorded line under the finger, and how far away; asked only while `choosesLegs`.
+    var sectionHit: ((CGPoint) -> (section: SectionRef, distance: CGFloat)?)?
+    /// A tap on a section of a recorded line.
+    var onSectionTap: ((SectionRef) -> Void)?
+    /// A leg and a section lie under the finger, about as near.
+    var onAmbiguousTap: ((Int, SectionRef) -> Void)?
     var onWaypointTap: ((Int) -> Void)?
     /// A waypoint was dragged to a new place.
     var onWaypointMove: ((Int, CLLocationCoordinate2D) -> Void)?
@@ -252,16 +259,19 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
         let point = tap.location(in: mapView)
         let at = mapView.convert(point, toCoordinateFrom: mapView)
         // Where the map is now: it may move before the tap counts.
-        let leg = choosesLegs ? leg(at: point) : nil
+        let target = choosesLegs
+            ? Self.target(leg: leg(at: point), section: sectionHit?(point))
+            : .map
         let time = CACurrentMediaTime()
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingTaps.removeFirst()
             guard abs(time - self.lastDoubleTap) >= Self.doubleTapWait else { return }
-            if let leg {
-                self.onLegTap?(leg)
-            } else {
-                self.onTap?(at)
+            switch target {
+            case .leg(let leg): self.onLegTap?(leg)
+            case .section(let section): self.onSectionTap?(section)
+            case .ask(let leg, let section): self.onAmbiguousTap?(leg, section)
+            case .map: self.onTap?(at)
             }
         }
         pendingTaps.append(item)
@@ -269,10 +279,34 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
     }
 
     /// How far from a line a finger still hits it, in points.
-    private static let legHitRadius: CGFloat = 22
+    static let legHitRadius: CGFloat = 22
+    /// Closer together than this, a leg and a section are both meant: the user is asked.
+    static let ambiguousGap: CGFloat = 8
+
+    /// What a tap in "Abschnitte bearbeiten" chooses.
+    enum TapTarget: Equatable {
+        case leg(Int)
+        case section(SectionRef)
+        case ask(Int, SectionRef)
+        case map
+    }
+
+    /// The nearer line wins; about as near, the user chooses.
+    nonisolated static func target(
+        leg: (leg: Int, distance: CGFloat)?, section: (section: SectionRef, distance: CGFloat)?
+    ) -> TapTarget {
+        switch (leg, section) {
+        case (nil, nil): return .map
+        case (let leg?, nil): return .leg(leg.leg)
+        case (nil, let section?): return .section(section.section)
+        case (let leg?, let section?):
+            if abs(leg.distance - section.distance) < ambiguousGap { return .ask(leg.leg, section.section) }
+            return leg.distance < section.distance ? .leg(leg.leg) : .section(section.section)
+        }
+    }
 
     /// The leg whose line is nearest to `point`, if one is within reach.
-    private func leg(at point: CGPoint) -> Int? {
+    private func leg(at point: CGPoint) -> (leg: Int, distance: CGFloat)? {
         let reach = Self.legHitRadius
         let box = CGRect(x: point.x - reach, y: point.y - reach, width: 2 * reach, height: 2 * reach)
         let hits = mapView.visibleFeatures(in: box, styleLayerIdentifiers: ["route", "route-failed"])
@@ -287,7 +321,7 @@ final class RouteOverlay: NSObject, UIGestureRecognizerDelegate {
             }.min() ?? reach
             return (leg, distance)
         }.min { $0.distance < $1.distance }
-        return nearest?.leg
+        return nearest
     }
 
     /// The distance from `point` to the polyline through `line`, in points.

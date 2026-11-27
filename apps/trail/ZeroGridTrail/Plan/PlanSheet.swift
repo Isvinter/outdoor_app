@@ -70,6 +70,16 @@ struct PlanSheet: View {
             }
         }
         .onChange(of: plan.request) { _ in plan.notice = nil }
+        // Presented here: the sheet covers whatever the map would present.
+        .confirmationDialog(
+            "Was wählen?",
+            isPresented: Binding(get: { plan.ambiguousTap != nil }, set: { if !$0 { plan.ambiguousTap = nil } }),
+            presenting: plan.ambiguousTap
+        ) { tap in
+            Button("Teilstück der Route") { plan.chooseLeg(tap.leg) }
+            Button("Abschnitt des Tracks") { tracks.select(tap.section) }
+            Button("Abbrechen", role: .cancel) {}
+        }
         // The map shows the track above the sheet at its middle step; then back to the list.
         .onChange(of: tracks.selected?.summary.id) { id in
             detent = id == nil ? .large : .medium
@@ -97,7 +107,7 @@ struct PlanSheet: View {
         guard let total = plan.plan?.total else {
             return plan.picking
                 ? "Tippen auf die Karte setzt einen Wegpunkt."
-                : "„+ Punkt“ drücken und auf die Karte tippen."
+                : "Tippen auf eine Linie wählt ein Teilstück oder einen Abschnitt."
         }
         var parts = [Format.distance(total.distanceM)]
         if let ascent = total.ascentM { parts.append("↑ \(Format.elevation(ascent))") }

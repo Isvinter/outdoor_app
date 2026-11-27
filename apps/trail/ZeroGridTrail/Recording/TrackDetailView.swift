@@ -93,13 +93,16 @@ struct TrackDetailView: View {
     }
 }
 
-/// One section of a track: its activity as a menu (not for a rest), its time and numbers.
+/// One section of a track: its activity, its time and numbers. A tap chooses it
+/// (and switches to "Abschnitte bearbeiten"); there the activity is a menu, not for a rest.
 private struct SectionRow: View {
     @ObservedObject var tracks: TracksController
     let section: TrackSection
 
+    private var id: Int { Int(section.index) }
+    private var chosen: Bool { tracks.selectedSection == .track(id) }
+
     var body: some View {
-        let id = Int(section.index)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if section.rest {
                 Text("Rast \(TracksController.time(section.startMs))–\(TracksController.time(section.endMs))")
@@ -107,18 +110,24 @@ private struct SectionRow: View {
                     .accessibilityIdentifier("section-\(id)-title")
                 Spacer(minLength: 0)
             } else {
-                Menu {
-                    ForEach(Activity.all, id: \.self) { choice in
-                        Button(Activity.name(choice)) {
-                            tracks.setSectionActivity(index: id, activity: choice)
+                if tracks.editing {
+                    Menu {
+                        ForEach(Activity.all, id: \.self) { choice in
+                            Button(Activity.name(choice)) {
+                                tracks.setSectionActivity(index: id, activity: choice)
+                            }
+                            .accessibilityIdentifier("section-\(id)-\(choice)")
                         }
-                        .accessibilityIdentifier("section-\(id)-\(choice)")
+                    } label: {
+                        Text("\(Activity.name(section.activity)) ▾")
+                            .fontWeight(.semibold)
                     }
-                } label: {
-                    Text("\(Activity.name(section.activity)) ▾")
+                    .accessibilityIdentifier("section-\(id)-activity")
+                } else {
+                    Text(Activity.name(section.activity))
                         .fontWeight(.semibold)
+                        .accessibilityIdentifier("section-\(id)-name")
                 }
-                .accessibilityIdentifier("section-\(id)-activity")
                 Text("\(TracksController.time(section.startMs))–\(TracksController.time(section.endMs))")
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
@@ -130,8 +139,17 @@ private struct SectionRow: View {
         .font(.callout)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            chosen ? Color(TrackOverlay.selectedColor).opacity(0.3) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture { tracks.select(chosen ? nil : .track(id)) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("section-\(id)")
+        .accessibilityValue(chosen ? "gewählt" : "")
+        .accessibilityAddTraits(.isButton)
     }
 
     private var numbers: String {

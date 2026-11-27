@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The controls of the planning: the profile for the last and all new legs,
-/// plan mode, undo and clear.
+/// the guidance, undo and clear. What a tap on the map does, the switch on the map says.
 struct PlanBar: View {
     @ObservedObject var plan: PlanController
     @ObservedObject var guide: GuideController
@@ -29,21 +29,6 @@ struct PlanBar: View {
                 .accessibilityIdentifier("guide-toggle")
                 .accessibilityValue(guide.active ? "an" : "aus")
             }
-
-            Button {
-                plan.picking.toggle()
-            } label: {
-                Text(plan.picking ? "Fertig" : "+ Punkt")
-                    .fontWeight(.semibold)
-                    .foregroundStyle(plan.picking ? Color.white : Color.accentColor)
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 40)
-                    .background(
-                        plan.picking ? Color.accentColor : Color(.secondarySystemFill),
-                        in: RoundedRectangle(cornerRadius: 10))
-            }
-            .accessibilityIdentifier("plan-pick")
-            .accessibilityLabel(plan.picking ? "Wegpunkte setzen beenden" : "Wegpunkte setzen")
 
             iconButton("arrow.uturn.backward", label: "Rückgängig", identifier: "plan-undo") { plan.undo() }
             iconButton("delete.left", label: "Leeren", identifier: "plan-clear") { plan.clear() }

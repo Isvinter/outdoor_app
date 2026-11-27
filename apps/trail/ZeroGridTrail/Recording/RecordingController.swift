@@ -177,6 +177,8 @@ final class RecordingController: ObservableObject {
         // The last points come with the end, after the line was taken away.
         if status.phase != "idle" {
             overlay?.append(status.appended)
+            // The rest begins with the fix that told it, the first point of a new section.
+            if status.resting && !info.resting { overlay?.markRecordingRest() }
         }
         var status = status
         status.appended = []
@@ -232,7 +234,8 @@ final class RecordingController: ObservableObject {
         if fresh {
             overlay?.clearRecording()
         } else {
-            overlay?.setRecording(core.recordingLine())
+            let rests = info.trackId.flatMap { try? core.trackDetail(id: $0) }.map(TracksController.rests) ?? []
+            overlay?.setRecording(core.recordingLine(), rests: rests)
         }
         lastFix = nil
         location.activity = activity

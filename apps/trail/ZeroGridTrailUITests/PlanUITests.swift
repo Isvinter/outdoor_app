@@ -36,9 +36,8 @@ extension XCUIApplication {
         grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: distance)))
     }
 
-    /// Switches plan mode on and taps the places one after the other.
+    /// Taps the places one after the other, in "Wegpunkte setzen" as after the start.
     func setWaypoints(_ places: [(Double, Double)]) {
-        buttons["plan-pick"].tap()
         for (x, y) in places {
             place(x, y).tap()
         }
@@ -75,20 +74,25 @@ final class PlanUITests: XCTestCase {
         XCTAssertEqual(status.int("failed_legs"), 0)
     }
 
-    func testTapOutsidePlanModeSetsNothing() {
+    /// "Wegpunkte setzen" after the start; "Abschnitte bearbeiten" sets nothing.
+    func testTapInSectionsModeSetsNothing() {
         let app = XCUIApplication.planning()
+        XCTAssertEqual(app.mapStatus.values["mode"], "waypoints")
+        XCTAssertTrue(app.buttons["mode-waypoints"].isSelected)
 
+        app.buttons["mode-sections"].tap()
         app.place(0.3, 0.38).tap()
         app.place(0.7, 0.45).tap()
-        // Plan mode on and off again: still nothing.
-        app.buttons["plan-pick"].tap()
-        app.buttons["plan-pick"].tap()
-        app.place(0.5, 0.6).tap()
 
         Thread.sleep(forTimeInterval: 1)
         let status = app.mapStatus
         XCTAssertEqual(status.int("waypoints"), 0)
-        XCTAssertEqual(status.int("picking"), 0)
+        XCTAssertEqual(status.values["mode"], "sections")
+        XCTAssertTrue(app.staticTexts["plan-totals"].label.hasPrefix("Tippen auf eine Linie"))
+
+        app.buttons["mode-waypoints"].tap()
+        app.place(0.5, 0.6).tap()
+        app.waitForPlan(waypoints: 1)
     }
 
     func testDragMovesWaypoint() {
@@ -141,14 +145,14 @@ final class PlanUITests: XCTestCase {
         XCTAssertEqual(one.int("distance_m"), 0)
         XCTAssertEqual(one.int("picking"), 1)
 
-        // Plan mode is still on.
+        // Taps still set points.
         app.place(places[2].0, places[2].1).tap()
         app.waitForPlan(waypoints: 2)
 
         app.buttons["plan-clear"].tap()
         let cleared = app.waitForPlan(waypoints: 0)
         XCTAssertEqual(cleared.int("legs"), 0)
-        XCTAssertEqual(cleared.int("picking"), 0)
+        XCTAssertEqual(cleared.int("picking"), 1, "the mode stays as the switch has it")
         XCTAssertFalse(app.buttons["plan-undo"].isEnabled)
     }
 
@@ -207,7 +211,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
 
         app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
         app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
@@ -220,9 +224,9 @@ final class PlanUITests: XCTestCase {
         XCTAssertEqual(status.values["selected_leg"], "0")
     }
 
-    /// In plan mode a tap on the line sets a point, as anywhere else: a way back
-    /// may run on the same path. Switching plan mode on lets go of a chosen leg.
-    func testTapOnLegInPickModeSetsPoint() {
+    /// In "Wegpunkte setzen" a tap on the line sets a point, as anywhere else: a way back
+    /// may run on the same path. Switching back to it lets go of a chosen leg.
+    func testTapOnLegInWaypointsModeSetsPoint() {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
@@ -233,11 +237,11 @@ final class PlanUITests: XCTestCase {
         XCTAssertEqual(status.values["selected_leg"], "-")
 
         // The new point lies where the first tap was: choose the second leg.
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
         app.place(secondLegMiddle.0, secondLegMiddle.1).tap()
         app.waitForStatus("leg 1 selected") { $0.values["selected_leg"] == "1" }
-        app.buttons["plan-pick"].tap()
-        let picking = app.waitForStatus("plan mode on") { $0.int("picking") == 1 }
+        app.buttons["mode-waypoints"].tap()
+        let picking = app.waitForStatus("waypoints mode") { $0.int("picking") == 1 }
         XCTAssertEqual(picking.values["selected_leg"], "-")
     }
 
@@ -246,7 +250,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
         app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
         app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
 
@@ -265,7 +269,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
 
         app.place(secondLegMiddle.0, secondLegMiddle.1).tap()
         app.waitForStatus("leg 1 selected") { $0.values["selected_leg"] == "1" }
@@ -286,7 +290,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         let before = app.waitForPlan(waypoints: 3)
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
 
         app.place(firstLegMiddle.0, firstLegMiddle.1).doubleTap()
 
@@ -305,7 +309,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning(arguments: ["-failPlansAfter", "2"])
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
         app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
         app.waitForStatus("leg 0 selected") { $0.values["selected_leg"] == "0" }
 
@@ -330,7 +334,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         let before = app.waitForPlan(waypoints: 3).int("distance_m")
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
 
         app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
         let summary = app.staticTexts["leg-summary"]
@@ -351,7 +355,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
         // `mini` has no routing data: the hiking leg fails.
         app.chooseProfile("Wandern")
         app.waitForStatus("last leg dashed") { $0.int("planning") == 0 && $0.int("dashed") == 1 }
@@ -381,7 +385,7 @@ final class PlanUITests: XCTestCase {
         let app = XCUIApplication.planning()
         app.setWaypoints(Array(places.prefix(3)))
         app.waitForPlan(waypoints: 3)
-        app.buttons["plan-pick"].tap()
+        app.buttons["mode-sections"].tap()
         app.place(firstLegMiddle.0, firstLegMiddle.1).tap()
         XCTAssertTrue(app.buttons["leg-close"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.buttons["leg-close"].label, "Auswahl aufheben")
@@ -424,7 +428,7 @@ final class PlanUITests: XCTestCase {
     func testSheetShowsTotals() {
         let app = XCUIApplication.planning()
         let totals = app.staticTexts["plan-totals"]
-        XCTAssertTrue(totals.label.contains("+ Punkt"), totals.label)
+        XCTAssertEqual(totals.label, "Tippen auf die Karte setzt einen Wegpunkt.")
 
         app.setWaypoints(Array(places.prefix(3)))
         let status = app.waitForPlan(waypoints: 3)

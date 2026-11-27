@@ -88,7 +88,6 @@ final class AcceptanceUITests: XCTestCase {
 
         // Hiking with its defaults is what the form starts with: T3, hills 80 %.
         XCTAssertEqual(app.buttons["plan-profile"].value as? String, "Wandern")
-        app.buttons["plan-pick"].tap()
         for index in reference.indices {
             // A waypoint that did not land on the reference point (the map may
             // still have been gliding) is taken back and set again.
@@ -169,7 +168,6 @@ final class AcceptanceUITests: XCTestCase {
         let start = app.waitForStatus("map rendered", timeout: 60) { $0.rendered }
         guard !start.list("regions").isEmpty else { throw XCTSkip("no region is installed") }
 
-        app.buttons["plan-pick"].tap()
         let spots: [(Double, Double)] = [
             (0.5, 0.45), (0.25, 0.3), (0.75, 0.3), (0.3, 0.55), (0.7, 0.6), (0.5, 0.25),
             (0.2, 0.45), (0.8, 0.45), (0.4, 0.65), (0.6, 0.35), (0.5, 0.55),

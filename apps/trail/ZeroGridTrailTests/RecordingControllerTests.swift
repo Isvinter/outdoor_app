@@ -212,6 +212,36 @@ final class RecordingControllerTests: XCTestCase {
         recording.stop()
     }
 
+    /// A rest is marked on the line where it began, and stays marked when the app comes back.
+    func testRestIsMarkedOnTheLine() async throws {
+        let overlay = TrackOverlay(mapView: .init(frame: .zero))
+        let location = LocationService(core: sandbox.host.core, manager: manager)
+        let recording = RecordingController(
+            core: sandbox.host.core, location: location, changes: sandbox.host.recordingChanges, overlay: overlay,
+            defaults: defaults)
+        recording.start(activity: "hike")
+        manager.deliver(FakeLocationManager.walk(count: 20, step: 0.00001, from: .init(latitude: 47.574, longitude: 11.55))
+            .map { fix in
+                CLLocation(
+                    coordinate: fix.coordinate, altitude: fix.altitude, horizontalAccuracy: 5, verticalAccuracy: 5,
+                    course: 0, speed: fix.speed, timestamp: fix.timestamp.addingTimeInterval(-500))
+            })
+        manager.deliver(Self.standing(count: 37, before: 60))
+        location.drain()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(recording.info.resting)
+        XCTAssertEqual(overlay.recordingRests, [overlay.recording.count - 1])
+        XCTAssertGreaterThan(overlay.recording.count, 1)
+
+        // A new controller, as after the app came back: the rest comes from the core.
+        let again = TrackOverlay(mapView: .init(frame: .zero))
+        _ = RecordingController(
+            core: sandbox.host.core, location: location, changes: sandbox.host.recordingChanges, overlay: again,
+            defaults: defaults)
+        XCTAssertEqual(again.recordingRests, overlay.recordingRests)
+        recording.stop()
+    }
+
     /// The settings of the rest reach the core: with 15 min, six minutes are no rest.
     func testRestSettingsReachTheCore() async throws {
         let (recording, location) = controller()

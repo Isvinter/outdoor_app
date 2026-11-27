@@ -174,7 +174,7 @@ Nachtrag 2026-11-27 nach dem iPhone-Test; Spec: „Kartenmodi“ in Schritt 1. N
 - `TracksController.selectedSection: SectionRef?`, `select(_:)`, `recordingSection: TrackSection?` (für die Karte der
   Aufnahme, aus `trackDetail` der laufenden Aufnahme).
 
-- [ ] **Step 1: Tests schreiben**
+- [x] **Step 1: Tests schreiben**
   - Unit (`MapModeTests`): `startsInWaypointsMode`; `tapInWaypointsModeSetsWaypoint` (auch auf der Routenlinie: kein
     Teilstück gewählt); `tapInSectionsModeChoosesLegOrSectionNeverWaypoint`; `leavingSectionsModeDropsSelection`;
     `nearerLineWins` und `tieAsks` (reine Entscheidungsfunktion mit Abständen); `freeTapNoLongerOffersRouteHere`.
@@ -182,15 +182,18 @@ Nachtrag 2026-11-27 nach dem iPhone-Test; Spec: „Kartenmodi“ in Schritt 1. N
     (Track offen, Modus „Wegpunkte setzen“, Tipp auf die Linie → `waypoints=1`); `testChooseSectionOnMap` (Track mit drei
     Abschnitten, Modus „Abschnitte bearbeiten“, Tipp auf die Linie nach der Rast → Zeile 2 markiert, Status
     `section=track:2`); `testRowSelectsOnMap`; `testRecordingSectionCard`.
-- [ ] **Step 2: Laufen lassen, schlagen fehl.**
-- [ ] **Step 3: Implementieren.** Schalter als Zwei-Segment-Leiste unten links über dem Blatt („Wegpunkte“ / „Abschnitte“,
+- [x] **Step 2: Laufen lassen, schlagen fehl.**
+- [x] **Step 3: Implementieren.** Schalter als Zwei-Segment-Leiste unten links über dem Blatt („Wegpunkte“ / „Abschnitte“,
   Bedienhilfe-Namen „Wegpunkte setzen“ / „Abschnitte bearbeiten“). Im Modus „Abschnitte bearbeiten“: Grenzpunkte (Kreis)
   und Rastpunkte (Symbol) auf Track und Aufnahme, gewählter Abschnitt breiter in Akzentfarbe, Sportart-Menü der Zeilen.
   Treffer: näheres von Teilstück und Abschnitt; Abstände näher als 8 pt → Menü „Teilstück der Route“ / „Abschnitt des
   Tracks“. Tipp auf einen Suchtreffer öffnet ihn in beiden Modi. Wegpunkte ziehen in beiden Modi, Wegpunkt-Menü nur in
   „Wegpunkte setzen“.
-- [ ] **Step 4: Alle Trail-Tests** — `apps/trail/scripts/test.sh` · alle PASS; Hell/Dunkel ansehen.
-- [ ] **Step 5: Commit** — `git commit -m "Set waypoints or edit sections, switched on the map"`.
+- [x] **Step 4: Alle Trail-Tests** — `apps/trail/scripts/test.sh` · alle PASS; Hell/Dunkel ansehen.
+- [x] **Step 5: Commit** — `git commit -m "Set waypoints or edit sections, switched on the map"`.
+  Abweichungen beim Bau: Schalter oben unter der Kartenleiste statt unten links (unten verdeckt ihn das Blatt, sobald ein
+  Track offen ist); Tipp-Stellen der Routen-Tests darunter verschoben. `keepPicking` entfällt (der Modus wechselt nur über
+  den Schalter). Rastsymbol als Bitmap (eingefärbtes SF-Symbol fehlte im Dunkelmodus).
 - [ ] **Step 6: Anhalten**, iPhone-Test durch den Nutzer; danach Abschlussprüfung des Branchs und PR.
 
 ## Nachtrag für Schritt 2 (Plan entsteht unter Linux)

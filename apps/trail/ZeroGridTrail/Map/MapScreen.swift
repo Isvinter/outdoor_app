@@ -33,6 +33,8 @@ struct MapScreen: View {
                 if !searchIsOpen {
                     MapToolbar(controller: controller)
                 }
+                // Always there: the sheet may cover the lower half of the map.
+                MapModeSwitch(plan: plan)
                 if let point = routeHere.point {
                     MapPointCard(flow: routeHere, location: controller.location, point: point)
                 }
@@ -47,6 +49,9 @@ struct MapScreen: View {
                 }
                 if recording.active {
                     RecordingBar(recording: recording)
+                    if case .recording = tracks.selectedSection, let section = tracks.recordingSection {
+                        RecordingSectionCard(tracks: tracks, section: section)
+                    }
                 } else if recording.choosingActivity {
                     StartRecordingPanel(recording: recording)
                 } else if let track = recording.ended {
@@ -111,7 +116,7 @@ struct MapScreen: View {
             if start.options.selftest {
                 SelfTestStatus(
                     controller: controller, plan: plan, regions: regions, guide: guide, recording: recording,
-                    start: start)
+                    tracks: tracks, start: start)
             }
         }
         // The hits and the chosen one must not end up behind a raised sheet.
@@ -216,6 +221,7 @@ private struct SelfTestStatus: View {
     @ObservedObject var regions: RegionsController
     @ObservedObject var guide: GuideController
     @ObservedObject var recording: RecordingController
+    @ObservedObject var tracks: TracksController
     let start: AppStart.Ready
 
     var body: some View {
@@ -275,6 +281,15 @@ private struct SelfTestStatus: View {
             parts.append("guide=off")
         }
         parts.append("following=\(guide.following ? 1 : 0)")
+        parts.append("mode=\(plan.mode.rawValue)")
+        parts.append("section=\(tracks.selectedSection?.status ?? "-")")
+        let middles = controller.tracks.trackMiddles
+        if !middles.isEmpty {
+            parts.append("track_section_xy=\(controller.screenPoints(of: middles))")
+        }
+        if let last = controller.tracks.recording.last(where: { !$0.isEmpty }) {
+            parts.append("recording_xy=\(controller.screenPoints(of: [last[last.count / 2]]))")
+        }
         if recording.active {
             parts.append("recording_sections=\(recording.sectionCount)")
             parts.append("resting=\(recording.info.resting ? 1 : 0)")
@@ -289,5 +304,78 @@ private struct SelfTestStatus: View {
             parts.append("project=\(controller.screenPoints(of: places))")
         }
         return parts.joined(separator: " ")
+    }
+}
+
+/// On the map, always: what a tap does. "Wegpunkte setzen" sets waypoints,
+/// "Abschnitte bearbeiten" chooses legs of the route and sections of a track.
+struct MapModeSwitch: View {
+    @ObservedObject var plan: PlanController
+
+    var body: some View {
+        HStack(spacing: 0) {
+            segment(.waypoints, title: "Wegpunkte", symbol: "mappin.and.ellipse", label: "Wegpunkte setzen")
+            segment(.sections, title: "Abschnitte", symbol: "scissors", label: "Abschnitte bearbeiten")
+        }
+        .frame(maxWidth: 360)
+        .panelBackground(in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func segment(_ mode: MapMode, title: String, symbol: String, label: String) -> some View {
+        let selected = plan.mode == mode
+        return Button {
+            plan.mode = mode
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.callout.weight(selected ? .semibold : .regular))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .background(selected ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .accessibilityIdentifier("mode-\(mode.rawValue)")
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The chosen section of the recording that runs; it changes in step 2 (notes, photos).
+private struct RecordingSectionCard: View {
+    @ObservedObject var tracks: TracksController
+    let section: TrackSection
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(text)
+                .font(.callout)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .accessibilityIdentifier("recording-section-text")
+            Spacer(minLength: 0)
+            Button {
+                tracks.select(nil)
+            } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 32, height: 32)
+            }
+            .accessibilityIdentifier("recording-section-close")
+            .accessibilityLabel("Auswahl aufheben")
+        }
+        .padding(12)
+        .frame(maxWidth: 480)
+        .panelBackground(in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("recording-section")
+    }
+
+    private var text: String {
+        let time = "\(TracksController.time(section.startMs))–\(TracksController.time(section.endMs))"
+        if section.rest { return "Rast \(time)" }
+        var parts = ["Abschnitt \(section.index + 1)", Activity.name(section.activity), time,
+                     Format.distance(section.distanceM), Format.hours(section.movingS)]
+        if let ascent = section.ascentM { parts.append("↑ \(Format.elevation(ascent))") }
+        return parts.joined(separator: " · ")
     }
 }
