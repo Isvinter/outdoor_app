@@ -10,6 +10,7 @@ mod plan;
 mod regions;
 mod routes;
 mod search;
+mod search_routes;
 mod share;
 
 pub use app::{
@@ -29,6 +30,7 @@ pub use plan::{
 pub use regions::{MapOverview, RegionInfo, RegionState, RegionsOverview};
 pub use routes::{ProfileInfo, RouterFactory};
 pub use search::{SearchHit, SearchResults};
+pub use search_routes::{ROUTE_LIMIT_M, RouteFrom};
 pub use share::{
     ImportOutcome, ImportedRoute, RemoteRoute, RemoteRouteState, SharedRoute, SharedRouteInfo,
 };

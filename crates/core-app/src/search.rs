@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::AppError;
 use crate::app::App;
+use crate::search_routes::{Chosen, RouteFrom};
 
 /// Shorter queries would match nearly everything.
 const MIN_QUERY_CHARS: usize = 2;
@@ -33,7 +34,16 @@ pub struct SearchHit {
     pub lat: f64,
     pub lon: f64,
     /// From the point the search was made around.
+    /// From the own position if one was used, else from the search point.
     pub distance_m: f64,
+    /// As the crow flies from the point the search was made around.
+    pub centre_distance_m: f64,
+    /// Length of the way from the own position, if one was found.
+    pub route_m: Option<f64>,
+    /// Travel time of that way.
+    pub route_s: Option<f64>,
+    /// Routing ran, but found no way within its reach.
+    pub no_route: bool,
 }
 
 /// What a search found.
@@ -46,6 +56,8 @@ pub struct SearchResults {
     pub widened: bool,
     /// The radius the search used, after its limits.
     pub radius_m: f64,
+    /// Times come from a router that ignores the ascent (hiking).
+    pub ascent_ignored: bool,
 }
 
 impl App {
@@ -55,6 +67,20 @@ impl App {
     /// nearest of that category.
     #[must_use]
     pub fn search(&self, text: &str, near: LatLon, radius_m: f64, limit: usize) -> SearchResults {
+        self.search_from(text, near, radius_m, limit, None)
+    }
+
+    /// Like [`App::search`]; with a position in `from`, hits are measured
+    /// from it and put in order by the way there.
+    #[must_use]
+    pub fn search_from(
+        &self,
+        text: &str,
+        near: LatLon,
+        radius_m: f64,
+        limit: usize,
+        from: Option<&RouteFrom>,
+    ) -> SearchResults {
         if normalize(text).chars().count() < MIN_QUERY_CHARS {
             return SearchResults::default();
         }
@@ -81,11 +107,13 @@ impl App {
                     hit.kind != Kind::Place
                 }
             });
+        let (hits, ascent_ignored) = self.measure_hits(share_limit(main, far_places, limit), from);
         SearchResults {
-            hits: share_limit(main, far_places, limit),
+            hits,
             unsearchable,
             widened,
             radius_m,
+            ascent_ignored,
         }
     }
 
@@ -98,6 +126,19 @@ impl App {
         radius_m: f64,
         limit: usize,
     ) -> Result<SearchResults, AppError> {
+        self.search_category_from(category, near, radius_m, limit, None)
+    }
+
+    /// Like [`App::search_category`], measured and ordered from the position
+    /// in `from` if there is one.
+    pub fn search_category_from(
+        &self,
+        category: &str,
+        near: LatLon,
+        radius_m: f64,
+        limit: usize,
+        from: Option<&RouteFrom>,
+    ) -> Result<SearchResults, AppError> {
         let parsed =
             Category::parse(category).ok_or_else(|| AppError::SearchCategory(category.into()))?;
         let limit = limit.clamp(1, MAX_LIMIT);
@@ -105,11 +146,18 @@ impl App {
         let (hits, unsearchable) = self.search_regions(near, |index, at| {
             index.by_category_within(parsed, at, radius_m, limit)
         });
+        let chosen = hits
+            .into_iter()
+            .take(limit)
+            .map(|hit| Chosen { hit, far: false })
+            .collect();
+        let (hits, ascent_ignored) = self.measure_hits(chosen, from);
         Ok(SearchResults {
-            hits: hits.into_iter().take(limit).map(shown).collect(),
+            hits,
             unsearchable,
             widened: false,
             radius_m,
+            ascent_ignored,
         })
     }
 
@@ -154,7 +202,7 @@ fn usable_radius(radius_m: f64) -> f64 {
     }
 }
 
-fn best_first(a: &Hit, b: &Hit) -> Ordering {
+pub(crate) fn best_first(a: &Hit, b: &Hit) -> Ordering {
     a.match_rank.cmp(&b.match_rank).then(
         a.distance_m
             .unwrap_or(0.0)
@@ -163,14 +211,21 @@ fn best_first(a: &Hit, b: &Hit) -> Ordering {
 }
 
 /// Fills `limit` so that neither group can push the other out: far places get
-/// up to a third, and whatever one group leaves free goes to the other.
-fn share_limit(mut main: Vec<Hit>, mut far_places: Vec<Hit>, limit: usize) -> Vec<SearchHit> {
+/// up to a third, and whatever one group leaves free goes to the other. The
+/// order is the one given, main hits first; the caller sorts.
+fn share_limit(mut main: Vec<Hit>, mut far_places: Vec<Hit>, limit: usize) -> Vec<Chosen> {
     let reserved = far_places.len().min(limit / FAR_PLACE_SHARE);
     main.truncate(limit - reserved);
     far_places.truncate(limit - main.len());
+    let far_start = main.len();
     main.append(&mut far_places);
-    main.sort_by(best_first);
-    main.into_iter().map(shown).collect()
+    main.into_iter()
+        .enumerate()
+        .map(|(i, hit)| Chosen {
+            hit,
+            far: i >= far_start,
+        })
+        .collect()
 }
 
 fn same_thing(a: &Hit, b: &Hit) -> bool {
@@ -180,7 +235,9 @@ fn same_thing(a: &Hit, b: &Hit) -> bool {
         && normalize(&a.name) == normalize(&b.name)
 }
 
-fn shown(hit: Hit) -> SearchHit {
+/// A hit as found: measured from the search point only.
+pub(crate) fn shown(hit: Hit) -> SearchHit {
+    let distance_m = hit.distance_m.unwrap_or(0.0);
     SearchHit {
         kind: hit.kind.as_str().to_string(),
         category: hit.category.map(|c| c.as_str().to_string()),
@@ -188,6 +245,10 @@ fn shown(hit: Hit) -> SearchHit {
         town: hit.town,
         lat: hit.lat,
         lon: hit.lon,
-        distance_m: hit.distance_m.unwrap_or(0.0),
+        distance_m,
+        centre_distance_m: distance_m,
+        route_m: None,
+        route_s: None,
+        no_route: false,
     }
 }
