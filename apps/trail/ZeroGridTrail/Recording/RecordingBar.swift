@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// Over the map while a tour is recorded: time, distance, ascent, the activity
-/// of the running section, the rest, pause and end.
+/// of the running section, the rest, photos and notes, pause and end.
 struct RecordingBar: View {
     @ObservedObject var recording: RecordingController
+    @ObservedObject var media: MediaController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -32,6 +33,24 @@ struct RecordingBar: View {
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            }
+            // Big enough for gloves.
+            HStack(spacing: 8) {
+                Button {
+                    media.openCamera()
+                } label: {
+                    MediaButtonLabel(title: "Foto", symbol: "camera")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("media-photo")
+                VoiceButton(media: media)
+                Button {
+                    media.openNote()
+                } label: {
+                    MediaButtonLabel(title: "Text", symbol: "square.and.pencil")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("media-text")
             }
             HStack {
                 Button(recording.paused ? "Weiter" : "Pause") {
@@ -167,6 +186,11 @@ struct SaveTrackPanel: View {
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("save-track-name")
             if confirmingDiscard {
+                if recording.endedMediaCount > 0 {
+                    Text("Verwerfen löscht auch \(recording.endedMediaCount) Fotos und Notizen.")
+                        .font(.callout)
+                        .accessibilityIdentifier("discard-media-warning")
+                }
                 HStack {
                     Button("Abbrechen") { confirmingDiscard = false }
                         .buttonStyle(.bordered)

@@ -23,7 +23,7 @@ private struct RootView: View {
         case starting
         case ready(
             AppStart.Ready, MapController, PlanController, RegionsController, SearchController, RouteHereFlow,
-            RecordingController, TracksController, GuideController)
+            RecordingController, TracksController, GuideController, MediaController)
         case failed(String)
     }
 
@@ -35,10 +35,10 @@ private struct RootView: View {
             ProgressView("Karte wird vorbereitet …")
                 .task { await start() }
         case .ready(let start, let controller, let plan, let regions, let search, let routeHere, let recording,
-            let tracks, let guide):
+            let tracks, let guide, let media):
             MapScreen(
                 controller: controller, plan: plan, regions: regions, search: search, routeHere: routeHere,
-                recording: recording, tracks: tracks, guide: guide, start: start)
+                recording: recording, tracks: tracks, guide: guide, media: media, start: start)
         case .failed(let message):
             Text("Die App kann nicht starten: \(message)")
                 .padding()
@@ -115,6 +115,24 @@ private struct RootView: View {
                 plan?.whenPlanned { guide?.startIfIdle() }
             }
             recording.onTracksChanged = { [weak tracks] in tracks?.refresh() }
+            let fakes = start.options.mediaFakes
+            let media = MediaController(
+                core: start.host.core, camera: fakes ? FakeCamera() : SystemCamera(),
+                audio: fakes ? FakeAudio() : SystemAudio(), library: fakes ? FakeLibrary() : SystemLibrary(),
+                picker: fakes ? FakeImagePicker() : SystemImagePicker(),
+                permissions: fakes ? AllowingPermissions() : SystemPermissions(),
+                lastFix: { [weak location] in location?.last },
+                isRecording: { [weak recording] in recording?.active == true })
+            // A voice note still spoken belongs to the recording that ends.
+            recording.onStopping = { [weak media] in media?.endVoice() }
+            // The card of a chosen section of the recording shows a new photo or note at once.
+            media.onAdded = { [weak tracks, weak recording] _ in
+                if let id = recording?.info.trackId { tracks?.mediaChanged(track: id) }
+            }
+            if fakes {
+                tracks.transcriber = FakeTranscriber()
+                tracks.permissions = AllowingPermissions()
+            }
             let haptics = SystemHaptics()
             let alert = DeviationAlert(center: UNUserNotificationCenter.current(), haptics: haptics)
             guide.haptics = haptics
@@ -129,7 +147,7 @@ private struct RootView: View {
                 let ends = start.options.route.map { CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) }
                 _ = plan.startRoute(from: ends[0], to: ends[1])
             }
-            phase = .ready(start, map, plan, regions, search, routeHere, recording, tracks, guide)
+            phase = .ready(start, map, plan, regions, search, routeHere, recording, tracks, guide, media)
         case .failure(let error):
             phase = .failed(describe(error))
         }

@@ -76,12 +76,16 @@ final class RecordingController: ObservableObject {
     /// The track just ended, waiting for "Speichern" or "Verwerfen". It is
     /// stored already, so nothing is lost if the app ends meanwhile.
     @Published private(set) var ended: TrackSummary?
+    /// The photos and notes of the track just ended; "Verwerfen" says it deletes them.
+    @Published private(set) var endedMediaCount = 0
     /// Something worth telling, such as a gap without GPS.
     @Published var notice: String?
     /// A failure worth telling the user, in German.
     @Published var message: String?
     /// A track was saved, renamed or discarded.
     var onTracksChanged: (() -> Void)?
+    /// The recording is about to end: what still belongs to it goes in first.
+    var onStopping: (() -> Void)?
 
     static let idle = RecordingInfo(
         phase: "idle", trackId: nil, activity: nil, resting: false, distanceM: 0, movingS: 0, elapsedS: 0, ascentM: nil,
@@ -123,6 +127,10 @@ final class RecordingController: ObservableObject {
     var activity: String { info.activity ?? "other" }
     /// The sections with points so far; for the self-test status.
     var sectionCount: Int { core.recordingLine().filter { !$0.isEmpty }.count }
+    /// The photos and notes of the recording that runs; for the self-test status.
+    var mediaCount: Int {
+        info.trackId.flatMap { try? core.trackDetail(id: $0) }?.media.count ?? 0
+    }
 
     init(
         core: CoreApp, location: LocationService, changes: AnyPublisher<RecordingInfo, Never>,
@@ -295,8 +303,9 @@ final class RecordingController: ObservableObject {
     }
 
     /// Ends the recording and asks whether to keep it. A recording without a
-    /// point is gone at once.
+    /// point and without photos or notes is gone at once.
     func stop() {
+        onStopping?()
         defer {
             location.release(.recording)
             location.restProfile = nil
@@ -313,6 +322,7 @@ final class RecordingController: ObservableObject {
             }
             // Named at once, so that it has a name even if the question stays unanswered.
             try core.renameTrack(id: track.id, name: Self.name(startedMs: track.startedMs, activity: track.activity))
+            endedMediaCount = (try? core.trackDetail(id: track.id))?.media.count ?? 0
             ended = track
             onTracksChanged?()
         } catch {

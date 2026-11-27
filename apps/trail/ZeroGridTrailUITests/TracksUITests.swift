@@ -83,10 +83,14 @@ final class TracksUITests: XCTestCase {
 extension XCUIApplication {
     /// Records "Wandern", switches to "Rad" during the rest and opens the saved track:
     /// three sections, the rest in the middle.
-    static func recordingSections(file: StaticString = #filePath, line: UInt = #line) -> XCUIApplication {
-        let app = XCUIApplication.replaying("rest")
+    static func recordingSections(
+        arguments: [String] = [], whileRecording: (XCUIApplication) -> Void = { _ in },
+        file: StaticString = #filePath, line: UInt = #line
+    ) -> XCUIApplication {
+        let app = XCUIApplication.replaying("rest", arguments: arguments)
         app.waitForStatus("map rendered") { $0.rendered }
         app.startRecording("hike")
+        whileRecording(app)
         XCTAssertTrue(app.staticTexts["rest-hint"].waitForExistence(timeout: 60), file: file, line: line)
         app.buttons["recording-activity"].tap()
         app.buttons["switch-bike"].tap()
