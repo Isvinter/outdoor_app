@@ -1,6 +1,7 @@
 # Entwurf: Tour mit Abschnitten, Fotos, Notizen und Export (Trail)
 
-Stand: 2026-11-26 · Status: zur Freigabe · Größe: Projekt, in drei Schritten
+Stand: 2026-11-27 (Nachtrag nach iPhone-Test: Kartenmodi, Fotos aus der Mediathek) · Status:
+freigegeben · Größe: Projekt, in drei Schritten
 
 ## Anlass und Ziel
 
@@ -59,6 +60,27 @@ Fotos und Notizen hängen an der **Aufzeichnung** (Ort und Zeit), nicht an der g
 - Der Name bleibt systematisch: `2026-11-24 10:05 Rad`, mit mehreren Sportarten die des ersten
   Abschnitts (Entscheidung von Claude; Umbenennen bleibt möglich).
 
+- **Kartenmodi** (Nachtrag 2026-11-27 nach dem iPhone-Test, Entscheidungen des Nutzers): ein
+  Schalter, immer auf der Karte sichtbar (auch während Aufnahme und Führung), mit zwei Modi:
+  - **„Wegpunkte setzen“** – Voreinstellung nach **jedem** App-Start. Jeder Tipp auf die Karte
+    setzt einen Wegpunkt, auch auf der eigenen Routenlinie oder einem Track (Rückweg auf
+    demselben Weg); Wegpunkte auch aus der Suche. Ersetzt den bisherigen „+ Punkt“-Modus und
+    die Karte „Route hierher“ nach einem freien Tipp (beim ersten Wegpunkt bietet Trail wie
+    bisher den Weg von der eigenen Position an; Suchtreffer behalten „Route hierher“). Tipp auf
+    einen Wegpunkt öffnet sein Menü.
+  - **„Abschnitte bearbeiten“** – immer wählbar. Ein Tipp wählt ein Teilstück der geplanten
+    Route (Profil ändern, in der Mitte teilen, wie bisher außerhalb von „+ Punkt“) oder einen
+    Abschnitt bzw. eine Rast des angezeigten Tracks (geöffneter Track oder laufende
+    Aufnahme). Abschnittsgrenzen und Rasten sind dann als Punkte auf dem Track gezeichnet. Der
+    gewählte Abschnitt ist auf der Karte hervorgehoben und in der Liste der Detailansicht
+    markiert, und umgekehrt (Tipp auf die Zeile). Tipp neben jede Linie hebt die Auswahl auf.
+    Setzt keine Wegpunkte.
+  - Liegen Route und Track unter dem Finger, gewinnt die nähere Linie; liegen beide praktisch
+    aufeinander, fragt ein kleines Menü „Teilstück der Route“ / „Abschnitt des Tracks“
+    (Entscheidung von Claude, vom Nutzer bestätigt).
+  - Wegpunkte **verschieben** (Ziehen) geht in beiden Modi, damit der Punkt nach „In der Mitte
+    teilen“ ohne Umschalten verschoben werden kann.
+
 ### Schritt 2: Fotos und Notizen
 
 - **Unterwegs** bekommt die Aufnahmeleiste große, mit Handschuhen treffbare Knöpfe:
@@ -81,10 +103,20 @@ Fotos und Notizen hängen an der **Aufzeichnung** (Ort und Zeit), nicht an der g
   wann der Nutzer will (z. B. abends am Kabel), per Knopf je Notiz oder für alle einer Tour,
   nur mit Erkennung auf dem Gerät (keine Netzwerkaufrufe). Das Audio bleibt erhalten.
 - **✎ Textnotiz:** Textfeld (die Diktiertaste der Tastatur geht dort ohnehin).
-- **Nach der Tour** in der Detailansicht des Tracks: Abschnitte als Liste (Sportart, Zeit,
-  Länge); Notizen je Abschnitt oder für die ganze Tour anlegen und ändern; unterwegs
-  entstandene Notizen sind ihrem Abschnitt zugeordnet und änderbar (Text bearbeiten, Audio
-  bleibt); Fotos ansehen und löschen (fragt nach); Notizen löschen.
+- **Im Modus „Wegpunkte setzen“** (Voreinstellung) entstehen Fotos und Notizen nur über 📷, 🎤
+  und ✎ der Aufnahmeleiste und werden automatisch zugeordnet (oben). Ändern, Löschen und
+  nachträgliches Einfügen gehen nur im Modus **„Abschnitte bearbeiten“** (Nachtrag
+  2026-11-27, Entscheidung des Nutzers).
+- **Im Modus „Abschnitte bearbeiten“** (gespeicherter Track oder laufende Aufnahme): Abschnitt
+  auf der Karte oder in der Liste wählen, dann für ihn (oder für „ganze Tour“) Notizen anlegen,
+  ändern und löschen (Text bearbeiten, Audio bleibt), Fotos ansehen und löschen (fragt nach)
+  und **Bilder vom Gerät einfügen** (Fotomediathek über `PHPickerViewController`, ohne
+  Vollzugriff; auch Bilder, die nicht mit Trail aufgenommen wurden, etwa eine Übersichtskarte
+  oder ein Screenshot). Ein eingefügtes Bild gehört dem gewählten Abschnitt; Zeit und Ort aus
+  seinen Metadaten, falls vorhanden, sonst ohne Ort und mit dem Beginn des Abschnitts als Zeit
+  (Entscheidung von Claude). Trail kopiert es in seinen Datenordner (wie ein Foto der Kamera).
+- Die Detailansicht zeigt Abschnitte, Notizen und Fotos auch außerhalb des Bearbeiten-Modus,
+  nur ohne Knöpfe zum Ändern.
 
 ### Schritt 3: Export als Paket
 
@@ -111,8 +143,8 @@ Fotos und Notizen hängen an der **Aufzeichnung** (Ort und Zeit), nicht an der g
 - Tourberichte, Fotobücher; ob in Base oder als eigene App, Ollama oder eingebautes Modell:
   offen, eigenes Vorhaben.
 - Bildklassifizierung, Personen erkennen per Few-Shot: zurückgestellt, nur Base.
-- Fotos aus der Mediathek nachträglich einer Tour zuordnen (komoot kann das; hier nicht
-  verlangt, später denkbar über Zeit/Ort).
+- Fotos aus der Mediathek **automatisch** einer Tour zuordnen (über Zeit/Ort, wie komoot);
+  von Hand einfügen ist seit 2026-11-27 Ziel (Schritt 2).
 - Base (Desktop) zeigt Fotos und Notizen nicht an; seine Aufnahme bleibt, wie sie ist.
 - Tourenbuch (Statistik über Zeiträume, Reisen aus mehreren Tracks).
 
@@ -155,7 +187,8 @@ Export als Datei (A) statt Heimnetz (B); B kommt später mit der Datenbank auf B
 
 - **Datenbank (neue Migration):** `track_segments` bekommt `activity` (Standard: die des
   Tracks) und `reason` (warum der Abschnitt begann). Neue Tabelle `track_media`: ID, Track,
-  Abschnitt (oder keiner = ganze Tour), Art (`photo`, `voice`, `text`), Zeit, Ort, Datei
+  Abschnitt (oder keiner = ganze Tour), Art (`photo`, `voice`, `text`), Herkunft (`camera`,
+  `library`, `typed`, `spoken`), Zeit, Ort (beides optional bei `library`), Datei
   (relativer Pfad im Datenordner der App, für Foto und Audio), Text, `transcribed`,
   `created_at`, `updated_at`, `deleted_at`, `rev` (wie `tracks`, Grundlage späterer Sync).
   `tracks.activity` bleibt (Sportart des ersten Abschnitts, für Liste und Name).
@@ -178,6 +211,10 @@ Export als Datei (A) statt Heimnetz (B); B kommt später mit der Datenbank auf B
 - Startauswahl der Sportart, Sportwechsel und Drosselstufe in der Aufnahmeleiste, Drosseln des
   GPS (`LocationService`: Profile „stark“ und „mäßig“ neben `standard`, nur während Rast und nur
   wenn keine Führung läuft).
+- Kartenmodi (Schritt 1, Nachtrag): Schalter auf der Karte; `PlanController.picking` folgt dem
+  Modus; Track-Abschnitte und Rastpunkte als Ebenen in `TrackOverlay`, Treffer-Test wie für
+  die Teilstücke der Route.
+- Bilder vom Gerät: `PHPickerViewController` (braucht keine Berechtigung für die Mediathek).
 - Kamera (`UIImagePickerController` oder AVFoundation, dem Bauenden überlassen), Audio
   (`AVAudioRecorder`, AAC/m4a), Umwandlung (`SFSpeechRecognizer`, nur auf dem Gerät).
   Berechtigungen (Kamera, Mikrofon, Spracherkennung, Fotomediathek hinzufügen) erst beim

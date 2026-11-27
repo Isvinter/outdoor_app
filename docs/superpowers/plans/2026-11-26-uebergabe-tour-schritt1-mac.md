@@ -19,6 +19,12 @@ Ausführung: einzeln geprüft (Wahl des Nutzers). Vorher `apps/trail/scripts/bui
 `xcodegen generate` in `apps/trail`, dann Task 4 und Task 5 nach Plan. Danach Abschlussprüfung
 des ganzen Branchs, iPhone-Test durch den Nutzer, PR.
 
+## Stand Mac (2026-11-27)
+
+- Task 4: cf39d9c, Task 5: ac0e719, alle Trail-Tests grün; iPhone-Test bestanden bis auf die Befunde in Task 5 Step 6.
+- a9bb76a: Hinweis zur GPS-Lücke verschwindet von selbst.
+- Neu: Task 6 (Kartenmodi) im Plan, Nachtrag für Schritt 2 am Ende des Plans; Spec ergänzt.
+
 ## Entscheidungen unterwegs (gelten weiter)
 
 - Weg nach einer Rast: Luftlinie vom **ersten** Punkt des Rast-Abschnitts (Erkennungsfix) zum

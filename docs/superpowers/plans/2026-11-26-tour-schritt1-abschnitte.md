@@ -142,4 +142,64 @@
 - [ ] **Step 3: Implementieren.** Zeile je Abschnitt: Farbpunkt/Sportart als Menü (nicht bei Rast), Uhrzeit von–bis, Länge, Bewegungszeit, Aufstieg. Mit nur einem Abschnitt keine Liste.
 - [ ] **Step 4: Alle Trail-Tests** — Run: `apps/trail/scripts/test.sh` · Expected: alle PASS; Hell/Dunkel kurz ansehen.
 - [ ] **Step 5: Commit** — `git commit -m "Show and edit the sections of a track"`.
-- [ ] **Step 6: Anhalten**, dem Nutzer zum Test auf dem iPhone geben (Rast auf einer echten Tour, Akku beobachten).
+- [x] **Step 6: Anhalten**, dem Nutzer zum Test auf dem iPhone geben (Rast auf einer echten Tour, Akku beobachten).
+  Ergebnis 2026-11-27 (Longboard, Nässe, als „Rad“): Drosselstufen, Rasterkennung und Abschnitte gehen. Befunde: (1) Hinweis
+  „Kein GPS für 4 min“ blieb stehen → behoben (a9bb76a, „GPS war {n} min weg …“, verschwindet nach 15 s). (2) Ein Tipp auf
+  die Karte setzt auch ohne „+ Punkt“ einen Punkt (Karte „Route hierher“), und Abschnitte lassen sich auf der Karte nicht
+  wählen → Task 6.
+
+---
+
+### Task 6: Trail — Kartenmodi „Wegpunkte setzen“ / „Abschnitte bearbeiten“, Abschnitte auf der Karte
+
+Nachtrag 2026-11-27 nach dem iPhone-Test; Spec: „Kartenmodi“ in Schritt 1. Nur Swift, keine Kernänderung
+(`trackDetail` geht auch für die laufende Aufnahme).
+
+**Files:**
+- Modify: `apps/trail/ZeroGridTrail/Plan/PlanController.swift` (`mode` statt `picking`), `Plan/PlanBar.swift` („+ Punkt“
+  entfällt), `Plan/PlanSheet.swift` (Hinweistext), `Plan/RouteLayers.swift` (Tipp-Verteilung mit Track-Treffern),
+  `Recording/TrackLayers.swift` (Abschnitte, Punkte, Hervorhebung, Treffer-Test), `Recording/TracksList.swift`
+  (Auswahl), `Recording/TrackDetailView.swift` (Zeile markiert, Menü nur im Bearbeiten-Modus), `Recording/RecordingController.swift`
+  (Rast-Abschnitte der laufenden Aufnahme), `Map/MapScreen.swift` (Schalter, Auswahlmenü bei Überlagerung, Abschnittskarte
+  der Aufnahme), `ZeroGridTrailApp.swift` (Verdrahtung, kein „Route hierher“ nach freiem Tipp)
+- Test: `ZeroGridTrailTests/MapModeTests.swift` (neu), `ZeroGridTrailUITests/MapModeUITests.swift` (neu); alle UI-Tests mit
+  `plan-pick` oder freiem Tipp auf `map-point` anpassen (`PlanUITests`, `RoutesUITests`, `RemoteRoutesUITests`,
+  `RouteHereUITests`, `GuideUITests`, `AcceptanceUITests`, `TracksUITests`)
+
+**Interfaces:**
+- `enum MapMode { case waypoints, sections }`; `PlanController.mode` (`@Published`, Start `.waypoints`, ändert sich nur über
+  den Schalter); `picking` bleibt als `mode == .waypoints` lesbar (Status `picking=`, neu `mode=waypoints|sections`).
+- `TrackOverlay`: `showsSections: Bool`, `setTrack(sections:)` mit Rast-Kennung, `select(_ section: SectionRef?)`,
+  `hit(at: CGPoint) -> (SectionRef, CGFloat)?`; `enum SectionRef { case track(Int), recording(Int) }`.
+- `TracksController.selectedSection: SectionRef?`, `select(_:)`, `recordingSection: TrackSection?` (für die Karte der
+  Aufnahme, aus `trackDetail` der laufenden Aufnahme).
+
+- [ ] **Step 1: Tests schreiben**
+  - Unit (`MapModeTests`): `startsInWaypointsMode`; `tapInWaypointsModeSetsWaypoint` (auch auf der Routenlinie: kein
+    Teilstück gewählt); `tapInSectionsModeChoosesLegOrSectionNeverWaypoint`; `leavingSectionsModeDropsSelection`;
+    `nearerLineWins` und `tieAsks` (reine Entscheidungsfunktion mit Abständen); `freeTapNoLongerOffersRouteHere`.
+  - UI (`MapModeUITests`): `testSwitchIsAlwaysVisible` (Karte, während Aufnahme, mit offenem Track); `testTapOnTrackSetsWaypoint`
+    (Track offen, Modus „Wegpunkte setzen“, Tipp auf die Linie → `waypoints=1`); `testChooseSectionOnMap` (Track mit drei
+    Abschnitten, Modus „Abschnitte bearbeiten“, Tipp auf die Linie nach der Rast → Zeile 2 markiert, Status
+    `section=track:2`); `testRowSelectsOnMap`; `testRecordingSectionCard`.
+- [ ] **Step 2: Laufen lassen, schlagen fehl.**
+- [ ] **Step 3: Implementieren.** Schalter als Zwei-Segment-Leiste unten links über dem Blatt („Wegpunkte“ / „Abschnitte“,
+  Bedienhilfe-Namen „Wegpunkte setzen“ / „Abschnitte bearbeiten“). Im Modus „Abschnitte bearbeiten“: Grenzpunkte (Kreis)
+  und Rastpunkte (Symbol) auf Track und Aufnahme, gewählter Abschnitt breiter in Akzentfarbe, Sportart-Menü der Zeilen.
+  Treffer: näheres von Teilstück und Abschnitt; Abstände näher als 8 pt → Menü „Teilstück der Route“ / „Abschnitt des
+  Tracks“. Tipp auf einen Suchtreffer öffnet ihn in beiden Modi. Wegpunkte ziehen in beiden Modi, Wegpunkt-Menü nur in
+  „Wegpunkte setzen“.
+- [ ] **Step 4: Alle Trail-Tests** — `apps/trail/scripts/test.sh` · alle PASS; Hell/Dunkel ansehen.
+- [ ] **Step 5: Commit** — `git commit -m "Set waypoints or edit sections, switched on the map"`.
+- [ ] **Step 6: Anhalten**, iPhone-Test durch den Nutzer; danach Abschlussprüfung des Branchs und PR.
+
+## Nachtrag für Schritt 2 (Plan entsteht unter Linux)
+
+Aus dem Nachtrag zur Spec (2026-11-27), damit der Plan für Schritt 2 nichts doppelt plant:
+- Bearbeiten (Notiz ändern/löschen, Foto löschen, **Bild vom Gerät einfügen**) gibt es nur im Modus „Abschnitte bearbeiten“
+  aus Task 6, für den gewählten Abschnitt (`TracksController.selectedSection`) oder „ganze Tour“; die Abschnittskarte der
+  laufenden Aufnahme aus Task 6 ist der Ort dafür während der Aufnahme.
+- Kern: `track_media.source` (`camera`, `library`, `typed`, `spoken`); Zeit und Ort bei `library` optional, ohne Zeit gilt
+  der Beginn des Abschnitts. FFI: Medium mit gegebenem Abschnitt anlegen (nicht nur „laufender Abschnitt“).
+- Trail: `PHPickerViewController` (ohne Mediathek-Berechtigung), Kopie in den Datenordner wie ein Kamerafoto; Metadaten
+  (Aufnahmezeit, GPS) aus der Datei lesen, falls vorhanden.
