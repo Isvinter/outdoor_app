@@ -22,6 +22,7 @@ serde.workspace = true
 # float_roundtrip: saved routes are read back exactly as they were planned.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
+time.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
