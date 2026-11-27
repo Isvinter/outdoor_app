@@ -351,6 +351,23 @@ fn recording_info_has_resting() {
 }
 
 #[test]
+fn unusable_rest_settings_turn_detection_off() {
+    for (name, dwell_s, radius_m) in [
+        ("rest-zero-time", 0, 50.0),
+        ("rest-zero-radius", 300, 0.0),
+        ("rest-negative", 300, -5.0),
+        ("rest-nan", 300, f64::NAN),
+    ] {
+        let (data, _) = setup(name);
+        let core = open(&data);
+        core.set_rest_detection(Some(RestSettings { dwell_s, radius_m }));
+        core.start_recording("bike".into()).unwrap();
+        assert!(!ride_rest_ride(&core).resting, "{name}");
+        assert!(!core.recording_status().resting, "{name}");
+    }
+}
+
+#[test]
 fn track_view_has_sections() {
     let (data, _) = setup("sections");
     let core = open(&data);

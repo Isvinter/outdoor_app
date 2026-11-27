@@ -245,8 +245,12 @@ impl CoreApp {
     /// Turns rest detection on, or off with `None` (the default); applies at
     /// once and to recordings started or continued later. Not stored: set it
     /// on every launch.
+    /// Settings without a time or a radius (0, negative, not a number) turn
+    /// the detection off rather than calling everything a rest.
     pub fn set_rest_detection(&self, settings: Option<RestSettings>) {
-        self.app.set_rest_detection(settings.map(RestParams::from));
+        let usable =
+            settings.filter(|s| s.dwell_s > 0 && s.radius_m.is_finite() && s.radius_m > 0.0);
+        self.app.set_rest_detection(usable.map(RestParams::from));
     }
 
     pub fn pause_recording(&self) -> Result<RecordingInfo, CoreError> {

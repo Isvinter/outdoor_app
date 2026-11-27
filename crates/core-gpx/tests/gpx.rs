@@ -321,3 +321,30 @@ fn plain_gpx_has_no_sections() {
         assert_eq!(s.reason, SegmentReason::Start);
     }
 }
+
+/// Unknown values read as none (activity) and `start` (reason); other extensions are left alone.
+#[test]
+fn unknown_section_values_and_foreign_extensions() {
+    let gpx = r#"<?xml version="1.0"?>
+<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:zg="urn:zerogrid:gpx:1" xmlns:other="urn:example:other">
+  <trk><trkseg>
+    <trkpt lat="47.5" lon="11.5"><time>2026-11-24T10:00:00Z</time></trkpt>
+    <trkpt lat="47.501" lon="11.5"><time>2026-11-24T10:00:10Z</time></trkpt>
+    <extensions><other:colour value="red"/><zg:section activity="swim" reason="nap"/></extensions>
+  </trkseg>
+  <trkseg>
+    <trkpt lat="47.502" lon="11.5"><time>2026-11-24T10:00:20Z</time></trkpt>
+    <extensions><other:note text="x"/><zg:section activity="hike" reason="activity_change"/></extensions>
+  </trkseg></trk>
+</gpx>"#;
+    let doc = parse_gpx(gpx).unwrap();
+    let track = &doc.tracks[0];
+    let segments = &track.segments;
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0].activity, None);
+    assert_eq!(segments[0].reason, SegmentReason::Start);
+    assert_eq!(segments[0].points.len(), 2);
+    assert_eq!(segments[1].activity, Some(Activity::Hike));
+    assert_eq!(segments[1].reason, SegmentReason::ActivityChange);
+}

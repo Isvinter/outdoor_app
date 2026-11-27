@@ -703,6 +703,61 @@ fn rest_detection_marks_rest() {
     assert!(stats.moving_time_s < 60.0, "{stats:?}");
 }
 
+/// Other rest settings during a rest end it: the next fixes belong to a section of the activity.
+#[test]
+fn changed_rest_settings_end_a_rest() {
+    let (app, _, _) = open("rest-changed");
+    app.start_recording(Activity::Bike).unwrap();
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    for t in 11..=370 {
+        app.handle_fix(at(10, t));
+    }
+    assert!(app.recording_status().resting);
+    app.set_rest_detection(Some(RestParams {
+        dwell_ms: 600_000,
+        radius_m: 50.0,
+    }));
+    assert!(!app.recording_status().resting, "ends at once");
+    // The same values again change nothing.
+    app.set_rest_detection(Some(RestParams {
+        dwell_ms: 600_000,
+        radius_m: 50.0,
+    }));
+    for t in 371..=380 {
+        app.handle_fix(at(10, t));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(
+        reasons(&app, record.id),
+        [
+            (Activity::Bike, SegmentReason::Start),
+            (Activity::Bike, SegmentReason::Rest),
+            (Activity::Bike, SegmentReason::RestEnd)
+        ]
+    );
+}
+
+/// A switch before the first fix gives the first section that activity, without an empty one.
+#[test]
+fn switch_before_the_first_fix() {
+    let (app, _, _) = open("switch-early");
+    app.start_recording(Activity::Bike).unwrap();
+    let status = app.switch_recording_activity(Activity::Hike).unwrap();
+    assert_eq!(status.activity, Some(Activity::Hike));
+    for i in 0..=20 {
+        app.handle_fix(fix(i));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(record.activity, Activity::Hike);
+    assert_eq!(
+        reasons(&app, record.id),
+        [(Activity::Hike, SegmentReason::Start)]
+    );
+}
+
 #[test]
 fn continued_recording_keeps_sections_and_rest_setting() {
     let path = temp_db("rest-crash");
