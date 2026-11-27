@@ -383,3 +383,246 @@ fn markdown_missing_file() {
     let md = notes_markdown(&m);
     assert!(md.contains(" · Foto (Datei fehlt)"), "{md}");
 }
+
+// --- The ZIP -------------------------------------------------------------
+
+fn zip_of(path: &std::path::Path) -> zip::ZipArchive<std::fs::File> {
+    zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap()
+}
+
+fn names(archive: &zip::ZipArchive<std::fs::File>) -> Vec<String> {
+    let mut names: Vec<String> = archive
+        .file_names()
+        .map(|n| n.unwrap().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+fn read_entry(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    std::io::Read::read_to_end(&mut archive.by_name(name).unwrap(), &mut out).unwrap();
+    out
+}
+
+fn dest(app: &App, name: &str) -> PathBuf {
+    app.media_dir()
+        .parent()
+        .unwrap()
+        .join(format!("{name}.zip"))
+}
+
+fn part_of(path: &std::path::Path) -> PathBuf {
+    let mut name = path.file_name().unwrap().to_os_string();
+    name.push(".part");
+    path.with_file_name(name)
+}
+
+#[test]
+fn zip_has_expected_entries() {
+    let app = open("zip-entries");
+    let (track, [_, photo, voice, image]) = rich_track(&app);
+    let out = dest(&app, "tour");
+    app.export_tour(track, &out, 60).unwrap();
+    let mut archive = zip_of(&out);
+    let mut expected = vec![
+        "track.gpx".to_owned(),
+        "tour.json".to_owned(),
+        "notizen.md".to_owned(),
+        format!("fotos/{photo}.jpg"),
+        format!("fotos/{image}.heic"),
+        format!("notizen/{voice}.m4a"),
+    ];
+    expected.sort();
+    assert_eq!(names(&archive), expected);
+    for name in [format!("fotos/{photo}.jpg"), format!("notizen/{voice}.m4a")] {
+        assert_eq!(
+            archive.by_name(&name).unwrap().compression(),
+            zip::CompressionMethod::Stored
+        );
+    }
+    for name in ["track.gpx", "tour.json", "notizen.md"] {
+        assert_eq!(
+            archive.by_name(name).unwrap().compression(),
+            zip::CompressionMethod::Deflated
+        );
+    }
+}
+
+#[test]
+fn zip_content_matches_sources() {
+    let app = open("zip-content");
+    let (track, [_, photo, ..]) = rich_track(&app);
+    std::fs::write(app.media_dir().join("cam.jpg"), b"\xff\xd8 real jpeg bytes").unwrap();
+    let out = dest(&app, "tour");
+    app.export_tour(track, &out, 60).unwrap();
+    let mut archive = zip_of(&out);
+    let gpx = String::from_utf8(read_entry(&mut archive, "track.gpx")).unwrap();
+    assert_eq!(gpx, app.export_gpx(track).unwrap());
+    assert_eq!(
+        read_entry(&mut archive, &format!("fotos/{photo}.jpg")),
+        b"\xff\xd8 real jpeg bytes"
+    );
+    let manifest: TourManifest =
+        serde_json::from_slice(&read_entry(&mut archive, "tour.json")).unwrap();
+    assert_eq!(manifest.tour.id, track);
+    assert_eq!(manifest.utc_offset_min, 60);
+    let md = String::from_utf8(read_entry(&mut archive, "notizen.md")).unwrap();
+    assert_eq!(md, notes_markdown(&manifest));
+}
+
+#[test]
+fn deleted_media_is_left_out() {
+    let app = open("zip-deleted");
+    let (track, [_, photo, ..]) = rich_track(&app);
+    app.delete_media(photo).unwrap();
+    let out = dest(&app, "tour");
+    app.export_tour(track, &out, 0).unwrap();
+    let mut archive = zip_of(&out);
+    assert!(
+        !names(&archive)
+            .iter()
+            .any(|n| n.contains(&photo.to_string()))
+    );
+    let manifest: TourManifest =
+        serde_json::from_slice(&read_entry(&mut archive, "tour.json")).unwrap();
+    assert!(manifest.media.iter().all(|m| m.id != photo));
+}
+
+#[test]
+fn missing_file_still_exports() {
+    let app = open("zip-missing");
+    let (track, [_, photo, ..]) = rich_track(&app);
+    std::fs::remove_file(app.media_dir().join("cam.jpg")).unwrap();
+    let out = dest(&app, "tour");
+    app.export_tour(track, &out, 0).unwrap();
+    let mut archive = zip_of(&out);
+    assert!(!names(&archive).contains(&format!("fotos/{photo}.jpg")));
+    let manifest: TourManifest =
+        serde_json::from_slice(&read_entry(&mut archive, "tour.json")).unwrap();
+    let entry = manifest.media.iter().find(|m| m.id == photo).unwrap();
+    assert_eq!(entry.file, None);
+}
+
+#[test]
+fn plain_track_has_no_media_folders() {
+    let app = open("zip-plain");
+    let record = app
+        .import_gpx(UNTIMED_GPX, Some(Activity::Hike))
+        .unwrap()
+        .remove(0);
+    let out = dest(&app, "tour");
+    app.export_tour(record.id, &out, 0).unwrap();
+    assert_eq!(
+        names(&zip_of(&out)),
+        vec!["notizen.md", "tour.json", "track.gpx"]
+    );
+}
+
+#[test]
+fn track_without_points_but_notes_exports() {
+    let app = open("zip-no-points");
+    let track = app
+        .start_recording(Activity::Bike)
+        .unwrap()
+        .track_id
+        .unwrap();
+    add(
+        &app,
+        MediaKind::Text,
+        MediaSource::Typed,
+        None,
+        Some("Drinnen"),
+    );
+    app.stop_recording().unwrap().unwrap();
+    let out = dest(&app, "tour");
+    app.export_tour(track, &out, 0).unwrap();
+    let mut archive = zip_of(&out);
+    let md = String::from_utf8(read_entry(&mut archive, "notizen.md")).unwrap();
+    assert!(md.contains("Notiz: Drinnen"), "{md}");
+}
+
+#[test]
+fn recording_is_not_exported() {
+    let app = open("zip-recording");
+    let track = app
+        .start_recording(Activity::Bike)
+        .unwrap()
+        .track_id
+        .unwrap();
+    app.handle_fix(fix(0));
+    let out = dest(&app, "tour");
+    let err = app.export_tour(track, &out, 0).unwrap_err();
+    assert_eq!(err.code(), "recording_active");
+    assert!(!out.exists());
+}
+
+#[test]
+fn export_while_recording_other_track() {
+    let app = open("zip-other");
+    let (done, _) = rich_track(&app);
+    let running = app
+        .start_recording(Activity::Hike)
+        .unwrap()
+        .track_id
+        .unwrap();
+    for i in 0..5 {
+        app.handle_fix(fix(1000 + i));
+    }
+    let points = |app: &App| {
+        app.track_detail(running)
+            .unwrap()
+            .line
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>()
+    };
+    let before = points(&app);
+    let out = dest(&app, "tour");
+    app.export_tour(done, &out, 0).unwrap();
+    for i in 5..60 {
+        app.handle_fix(fix(1000 + i));
+    }
+    assert_eq!(app.recording_status().track_id, Some(running));
+    assert!(points(&app) > before, "recording goes on after the export");
+}
+
+#[test]
+fn failed_export_leaves_nothing() {
+    let app = open("zip-fail");
+    let (track, _) = rich_track(&app);
+    let out = app
+        .media_dir()
+        .parent()
+        .unwrap()
+        .join("fehlt")
+        .join("tour.zip");
+    let err = app.export_tour(track, &out, 0).unwrap_err();
+    assert_eq!(err.code(), "export_failed");
+    assert!(!out.exists());
+    assert!(!part_of(&out).exists());
+}
+
+#[test]
+fn existing_dest_is_replaced() {
+    let app = open("zip-replace");
+    let (track, _) = rich_track(&app);
+    let out = dest(&app, "tour");
+    std::fs::write(&out, b"old").unwrap();
+    app.export_tour(track, &out, 0).unwrap();
+    app.export_tour(track, &out, 0).unwrap();
+    assert_eq!(names(&zip_of(&out)).len(), 6);
+    assert!(!part_of(&out).exists());
+}
+
+#[test]
+fn unknown_track_is_not_found() {
+    let app = open("zip-unknown");
+    let out = dest(&app, "tour");
+    let err = app.export_tour(Uuid::now_v7(), &out, 0).unwrap_err();
+    assert!(matches!(
+        err,
+        core_app::AppError::Storage(core_storage::StorageError::NotFound(_))
+    ));
+    assert!(!out.exists());
+}

@@ -359,4 +359,18 @@ impl CoreApp {
     pub fn export_track_gpx(&self, id: String) -> Result<String, CoreError> {
         Ok(self.app.export_gpx(track_id(&id)?)?)
     }
+
+    /// Writes the tour as a ZIP package (GPX, photos, voice notes, `tour.json`,
+    /// `notizen.md`) to `path`. Takes seconds for a long tour; call it off the
+    /// main thread. `utc_offset_min` is the offset of local time at its start.
+    pub fn export_tour(
+        &self,
+        id: String,
+        path: String,
+        utc_offset_min: i32,
+    ) -> Result<(), CoreError> {
+        Ok(self
+            .app
+            .export_tour(track_id(&id)?, std::path::Path::new(&path), utc_offset_min)?)
+    }
 }

@@ -3,15 +3,20 @@
 //! voice notes. Format version 1.
 
 use std::fmt::Write as _;
-use std::path::Path;
+use std::fs::File;
+use std::io::{self, BufWriter, Write as _};
+use std::path::{Path, PathBuf};
 
 use core_storage::{MediaKind, MediaRecord, MediaSource};
 use core_track::{Activity, SegmentReason, TrackStats};
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, UtcOffset};
 use uuid::Uuid;
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
-use crate::{SectionDetail, TrackDetail};
+use crate::app::now_ms;
+use crate::{App, AppError, SectionDetail, TrackDetail};
 
 /// `format` of every `tour.json`.
 pub const PACKAGE_FORMAT: &str = "zerogrid-tour";
@@ -369,5 +374,122 @@ impl Clock {
                 )
             })
             .unwrap_or_else(|| "–".to_owned())
+    }
+}
+
+/// Entries of at least this size need ZIP64 headers of their own.
+const LARGE_FILE: u64 = u32::MAX as u64;
+
+impl App {
+    /// Writes a tour as a ZIP package to `dest`, replacing a file there; see
+    /// [`tour_manifest`] and [`notes_markdown`]. `utc_offset_min` is the offset
+    /// of local time for the readable notes. Not for the track being recorded.
+    pub fn export_tour(&self, id: Uuid, dest: &Path, utc_offset_min: i32) -> Result<(), AppError> {
+        if self.shared.inner().recording_track() == Some(id) {
+            return Err(AppError::RecordingActive);
+        }
+        // Each call holds the app's lock only while it reads; writing a package
+        // of gigabytes must not hold up a recording.
+        let detail = self.track_detail(id)?;
+        let segment_ids = self.section_ids(id)?;
+        let gpx = self.export_gpx(id)?;
+        let data_dir = self.shared.data_dir.clone();
+
+        let mut files: Vec<(String, File)> = Vec::new();
+        let mut present = std::collections::HashSet::new();
+        for media in detail.media.iter().map(|d| &d.record) {
+            let (Some(target), Some(file)) = (package_path(media), media.file.as_deref()) else {
+                continue;
+            };
+            if let Ok(source) = File::open(data_dir.join(file)) {
+                present.insert(media.id);
+                files.push((target, source));
+            }
+        }
+        let manifest = tour_manifest(
+            &detail,
+            &segment_ids,
+            &|m| present.contains(&m.id),
+            now_ms(),
+            utc_offset_min,
+        );
+        let part = part_path(dest);
+        let written = write_package(&part, &gpx, &manifest, files)
+            .and_then(|()| std::fs::rename(&part, dest).map_err(io_error));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&part);
+        }
+        written
+    }
+}
+
+fn part_path(dest: &Path) -> PathBuf {
+    let mut name = dest.file_name().unwrap_or_default().to_os_string();
+    name.push(".part");
+    dest.with_file_name(name)
+}
+
+fn write_package(
+    path: &Path,
+    gpx: &str,
+    manifest: &TourManifest,
+    files: Vec<(String, File)>,
+) -> Result<(), AppError> {
+    let json = serde_json::to_vec_pretty(manifest).map_err(|e| AppError::Export(e.to_string()))?;
+    let notes = notes_markdown(manifest);
+    let mut zip = ZipWriter::new(BufWriter::new(File::create(path).map_err(io_error)?));
+    let text = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (name, content) in [
+        ("track.gpx", gpx.as_bytes()),
+        ("tour.json", json.as_slice()),
+        ("notizen.md", notes.as_bytes()),
+    ] {
+        zip.start_file(name, text).map_err(zip_error)?;
+        zip.write_all(content).map_err(io_error)?;
+    }
+    // Photos and audio are compressed already; storing them saves battery.
+    for (name, mut source) in files {
+        let size = source.metadata().map_err(io_error)?.len();
+        let stored = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Stored)
+            .large_file(size >= LARGE_FILE);
+        zip.start_file(name, stored).map_err(zip_error)?;
+        io::copy(&mut source, &mut zip).map_err(io_error)?;
+    }
+    let mut out = zip.finish().map_err(zip_error)?;
+    out.flush().map_err(io_error)?;
+    out.get_ref().sync_all().map_err(io_error)
+}
+
+fn io_error(e: io::Error) -> AppError {
+    if e.kind() == io::ErrorKind::StorageFull {
+        AppError::ExportNoSpace
+    } else {
+        AppError::Export(e.to_string())
+    }
+}
+
+fn zip_error(e: zip::result::ZipError) -> AppError {
+    match e {
+        zip::result::ZipError::Io(e) => io_error(e),
+        e => AppError::Export(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storage_full_maps_to_no_space() {
+        let full = io_error(io::Error::from(io::ErrorKind::StorageFull));
+        assert!(matches!(full, AppError::ExportNoSpace));
+        assert_eq!(full.code(), "export_no_space");
+        let other = io_error(io::Error::from(io::ErrorKind::PermissionDenied));
+        assert_eq!(other.code(), "export_failed");
+        let zipped = zip_error(zip::result::ZipError::Io(io::Error::from(
+            io::ErrorKind::StorageFull,
+        )));
+        assert!(matches!(zipped, AppError::ExportNoSpace));
     }
 }
