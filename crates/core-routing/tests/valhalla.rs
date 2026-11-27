@@ -333,22 +333,43 @@ fn target_outside_the_tiles_does_not_blank_the_others() {
 }
 
 /// A search for a target without a way must not run on and on: batch of 29 targets at
-/// 50 km around Bozen plus one point (in the Dolomites) that bikes cannot reach.
+/// 50 km around the source plus one point that bikes cannot reach.
+///
+/// Environment: `ZG_MATRIX_TILES` (routing.tar), optional `ZG_MATRIX_SOURCE` and
+/// `ZG_MATRIX_UNREACHABLE` as `lat,lon` (default: Bozen and a point in the Dolomites, for
+/// Südtirol). With `ZG_MATRIX_PRINT_ONLY=1` the point may be routable and nothing is asserted,
+/// the timings are only printed (to estimate the worst case on a larger region).
 #[test]
 #[ignore = "needs a real region in ZG_MATRIX_TILES"]
 fn matrix_with_an_unreachable_target_stays_fast() {
     use std::time::Instant;
 
+    fn point(name: &str, default: LatLon) -> LatLon {
+        std::env::var(name).map_or(default, |value| {
+            let (lat, lon) = value.split_once(',').expect("lat,lon");
+            LatLon {
+                lat: lat.trim().parse().unwrap(),
+                lon: lon.trim().parse().unwrap(),
+            }
+        })
+    }
+    let print_only = std::env::var("ZG_MATRIX_PRINT_ONLY").is_ok();
     let tiles = std::env::var("ZG_MATRIX_TILES").expect("ZG_MATRIX_TILES");
     let router = ValhallaRouter::open(&PathBuf::from(tiles)).unwrap();
-    let bolzano = LatLon {
-        lat: 46.4983,
-        lon: 11.3548,
-    };
-    let unreachable = LatLon {
-        lat: 46.65,
-        lon: 12.27,
-    };
+    let bolzano = point(
+        "ZG_MATRIX_SOURCE",
+        LatLon {
+            lat: 46.4983,
+            lon: 11.3548,
+        },
+    );
+    let unreachable = point(
+        "ZG_MATRIX_UNREACHABLE",
+        LatLon {
+            lat: 46.65,
+            lon: 12.27,
+        },
+    );
     println!("profile  median_ms  routed/30");
     for profile in [Profile::Trekking, Profile::Mtb] {
         let mut to = ring(bolzano, 50.0, 29);
@@ -368,7 +389,9 @@ fn matrix_with_an_unreachable_target_stays_fast() {
             times[1],
             entries.iter().flatten().count()
         );
-        assert!(entries[29].is_none(), "{profile:?} reaches the point");
-        assert!(times[1] < 300.0, "{profile:?}: {} ms", times[1]);
+        if !print_only {
+            assert!(entries[29].is_none(), "{profile:?} reaches the point");
+            assert!(times[1] < 300.0, "{profile:?}: {} ms", times[1]);
+        }
     }
 }
