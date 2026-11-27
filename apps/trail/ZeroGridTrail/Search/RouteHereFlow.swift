@@ -16,8 +16,6 @@ protocol RouteHereHost: AnyObject {
     func appendTarget(_ to: CLLocationCoordinate2D) -> Bool
     /// A new route that begins at `at`; the user sets the next points.
     func beginRoute(at: CLLocationCoordinate2D) -> Bool
-    /// Taps on the map set waypoints until the user is done.
-    func keepPicking()
 }
 
 /// A place tapped on the map, waiting for an answer on its card.
@@ -131,17 +129,13 @@ final class RouteHereFlow: ObservableObject {
         }
     }
 
-    /// `make` puts the route on the map; then the card goes, and either the
-    /// guidance follows or taps add further points.
+    /// `make` puts the route on the map; then the card goes, and the guidance
+    /// may follow. The map mode stays as the switch has it.
     private func finish(guide: Bool, _ make: () -> Bool) {
         guard !host.isReplacingRoute else { return }
         dismiss()
         guard make() else { return }
         onDone?()
-        if guide {
-            onGuide?()
-        } else {
-            host.keepPicking()
-        }
+        if guide { onGuide?() }
     }
 }

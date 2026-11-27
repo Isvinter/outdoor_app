@@ -1,6 +1,14 @@
 import CoreLocation
 import Foundation
 
+/// What a tap on the map does.
+enum MapMode: String {
+    /// "Wegpunkte setzen": every tap sets a waypoint.
+    case waypoints
+    /// "Abschnitte bearbeiten": a tap chooses a leg of the route or a section of a track.
+    case sections
+}
+
 /// German texts for what the core names by a code.
 enum PlanTexts {
     /// Profiles in the order they are offered, as on the desktop.
@@ -103,14 +111,19 @@ final class PlanController: ObservableObject {
     /// of the last leg and of new legs.
     @Published private(set) var profile: String
     @Published private(set) var options: [String: Double] = [:]
-    /// In plan mode a tap on the map sets a waypoint, also on the route's own
-    /// line (a way back on the same path); legs are chosen outside plan mode.
-    @Published var picking = false {
+    /// What a tap on the map does; "Wegpunkte setzen" after every start of the app.
+    /// Changes only with the switch on the map.
+    @Published var mode = MapMode.waypoints {
         didSet {
-            overlay.choosesLegs = !picking
-            if picking { selectLeg(nil) }
+            guard mode != oldValue else { return }
+            overlay.choosesLegs = mode == .sections
+            if mode == .waypoints { selectLeg(nil) }
+            onModeChanged?(mode)
         }
     }
+    /// In "Wegpunkte setzen" a tap on the map sets a waypoint, also on the route's own
+    /// line or a track (a way back on the same path); legs are chosen in "Abschnitte bearbeiten".
+    var picking: Bool { mode == .waypoints }
     /// A computation is running.
     @Published private(set) var planning = false
     /// Why the route or a leg of it could not be computed.
@@ -155,8 +168,11 @@ final class PlanController: ObservableObject {
     private(set) var planTimes: [TimeInterval] = []
     /// Self-test: after this many computed routes every computation fails as a whole.
     var failPlansAfter: Int?
-    /// A tap on the map that sets no waypoint.
-    var onFreeTap: ((CLLocationCoordinate2D) -> Void)?
+    /// A tap on the map, asked first: true if it was taken, e.g. by a search hit.
+    var onMapTap: ((CLLocationCoordinate2D) -> Bool)?
+    /// A tap beside every line in "Abschnitte bearbeiten".
+    var onFreeTap: (() -> Void)?
+    var onModeChanged: ((MapMode) -> Void)?
     /// A tap that set a waypoint; whether it was the first of the route.
     var onPickedTap: ((CLLocationCoordinate2D, Bool) -> Void)?
     /// The waypoints or legs of the planned route changed.
@@ -178,20 +194,21 @@ final class PlanController: ObservableObject {
         profile = profiles.first { $0.profile == "hike" }?.available == true ? "hike" : "manual"
         overlay.onTap = { [weak self] at in
             guard let self else { return }
-            // A tap beside the route first lets go of the chosen leg, and does nothing else.
-            if self.selectedLeg != nil {
-                self.selectLeg(nil)
-            } else if self.picking {
+            if self.onMapTap?(at) == true { return }
+            switch self.mode {
+            case .waypoints:
                 let first = self.request.waypoints.isEmpty
                 self.addWaypoint(at)
                 self.onPickedTap?(at, first)
-            } else {
-                self.onFreeTap?(at)
+            case .sections:
+                // Beside every line: the choice goes, and nothing else happens.
+                self.selectLeg(nil)
+                self.onFreeTap?()
             }
         }
-        overlay.onLegTap = { [weak self] index in self?.selectLeg(index) }
+        overlay.onLegTap = { [weak self] index in self?.chooseLeg(index) }
         overlay.onWaypointTap = { [weak self] index in
-            guard let self, self.request.waypoints.indices.contains(index) else { return }
+            guard let self, self.picking, self.request.waypoints.indices.contains(index) else { return }
             self.menuWaypoint = index
         }
         overlay.onWaypointMove = { [weak self] index, to in self?.moveWaypoint(index, to: to) }
@@ -252,6 +269,23 @@ final class PlanController: ObservableObject {
             request = planSetLastLeg(request: request, leg: formLeg)
         }
         compute()
+    }
+
+    /// A leg chosen on the map: the section of a track goes.
+    func chooseLeg(_ index: Int) {
+        selectLeg(index)
+        if selectedLeg == index { onLegChosen?() }
+    }
+
+    /// A leg was chosen on the map.
+    var onLegChosen: (() -> Void)?
+    /// A leg and a section were both under the finger: the user chooses.
+    @Published var ambiguousTap: AmbiguousTap?
+
+    struct AmbiguousTap: Identifiable {
+        let leg: Int
+        let section: SectionRef
+        var id: String { "\(leg)-\(section.status)" }
     }
 
     /// Chooses leg `index` of the route, or none with nil. The form then shows
@@ -335,7 +369,6 @@ final class PlanController: ObservableObject {
     /// Starts afresh; the next "save" stores a new route.
     func clear() {
         guard !replacing else { return }
-        picking = false
         selectLeg(nil)
         request = planEmpty()
         loaded = nil
@@ -352,7 +385,6 @@ final class PlanController: ObservableObject {
     func startRoute(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Bool {
         guard !replacing else { return false }
         useRouteHereProfile()
-        picking = false
         loaded = nil
         let leg = formLeg
         let first = planAddWaypoint(request: planEmpty(), at: LatLon(lat: from.latitude, lon: from.longitude), leg: leg)
@@ -393,7 +425,6 @@ final class PlanController: ObservableObject {
             .map { Int($0) - index + 1 }
             .filter { $0 > 0 && $0 < count - 1 }
             .map { UInt32($0) }
-        picking = false
         loaded = nil
         request = new
         let core = core
@@ -412,7 +443,6 @@ final class PlanController: ObservableObject {
     func appendTarget(_ to: CLLocationCoordinate2D) -> Bool {
         guard !replacing else { return false }
         useRouteHereProfile()
-        picking = false
         request = planAddWaypoint(request: request, at: LatLon(lat: to.latitude, lon: to.longitude), leg: formLeg)
         compute()
         return true
@@ -513,7 +543,6 @@ final class PlanController: ObservableObject {
     /// Puts a route the core has loaded on the screen and the map.
     private func show(loaded plan: PlanResult) {
         planning = false
-        picking = false
         message = nil
         self.plan = plan
         selectLeg(nil)

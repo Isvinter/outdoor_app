@@ -11,7 +11,6 @@ private final class FakeHost: RouteHereHost {
     var started: [(CLLocationCoordinate2D, CLLocationCoordinate2D)] = []
     var appended: [CLLocationCoordinate2D] = []
     var begun: [CLLocationCoordinate2D] = []
-    var picking = 0
     var acceptsRoute = true
 
     func routeStart(position: KnownPosition, target: CLLocationCoordinate2D) async -> RouteStart { start }
@@ -32,10 +31,6 @@ private final class FakeHost: RouteHereHost {
         guard acceptsRoute else { return false }
         begun.append(at)
         return true
-    }
-
-    func keepPicking() {
-        picking += 1
     }
 }
 
@@ -99,10 +94,9 @@ final class RouteHereFlowTests: XCTestCase {
         XCTAssertFalse(flow.busy)
         XCTAssertEqual(counts.done, 1)
         XCTAssertEqual(counts.guided, 0)
-        XCTAssertEqual(host.picking, 1)
     }
 
-    /// "Hierher führen" plans from the position and asks for the guidance, not for more points.
+    /// "Hierher führen" plans from the position and asks for the guidance.
     func testGuideHereAsksForTheGuidance() async {
         let host = FakeHost()
         host.position = fix
@@ -111,7 +105,6 @@ final class RouteHereFlowTests: XCTestCase {
         flow.guideHere(to: target)
         await wait("route started") { host.started.count == 1 }
         XCTAssertEqual(counts.guided, 1)
-        XCTAssertEqual(host.picking, 0)
     }
 
     func testWithoutPositionNothingIsPlannedFromIt() {
@@ -135,7 +128,7 @@ final class RouteHereFlowTests: XCTestCase {
         XCTAssertNotNil(flow.point)
     }
 
-    /// Without a position the route begins at the place; taps add the next points.
+    /// Without a position the route begins at the place.
     func testPlanFromBeginsTheRouteThere() {
         let host = FakeHost()
         let (flow, counts) = flow(host)
@@ -144,17 +137,15 @@ final class RouteHereFlowTests: XCTestCase {
         XCTAssertEqual(host.begun.first?.latitude, target.latitude)
         XCTAssertNil(flow.point)
         XCTAssertEqual(counts.done, 1)
-        XCTAssertEqual(host.picking, 1)
     }
 
-    func testAppendKeepsPicking() {
+    func testAppendAddsTheTarget() {
         let host = FakeHost()
         host.hasRoute = true
         let (flow, counts) = flow(host)
         flow.append(target)
         XCTAssertEqual(host.appended.count, 1)
         XCTAssertEqual(counts.done, 1)
-        XCTAssertEqual(host.picking, 1)
     }
 
     /// An answer about an earlier place does nothing once another is chosen.

@@ -7,7 +7,8 @@ use core_gpx::{GpxDocument, parse_gpx, write_gpx};
 use core_location::{Fix, FixSink, LocationConfig, LocationSource, SourceStatus};
 use core_storage::{Storage, TrackRecord, TrackState};
 use core_track::{
-    Activity, Recorder, RecorderState, StatsParams, Track, TrackStats, compute_stats,
+    Activity, Recorder, RecorderState, RestParams, SegmentReason, StatsParams, Track, TrackStats,
+    compute_section_stats,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -21,7 +22,8 @@ const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 /// the activity's interval; receivers do not tick with millisecond precision.
 const INTERVAL_TOLERANCE: f64 = 0.8;
 /// After this long without a fix kept, the recording goes on in a new
-/// segment: the gap counts neither as distance nor as time moving.
+/// segment: the gap counts neither as distance nor as time moving. Not during a
+/// rest, when a throttled receiver may stay silent for minutes.
 const GAP_MS: i64 = 120_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,8 +47,12 @@ pub struct LinePoint {
 pub struct RecordingStatus {
     pub phase: RecordingPhase,
     pub track_id: Option<Uuid>,
+    /// Activity of the running section.
     pub activity: Option<Activity>,
-    /// Statistics of the track so far.
+    /// Whether a rest has been detected and not yet ended (see
+    /// [`App::set_rest_detection`]). The listener is told at once when this changes.
+    pub resting: bool,
+    /// Statistics of the track so far, the sum of its sections.
     pub stats: Option<TrackStats>,
     /// Points recorded since the previous update sent to the listener.
     pub appended: Vec<LinePoint>,
@@ -61,6 +67,25 @@ pub struct TrackDetail {
     /// Statistics with elevation from the terrain model of the installed
     /// regions instead of the receiver; `None` unless the model covers the track.
     pub dem_stats: Option<TrackStats>,
+    /// The sections (segments) of the track, in the order of `line`.
+    pub sections: Vec<SectionDetail>,
+}
+
+/// A section of a stored track: a segment with its own activity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SectionDetail {
+    /// Position among the segments, as in [`TrackDetail::line`].
+    pub index: usize,
+    pub activity: Activity,
+    /// Why it began; [`SegmentReason::Rest`] for a rest.
+    pub reason: SegmentReason,
+    /// Time of its first fix; 0 without fixes.
+    pub start_ms: i64,
+    /// Time of the first fix of the next section if that continues this one
+    /// ([`SegmentReason::continues_previous`]), else of its own last fix.
+    pub end_ms: i64,
+    /// Its statistics; with terrain elevation if [`TrackDetail::dem_stats`] is given.
+    pub stats: TrackStats,
 }
 
 /// Terrain elevation replaces receiver elevation only if it is known for this
@@ -116,13 +141,13 @@ pub(crate) struct Inner {
     pub(crate) storage: Storage,
     pub(crate) last_fix: Option<Fix>,
     recording: Option<ActiveRecording>,
+    /// Rest detection for recordings; off unless the app turns it on.
+    rest_detection: Option<RestParams>,
 }
 
 struct ActiveRecording {
     track_id: Uuid,
-    activity: Activity,
     recorder: Recorder,
-    params: StatsParams,
     /// Database segment that receives points, and the recorder segment it mirrors.
     segment: Option<(usize, Uuid)>,
     last_recorded_ms: Option<i64>,
@@ -132,12 +157,11 @@ struct ActiveRecording {
 }
 
 impl ActiveRecording {
-    fn new(track_id: Uuid, activity: Activity, recorder: Recorder) -> Self {
+    fn new(track_id: Uuid, mut recorder: Recorder, rest: Option<RestParams>) -> Self {
+        recorder.set_rest_detection(rest);
         Self {
             track_id,
-            activity,
             recorder,
-            params: StatsParams::for_activity(activity),
             segment: None,
             last_recorded_ms: None,
             pending: Vec::new(),
@@ -155,8 +179,9 @@ impl ActiveRecording {
                 RecorderState::Stopped => RecordingPhase::Idle,
             },
             track_id: Some(self.track_id),
-            activity: Some(self.activity),
-            stats: Some(self.recorder.stats(&self.params)),
+            activity: Some(self.recorder.activity()),
+            resting: self.recorder.resting(),
+            stats: Some(compute_section_stats(self.recorder.track(), StatsParams::for_activity).0),
             appended: std::mem::take(&mut self.pending),
         }
     }
@@ -166,6 +191,7 @@ const IDLE: RecordingStatus = RecordingStatus {
     phase: RecordingPhase::Idle,
     track_id: None,
     activity: None,
+    resting: false,
     stats: None,
     appended: Vec::new(),
 };
@@ -220,18 +246,21 @@ impl Inner {
         let Some(rec) = &mut self.recording else {
             return Ok(None);
         };
-        let min_gap = f64::from(rec.activity.location_interval_ms()) * INTERVAL_TOLERANCE;
+        let min_gap =
+            f64::from(rec.recorder.activity().location_interval_ms()) * INTERVAL_TOLERANCE;
         if rec
             .last_recorded_ms
             .is_some_and(|last| ((fix.time_ms - last) as f64) < min_gap)
         {
             return Ok(None);
         }
-        if rec
-            .last_recorded_ms
-            .is_some_and(|last| fix.time_ms - last > GAP_MS)
+        let was_resting = rec.recorder.resting();
+        if !was_resting
+            && rec
+                .last_recorded_ms
+                .is_some_and(|last| fix.time_ms - last > GAP_MS)
         {
-            rec.recorder.break_segment();
+            rec.recorder.break_segment(SegmentReason::Gap);
         }
         let point = fix.to_track_point();
         if !rec.recorder.add_point(point) {
@@ -242,7 +271,13 @@ impl Inner {
         let segment_id = match rec.segment {
             Some((i, id)) if i == index => id,
             _ => {
-                let id = self.storage.begin_segment(rec.track_id, now_ms())?;
+                let segment = &rec.recorder.track().segments[index];
+                let id = self.storage.begin_segment(
+                    rec.track_id,
+                    segment.activity.unwrap_or(rec.recorder.activity()),
+                    segment.reason,
+                    now_ms(),
+                )?;
                 rec.segment = Some((index, id));
                 id
             }
@@ -253,30 +288,73 @@ impl Inner {
             lon: fix.lon,
             lat: fix.lat,
         });
-        let due = rec
-            .last_update
-            .is_none_or(|t| t.elapsed() >= UPDATE_INTERVAL);
+        // A rest beginning or ending is told at once: the app throttles the receiver.
+        let due = rec.recorder.resting() != was_resting
+            || rec
+                .last_update
+                .is_none_or(|t| t.elapsed() >= UPDATE_INTERVAL);
         Ok(due.then(|| rec.status()))
     }
 
-    /// Finishes a track: caches its statistics, or deletes it if it has no points.
-    fn finish(
-        &mut self,
-        id: Uuid,
-        track: &Track,
-        activity: Activity,
-    ) -> Result<Option<TrackRecord>, AppError> {
+    /// Finishes a track: caches its statistics and takes the activity of its
+    /// first section, or deletes it if it has no points.
+    fn finish(&mut self, id: Uuid, track: &Track) -> Result<Option<TrackRecord>, AppError> {
         let now = now_ms();
         if track.segments.iter().all(|s| s.points.is_empty()) {
             self.storage.delete_track(id, now)?;
             return Ok(None);
         }
-        let stats = compute_stats(track, &StatsParams::for_activity(activity));
-        self.storage.set_track_stats(id, &stats, now)?;
+        self.store_stats(id, track, now)?;
         self.storage
             .set_track_state(id, TrackState::Finished, now)?;
         Ok(Some(self.storage.track(id)?))
     }
+
+    /// Stores the statistics of a track, the sum of its sections, and the activity
+    /// of its first section as that of the track.
+    fn store_stats(&mut self, id: Uuid, track: &Track, now: i64) -> Result<(), AppError> {
+        let (stats, _) = compute_section_stats(track, StatsParams::for_activity);
+        self.storage
+            .set_track_activity(id, first_activity(track), &stats, now)?;
+        Ok(())
+    }
+}
+
+/// Activity of the first section of a track, the one the track is listed with.
+fn first_activity(track: &Track) -> Activity {
+    track.segment_activity(0)
+}
+
+/// The sections of a track with the statistics computed for them.
+fn sections_of(track: &Track, stats: Vec<TrackStats>) -> Vec<SectionDetail> {
+    let first_time = |i: usize| {
+        track
+            .segments
+            .get(i)
+            .and_then(|s| s.points.iter().find_map(|p| p.time_ms))
+    };
+    track
+        .segments
+        .iter()
+        .zip(stats)
+        .enumerate()
+        .map(|(i, (segment, stats))| {
+            let own_end = segment.points.iter().rev().find_map(|p| p.time_ms);
+            let joined_end = track
+                .segments
+                .get(i + 1)
+                .filter(|next| next.reason.continues_previous())
+                .and_then(|_| first_time(i + 1));
+            SectionDetail {
+                index: i,
+                activity: track.segment_activity(i),
+                reason: segment.reason,
+                start_ms: first_time(i).unwrap_or(0),
+                end_ms: joined_end.or(own_end).unwrap_or(0),
+                stats,
+            }
+        })
+        .collect()
 }
 
 struct SinkAdapter(Arc<Shared>);
@@ -303,6 +381,7 @@ impl App {
             storage: Storage::open(db_path)?,
             last_fix: None,
             recording: None,
+            rest_detection: None,
         };
         Ok(Self {
             shared: Arc::new(Shared {
@@ -368,16 +447,16 @@ impl App {
             // new one exists; keep it as a finished track.
             if let Some(open) = inner.storage.open_recording()? {
                 let track = inner.storage.load_track(open.id)?;
-                inner.finish(open.id, &track, open.activity)?;
+                inner.finish(open.id, &track)?;
             }
             let id = inner
                 .storage
                 .create_track(None, activity, TrackState::Recording, now_ms())?;
-            let rec = inner.recording.insert(ActiveRecording::new(
-                id,
-                activity,
-                Recorder::start(activity),
-            ));
+            let rest = inner.rest_detection;
+            let rec =
+                inner
+                    .recording
+                    .insert(ActiveRecording::new(id, Recorder::start(activity), rest));
             rec.status()
         };
         self.shared.listener.on_recording(&status);
@@ -390,6 +469,58 @@ impl App {
 
     pub fn resume_recording(&self) -> Result<RecordingStatus, AppError> {
         self.change_state(TrackState::Recording, Recorder::resume)
+    }
+
+    /// Switches the activity of the running recording: the next fix begins a new
+    /// section with it, recorded at its interval. Ends a rest.
+    pub fn switch_recording_activity(
+        &self,
+        activity: Activity,
+    ) -> Result<RecordingStatus, AppError> {
+        let status = {
+            let mut inner = self.shared.inner();
+            let rec = inner.recording.as_mut().ok_or(AppError::NoRecording)?;
+            rec.recorder.switch_activity(activity);
+            rec.status()
+        };
+        self.shared.listener.on_recording(&status);
+        Ok(status)
+    }
+
+    /// Turns rest detection on with `params`, or off with `None` (the default).
+    /// Applies at once to the running recording and to every recording started or
+    /// continued later by this instance; it is not stored.
+    /// A rest in progress ends with the change: the next fix begins a
+    /// [`SegmentReason::RestEnd`] section, and the listener is told.
+    pub fn set_rest_detection(&self, params: Option<RestParams>) {
+        let status = {
+            let mut inner = self.shared.inner();
+            if inner.rest_detection == params {
+                return;
+            }
+            inner.rest_detection = params;
+            let Some(rec) = &mut inner.recording else {
+                return;
+            };
+            let was_resting = rec.recorder.resting();
+            if was_resting {
+                rec.recorder.break_segment(SegmentReason::RestEnd);
+            }
+            rec.recorder.set_rest_detection(params);
+            // Keep the points still owed to the listener for the next update.
+            was_resting.then(|| {
+                let pending = rec.pending.clone();
+                let status = rec.status();
+                rec.pending = pending;
+                RecordingStatus {
+                    appended: Vec::new(),
+                    ..status
+                }
+            })
+        };
+        if let Some(status) = status {
+            self.shared.listener.on_recording(&status);
+        }
     }
 
     fn change_state(
@@ -418,7 +549,7 @@ impl App {
             let mut inner = self.shared.inner();
             let mut rec = inner.recording.take().ok_or(AppError::NoRecording)?;
             rec.recorder.stop()?;
-            let record = inner.finish(rec.track_id, rec.recorder.track(), rec.activity)?;
+            let record = inner.finish(rec.track_id, rec.recorder.track())?;
             (record, std::mem::take(&mut rec.pending))
         };
         self.shared.listener.on_recording(&RecordingStatus {
@@ -478,15 +609,25 @@ impl App {
                 .storage
                 .open_recording()?
                 .ok_or(AppError::NothingInterrupted)?;
-            let track = inner.storage.load_track(record.id)?;
+            let mut track = inner.storage.load_track(record.id)?;
             inner
                 .storage
                 .set_track_state(record.id, TrackState::Recording, now_ms())?;
-            let recorder = Recorder::continue_from(track, record.activity);
-            let rec =
-                inner
-                    .recording
-                    .insert(ActiveRecording::new(record.id, record.activity, recorder));
+            // The recorder takes the activity of the last section for the track's;
+            // sections stored without one keep the track's.
+            for i in 0..track.segments.len() {
+                track.segments[i].activity = Some(track.segment_activity(i));
+            }
+            let last = track
+                .segments
+                .iter()
+                .rposition(|s| !s.points.is_empty())
+                .map_or(record.activity, |i| track.segment_activity(i));
+            let rest = inner.rest_detection;
+            let recorder = Recorder::continue_from(track, last);
+            let rec = inner
+                .recording
+                .insert(ActiveRecording::new(record.id, recorder, rest));
             rec.status()
         };
         self.shared.listener.on_recording(&status);
@@ -506,7 +647,7 @@ impl App {
             })
             .ok_or(AppError::NothingInterrupted)?;
         let track = inner.storage.load_track(record.id)?;
-        inner.finish(record.id, &track, record.activity)
+        inner.finish(record.id, &track)
     }
 
     // --- tracks -----------------------------------------------------------
@@ -521,16 +662,24 @@ impl App {
             let inner = self.shared.inner();
             (inner.storage.track(id)?, inner.storage.load_track(id)?)
         };
-        let dem_stats = self.dem_stats(&track, record.activity)?;
+        let (dem_stats, section_stats) = match self.dem_stats(&track)? {
+            Some((total, sections)) => (Some(total), sections),
+            None => (
+                None,
+                compute_section_stats(&track, StatsParams::for_activity).1,
+            ),
+        };
         Ok(TrackDetail {
             record,
             line: line_of(&track),
             dem_stats,
+            sections: sections_of(&track, section_stats),
         })
     }
 
-    /// Statistics of a track with its elevations taken from the terrain model.
-    fn dem_stats(&self, track: &Track, activity: Activity) -> Result<Option<TrackStats>, AppError> {
+    /// Statistics of a track and its sections with the elevations taken from the
+    /// terrain model.
+    fn dem_stats(&self, track: &Track) -> Result<Option<(TrackStats, Vec<TrackStats>)>, AppError> {
         let store = self.shared.maps.store();
         let mut corrected = track.clone();
         let (mut total, mut known) = (0usize, 0usize);
@@ -542,16 +691,19 @@ impl App {
         if total == 0 || (known as f64) < DEM_MIN_COVERAGE * total as f64 {
             return Ok(None);
         }
-        let base = StatsParams::for_activity(activity);
-        let params = StatsParams {
-            ele_smooth_m: base.ele_smooth_m * DEM_SMOOTH_FACTOR,
-            ..base
+        let params = |activity| {
+            let base = StatsParams::for_activity(activity);
+            StatsParams {
+                ele_smooth_m: base.ele_smooth_m * DEM_SMOOTH_FACTOR,
+                ..base
+            }
         };
-        Ok(Some(compute_stats(&corrected, &params)))
+        Ok(Some(compute_section_stats(&corrected, params)))
     }
 
     /// Sets the activity of a finished track, such as the one chosen after
-    /// recording, and computes its statistics anew with that activity's values.
+    /// recording: of all its sections but rests, and of the track. Computes its
+    /// statistics anew with that activity's values.
     pub fn set_track_activity(
         &self,
         id: Uuid,
@@ -561,12 +713,49 @@ impl App {
         if inner.recording_track() == Some(id) {
             return Err(AppError::RecordingActive);
         }
-        let track = inner.storage.load_track(id)?;
-        let stats = compute_stats(&track, &StatsParams::for_activity(activity));
-        inner
-            .storage
-            .set_track_activity(id, activity, &stats, now_ms())?;
+        let mut track = inner.storage.load_track(id)?;
+        let now = now_ms();
+        for seq in 0..track.segments.len() {
+            let segment = &track.segments[seq];
+            if segment.is_rest() || segment.activity == Some(activity) {
+                continue;
+            }
+            inner.storage.set_segment_activity(id, seq, activity, now)?;
+            track.segments[seq].activity = Some(activity);
+        }
+        // Rest sections keep theirs; without sections the track takes it all the same.
+        track.activity = Some(activity);
+        inner.store_stats(id, &track, now)?;
         Ok(inner.storage.track(id)?)
+    }
+
+    /// Sets the activity of one section of a finished track and computes the
+    /// statistics anew. A rest has none of its own: [`AppError::InvalidSection`],
+    /// as for an index beyond the sections.
+    pub fn set_section_activity(
+        &self,
+        id: Uuid,
+        index: usize,
+        activity: Activity,
+    ) -> Result<TrackDetail, AppError> {
+        {
+            let mut inner = self.shared.inner();
+            if inner.recording_track() == Some(id) {
+                return Err(AppError::RecordingActive);
+            }
+            let mut track = inner.storage.load_track(id)?;
+            match track.segments.get(index) {
+                Some(segment) if !segment.is_rest() => {}
+                _ => return Err(AppError::InvalidSection),
+            }
+            let now = now_ms();
+            inner
+                .storage
+                .set_segment_activity(id, index, activity, now)?;
+            track.segments[index].activity = Some(activity);
+            inner.store_stats(id, &track, now)?;
+        }
+        self.track_detail(id)
     }
 
     pub fn rename_track(&self, id: Uuid, name: &str) -> Result<(), AppError> {
@@ -602,7 +791,12 @@ impl App {
         let mut inner = self.shared.inner();
         let mut records = Vec::new();
         for (track, activity) in doc.tracks.iter().zip(activities) {
-            let stats = compute_stats(track, &StatsParams::for_activity(activity));
+            // Sections named in the file keep their activity.
+            let typed = Track {
+                activity: Some(activity),
+                ..track.clone()
+            };
+            let (stats, _) = compute_section_stats(&typed, StatsParams::for_activity);
             let id = inner
                 .storage
                 .import_track(track, activity, &stats, now_ms())?;

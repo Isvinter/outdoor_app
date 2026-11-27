@@ -11,6 +11,16 @@ final class TracksController: ObservableObject {
     @Published var message: String?
     /// The saved lists show the tracks rather than the routes.
     @Published var listShown = false
+    /// "Abschnitte bearbeiten" is on: sections can be chosen and changed.
+    @Published private(set) var editing = false
+    /// The section chosen on the map or in the list.
+    @Published private(set) var selectedSection: SectionRef?
+    /// The chosen section of the recording that runs, as the core has it now.
+    @Published private(set) var recordingSection: TrackSection?
+    /// A row was tapped outside "Abschnitte bearbeiten": the mode is to change.
+    var onWantsEditing: (() -> Void)?
+    /// A section was chosen: a chosen leg of the route goes.
+    var onSectionChosen: (() -> Void)?
     /// A track is opened; the map is fitted to it.
     var onOpen: (() -> Void)?
 
@@ -21,9 +31,11 @@ final class TracksController: ObservableObject {
     init(core: CoreApp, overlay: TrackOverlay?, recordingChanges: AnyPublisher<RecordingInfo, Never>) {
         self.core = core
         self.overlay = overlay
-        // A finished recording is a new track.
+        // A finished recording is a new track; its sections are no longer chosen.
         watch = recordingChanges.map(\.phase).removeDuplicates().filter { $0 == "idle" }.sink { [weak self] _ in
-            self?.refresh()
+            guard let self else { return }
+            if case .recording = self.selectedSection { self.select(nil) }
+            self.refresh()
         }
     }
 
@@ -40,14 +52,61 @@ final class TracksController: ObservableObject {
             let view = try core.trackDetail(id: track.id)
             selected = view
             onOpen?()
-            overlay?.show(track: view.segments)
+            overlay?.show(track: view.segments, rests: Self.rests(view))
+            if case .track = selectedSection { selectedSection = nil }
             shareFile = try writeGPX(view.summary)
         } catch {
             message = "Der Track konnte nicht geöffnet werden: \(describe(error))"
         }
     }
 
+    /// From the detail: another activity for one section, not a rest.
+    func setSectionActivity(index: Int, activity: String) {
+        guard let track = selected, index >= 0 else { return }
+        do {
+            let view = try core.setSectionActivity(id: track.summary.id, index: UInt32(index), activity: activity)
+            selected = view
+            overlay?.setTrackRests(Self.rests(view))
+            shareFile = try writeGPX(view.summary)
+            refresh()
+        } catch {
+            message = "Die Sportart konnte nicht geändert werden: \(describe(error))"
+        }
+    }
+
+    /// "10:05"
+    nonisolated static func time(_ ms: Int64) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+    }
+
+    nonisolated static func rests(_ view: TrackView) -> Set<Int> {
+        Set(view.sections.filter(\.rest).map { Int($0.index) })
+    }
+
+    /// "Abschnitte bearbeiten" on or off; off, the choice goes.
+    func setEditing(_ on: Bool) {
+        editing = on
+        overlay?.showsSections = on
+        if !on { select(nil) }
+    }
+
+    /// Chooses a section on the map or in the list, or none.
+    func select(_ section: SectionRef?) {
+        if let section, !editing { onWantsEditing?() }
+        selectedSection = section
+        overlay?.select(section)
+        recordingSection = nil
+        if case .recording(let index) = section, let id = core.recordingStatus().trackId {
+            recordingSection = (try? core.trackDetail(id: id))?.sections.first { Int($0.index) == index }
+        }
+        if section != nil { onSectionChosen?() }
+    }
+
     func close() {
+        if case .track = selectedSection { select(nil) }
         selected = nil
         shareFile = nil
         overlay?.show(track: nil)

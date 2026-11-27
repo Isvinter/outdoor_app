@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::filter::filter_segment;
 use crate::geo::haversine_m;
-use crate::{StatsParams, Track, TrackPoint};
+use crate::{Activity, Segment, SegmentReason, StatsParams, Track, TrackPoint};
 
 /// Summary statistics of a track.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -29,11 +29,133 @@ pub struct TrackStats {
 /// Computes the statistics of a track. Pure and infallible: invalid input points
 /// are skipped, an empty track yields all-zero statistics.
 pub fn compute_stats(track: &Track, params: &StatsParams) -> TrackStats {
+    segments_stats(&track.segments, params)
+}
+
+/// Statistics of a tour and of each of its sections (segments), each section with
+/// the parameters of its own activity ([`Track::segment_activity`]), the tour as their
+/// sum. Usually `params_of` is [`StatsParams::for_activity`].
+///
+/// A rest section counts only towards total time (and its points), not moving time,
+/// distance or elevation. The section after a rest ([`SegmentReason::RestEnd`])
+/// additionally gets the straight line from the first fix of the rest (the one it was
+/// detected at, near the rest spot) to its own first fix as distance. Fixes during a
+/// rest may be coarse or sparse, and the last ones are already on the way out, so that
+/// part of the way is otherwise lost.
+///
+/// The time from the last fix of a section to the first fix of the next counts towards
+/// the total time of the earlier one if the next continues it
+/// ([`SegmentReason::continues_previous`]), so that the tour's total time runs from its
+/// first to its last fix without the manual pauses. It is never moving time.
+pub fn compute_section_stats(
+    track: &Track,
+    params_of: impl Fn(Activity) -> StatsParams,
+) -> (TrackStats, Vec<TrackStats>) {
+    let sections: Vec<TrackStats> = track
+        .segments
+        .iter()
+        .enumerate()
+        .map(|(i, segment)| {
+            let s = segments_stats(
+                std::slice::from_ref(segment),
+                &params_of(track.segment_activity(i)),
+            );
+            let s = match track
+                .segments
+                .get(i + 1)
+                .and_then(|next| time_between(segment, next))
+            {
+                Some(dt) => with_averages(TrackStats {
+                    total_time_s: s.total_time_s + dt,
+                    ..s
+                }),
+                None => s,
+            };
+            if segment.is_rest() {
+                return TrackStats {
+                    total_time_s: s.total_time_s,
+                    points_total: s.points_total,
+                    points_used: s.points_used,
+                    ..TrackStats::default()
+                };
+            }
+            let after_rest = i
+                .checked_sub(1)
+                .map(|j| &track.segments[j])
+                .filter(|prev| segment.reason == SegmentReason::RestEnd && prev.is_rest());
+            match after_rest.and_then(|prev| straight_line_m(prev, segment)) {
+                Some(d) => with_averages(TrackStats {
+                    distance_m: s.distance_m + d,
+                    ..s
+                }),
+                None => s,
+            }
+        })
+        .collect();
+
+    let mut total = TrackStats::default();
+    for s in &sections {
+        total.distance_m += s.distance_m;
+        total.ascent_m += s.ascent_m;
+        total.descent_m += s.descent_m;
+        total.total_time_s += s.total_time_s;
+        total.moving_time_s += s.moving_time_s;
+        total.points_total += s.points_total;
+        total.points_used += s.points_used;
+        total.max_speed_mps = total.max_speed_mps.max(s.max_speed_mps);
+        total.min_ele_m = merge_option(total.min_ele_m, s.min_ele_m, f64::min);
+        total.max_ele_m = merge_option(total.max_ele_m, s.max_ele_m, f64::max);
+    }
+    (with_averages(total), sections)
+}
+
+/// Seconds from the last fix of `segment` to the first of `next`, if `next` continues it.
+fn time_between(segment: &Segment, next: &Segment) -> Option<f64> {
+    if !next.reason.continues_previous() {
+        return None;
+    }
+    let last = segment.points.iter().rev().find_map(|p| p.time_ms)?;
+    let first = next.points.iter().find_map(|p| p.time_ms)?;
+    (first > last).then(|| (first - last) as f64 / 1000.0)
+}
+
+/// Distance from the first valid fix of `from` to the first valid fix of `to`.
+fn straight_line_m(from: &Segment, to: &Segment) -> Option<f64> {
+    let valid = |p: &&TrackPoint| p.lat.is_finite() && p.lon.is_finite();
+    let a = from.points.iter().find(valid)?;
+    let b = to.points.iter().find(valid)?;
+    Some(haversine_m(a.lat, a.lon, b.lat, b.lon))
+}
+
+/// Combines two optional values with `f`, or takes the one that is present.
+fn merge_option(a: Option<f64>, b: Option<f64>, f: fn(f64, f64) -> f64) -> Option<f64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(f(a, b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Recomputes the average speeds from distance and times.
+fn with_averages(mut s: TrackStats) -> TrackStats {
+    s.avg_moving_speed_mps = if s.moving_time_s > 0.0 {
+        s.distance_m / s.moving_time_s
+    } else {
+        0.0
+    };
+    s.avg_total_speed_mps = if s.total_time_s > 0.0 {
+        s.distance_m / s.total_time_s
+    } else {
+        0.0
+    };
+    s
+}
+
+fn segments_stats(segments: &[Segment], params: &StatsParams) -> TrackStats {
     let mut s = TrackStats::default();
     // (duration, distance) of every interval longer than `max_gap_s`
     let mut gaps: Vec<(f64, f64)> = Vec::new();
 
-    for segment in &track.segments {
+    for segment in segments {
         s.points_total += segment.points.len();
         let runs = filter_segment(&segment.points, params);
 
@@ -103,13 +225,7 @@ pub fn compute_stats(track: &Track, params: &StatsParams) -> TrackStats {
         s.moving_time_s += gaps.iter().map(|(dt, d)| dt.min(d / pace)).sum::<f64>();
     }
 
-    if s.moving_time_s > 0.0 {
-        s.avg_moving_speed_mps = s.distance_m / s.moving_time_s;
-    }
-    if s.total_time_s > 0.0 {
-        s.avg_total_speed_mps = s.distance_m / s.total_time_s;
-    }
-    s
+    with_averages(s)
 }
 
 /// Distance travelled up to each point. Distance only advances once the position

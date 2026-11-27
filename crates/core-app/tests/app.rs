@@ -8,7 +8,9 @@ use core_app::{App, AppError, AppListener, RecordingPhase, RecordingStatus};
 use core_gpx::parse_gpx;
 use core_location::{Fix, GpxReplaySource, SourceStatus};
 use core_storage::TrackState;
-use core_track::{Activity, Segment, StatsParams, compute_stats};
+use core_track::{
+    Activity, RestParams, Segment, SegmentReason, StatsParams, compute_section_stats,
+};
 use uuid::Uuid;
 
 const REAL_TRACK: &str = include_str!("../../../fixtures/gpx/real/tour_sylvensteinsee.gpx");
@@ -400,14 +402,32 @@ fn replayed_real_track_is_recorded_and_exported_faithfully() {
     parts.segments = vec![
         Segment {
             points: points[..split].to_vec(),
+            activity: Some(Activity::Bike),
+            reason: SegmentReason::Start,
         },
         Segment {
             points: points[split..].to_vec(),
+            activity: Some(Activity::Bike),
+            reason: SegmentReason::Gap,
         },
     ];
     assert_eq!(exported.segments[0].points.len(), split);
-    let expected = compute_stats(&parts, &StatsParams::for_activity(Activity::Bike));
+    assert_eq!(
+        exported
+            .segments
+            .iter()
+            .map(|s| s.reason)
+            .collect::<Vec<_>>(),
+        [SegmentReason::Start, SegmentReason::Gap]
+    );
+    // The tour is the sum of its sections; the gap is part of its total time.
+    let (expected, _) = compute_section_stats(&parts, StatsParams::for_activity);
     let stats = record.stats.unwrap();
+    let span_s = (points.last().unwrap().time_ms.unwrap() - points[0].time_ms.unwrap()) as f64;
+    assert!(
+        (stats.total_time_s - span_s / 1000.0).abs() < 1.0,
+        "{stats:?}"
+    );
     assert!((stats.distance_m - expected.distance_m).abs() < 1.0);
     assert!((stats.moving_time_s - expected.moving_time_s).abs() < 1.0);
     assert!((stats.ascent_m - expected.ascent_m).abs() < 1.0);
@@ -495,4 +515,439 @@ fn long_gap_starts_a_new_segment() {
     assert_eq!(lens, [11, 11]);
     let distance = record.stats.unwrap().distance_m;
     assert!((distance - 100.0).abs() < 1.0, "{distance}");
+}
+
+/// A fix at second `t` where `fix(place)` was.
+fn at(place: i64, t: i64) -> Fix {
+    Fix {
+        time_ms: T0 + t * 1000,
+        ..fix(place)
+    }
+}
+
+fn reasons(app: &App, id: Uuid) -> Vec<(Activity, SegmentReason)> {
+    app.track_detail(id)
+        .unwrap()
+        .sections
+        .iter()
+        .map(|s| (s.activity, s.reason))
+        .collect()
+}
+
+/// Rides 10 s, stands 6 min from second 11 to 370, rides on 20 s: one rest with
+/// rest detection on.
+fn ride_rest_ride(app: &App) {
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    for t in 11..=370 {
+        app.handle_fix(at(10, t));
+    }
+    for k in 1..=20 {
+        app.handle_fix(at(10 + k, 370 + k));
+    }
+}
+
+#[test]
+fn switch_activity_during_recording() {
+    let (app, listener, path) = open("switch");
+    app.start_recording(Activity::Bike).unwrap();
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    let status = app.switch_recording_activity(Activity::Hike).unwrap();
+    assert_eq!(status.activity, Some(Activity::Hike));
+    assert_eq!(
+        listener
+            .0
+            .lock()
+            .unwrap()
+            .recordings
+            .last()
+            .unwrap()
+            .activity,
+        Some(Activity::Hike),
+        "the listener hears of the switch"
+    );
+    // Every second a fix; hiking keeps one every 3 s.
+    for i in 11..=40 {
+        app.handle_fix(fix(i));
+    }
+    assert_eq!(app.recording_status().activity, Some(Activity::Hike));
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(record.activity, Activity::Bike, "the first section's");
+    let detail = app.track_detail(record.id).unwrap();
+    assert_eq!(
+        detail.line.iter().map(Vec::len).collect::<Vec<_>>(),
+        [11, 10]
+    );
+    assert_eq!(
+        reasons(&app, record.id),
+        [
+            (Activity::Bike, SegmentReason::Start),
+            (Activity::Hike, SegmentReason::ActivityChange)
+        ]
+    );
+    let s = &detail.sections;
+    assert_eq!((s[0].index, s[1].index), (0, 1));
+    assert_eq!((s[0].start_ms, s[0].end_ms), (T0, T0 + 13_000));
+    assert_eq!((s[1].start_ms, s[1].end_ms), (T0 + 13_000, T0 + 40_000));
+    // The tour is the sum of its sections, each with its own activity's values.
+    let track = core_storage::Storage::open(&path)
+        .unwrap()
+        .load_track(record.id)
+        .unwrap();
+    let (total, sections) = compute_section_stats(&track, StatsParams::for_activity);
+    assert_eq!(record.stats.as_ref(), Some(&total));
+    assert_eq!(
+        detail
+            .sections
+            .iter()
+            .map(|s| s.stats.clone())
+            .collect::<Vec<_>>(),
+        sections
+    );
+    assert!((total.total_time_s - 40.0).abs() < 1e-9, "{total:?}");
+}
+
+#[test]
+fn rest_detection_off_unless_set() {
+    let (app, listener, _) = open("rest-off");
+    app.start_recording(Activity::Bike).unwrap();
+    ride_rest_ride(&app);
+    assert!(!app.recording_status().resting);
+    assert!(
+        listener
+            .0
+            .lock()
+            .unwrap()
+            .recordings
+            .iter()
+            .all(|r| !r.resting)
+    );
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(
+        reasons(&app, record.id),
+        [(Activity::Bike, SegmentReason::Start)]
+    );
+}
+
+#[test]
+fn rest_detection_marks_rest() {
+    let (app, listener, _) = open("rest-on");
+    app.start_recording(Activity::Bike).unwrap();
+    // Applies to the running recording.
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    let mut detected = None;
+    for t in 11..=370 {
+        app.handle_fix(at(10, t));
+        if detected.is_none() && app.recording_status().resting {
+            detected = Some(t);
+            assert!(
+                listener
+                    .0
+                    .lock()
+                    .unwrap()
+                    .recordings
+                    .last()
+                    .unwrap()
+                    .resting,
+                "the listener is told at once"
+            );
+        }
+    }
+    let detected = detected.expect("6 min standing is a rest");
+    assert!(app.recording_status().resting);
+    let mut ended = None;
+    for k in 1..=20 {
+        app.handle_fix(at(10 + k, 370 + k));
+        if ended.is_none() && !app.recording_status().resting {
+            ended = Some(370 + k);
+            assert!(
+                !listener
+                    .0
+                    .lock()
+                    .unwrap()
+                    .recordings
+                    .last()
+                    .unwrap()
+                    .resting,
+                "the listener is told at once"
+            );
+        }
+    }
+    let ended = ended.expect("riding on ends the rest");
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(
+        reasons(&app, record.id),
+        [
+            (Activity::Bike, SegmentReason::Start),
+            (Activity::Bike, SegmentReason::Rest),
+            (Activity::Bike, SegmentReason::RestEnd)
+        ]
+    );
+    let detail = app.track_detail(record.id).unwrap();
+    let rest = &detail.sections[1];
+    assert_eq!(
+        (rest.start_ms, rest.end_ms),
+        (T0 + detected * 1000, T0 + ended * 1000)
+    );
+    assert_eq!(rest.stats.distance_m, 0.0);
+    assert_eq!(rest.stats.moving_time_s, 0.0);
+    // The rest counts towards total time, from the first to the last fix.
+    let stats = record.stats.unwrap();
+    assert!((stats.total_time_s - 390.0).abs() < 1e-9, "{stats:?}");
+    assert!(stats.moving_time_s < 60.0, "{stats:?}");
+}
+
+/// Other rest settings during a rest end it: the next fixes belong to a section of the activity.
+#[test]
+fn changed_rest_settings_end_a_rest() {
+    let (app, _, _) = open("rest-changed");
+    app.start_recording(Activity::Bike).unwrap();
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    for t in 11..=370 {
+        app.handle_fix(at(10, t));
+    }
+    assert!(app.recording_status().resting);
+    app.set_rest_detection(Some(RestParams {
+        dwell_ms: 600_000,
+        radius_m: 50.0,
+    }));
+    assert!(!app.recording_status().resting, "ends at once");
+    // The same values again change nothing.
+    app.set_rest_detection(Some(RestParams {
+        dwell_ms: 600_000,
+        radius_m: 50.0,
+    }));
+    for t in 371..=380 {
+        app.handle_fix(at(10, t));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(
+        reasons(&app, record.id),
+        [
+            (Activity::Bike, SegmentReason::Start),
+            (Activity::Bike, SegmentReason::Rest),
+            (Activity::Bike, SegmentReason::RestEnd)
+        ]
+    );
+}
+
+/// A switch before the first fix gives the first section that activity, without an empty one.
+#[test]
+fn switch_before_the_first_fix() {
+    let (app, _, _) = open("switch-early");
+    app.start_recording(Activity::Bike).unwrap();
+    let status = app.switch_recording_activity(Activity::Hike).unwrap();
+    assert_eq!(status.activity, Some(Activity::Hike));
+    for i in 0..=20 {
+        app.handle_fix(fix(i));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(record.activity, Activity::Hike);
+    assert_eq!(
+        reasons(&app, record.id),
+        [(Activity::Hike, SegmentReason::Start)]
+    );
+}
+
+#[test]
+fn continued_recording_keeps_sections_and_rest_setting() {
+    let path = temp_db("rest-crash");
+    {
+        let app = App::open(&path, Arc::new(Listener::default())).unwrap();
+        app.set_rest_detection(Some(RestParams::DEFAULT));
+        app.start_recording(Activity::Bike).unwrap();
+        for i in 0..=10 {
+            app.handle_fix(fix(i));
+        }
+        app.switch_recording_activity(Activity::Hike).unwrap();
+        for i in 11..=40 {
+            app.handle_fix(fix(i));
+        }
+        // the app goes away without stopping the recording
+    }
+    let app = App::open(&path, Arc::new(Listener::default())).unwrap();
+    // Trail sets it on every launch, before offering to continue.
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    let status = app.continue_interrupted().unwrap();
+    assert_eq!(status.activity, Some(Activity::Hike), "the last section's");
+    for t in 1000..=1400 {
+        app.handle_fix(at(40, t));
+    }
+    assert!(app.recording_status().resting, "rest detection still on");
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(record.activity, Activity::Bike);
+    assert_eq!(
+        reasons(&app, record.id),
+        [
+            (Activity::Bike, SegmentReason::Start),
+            (Activity::Hike, SegmentReason::ActivityChange),
+            (Activity::Hike, SegmentReason::Continue),
+            (Activity::Hike, SegmentReason::Rest)
+        ]
+    );
+}
+
+/// During a rest a throttled receiver may send no fix for minutes: no GPS gap.
+#[test]
+fn silence_during_a_rest_is_no_gap() {
+    let (app, _, _) = open("rest-silence");
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    app.start_recording(Activity::Bike).unwrap();
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    for t in 11..=320 {
+        app.handle_fix(at(10, t));
+    }
+    assert!(app.recording_status().resting);
+    // Ten minutes without a fix, then riding on.
+    for k in 1..=20 {
+        app.handle_fix(at(10 + k, 920 + k));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(
+        reasons(&app, record.id)
+            .iter()
+            .map(|r| r.1)
+            .collect::<Vec<_>>(),
+        [
+            SegmentReason::Start,
+            SegmentReason::Rest,
+            SegmentReason::RestEnd
+        ]
+    );
+}
+
+fn recorded_with_rest(app: &App) -> Uuid {
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    app.start_recording(Activity::Bike).unwrap();
+    ride_rest_ride(app);
+    app.stop_recording().unwrap().unwrap().id
+}
+
+#[test]
+fn set_track_activity_skips_rest() {
+    let (app, _, path) = open("activity-rest");
+    let id = recorded_with_rest(&app);
+    let record = app.set_track_activity(id, Activity::Hike).unwrap();
+    assert_eq!(record.activity, Activity::Hike);
+    assert_eq!(
+        reasons(&app, id),
+        [
+            (Activity::Hike, SegmentReason::Start),
+            (Activity::Bike, SegmentReason::Rest),
+            (Activity::Hike, SegmentReason::RestEnd)
+        ]
+    );
+    let track = core_storage::Storage::open(&path)
+        .unwrap()
+        .load_track(id)
+        .unwrap();
+    let (total, _) = compute_section_stats(&track, StatsParams::for_activity);
+    assert_eq!(record.stats, Some(total));
+}
+
+#[test]
+fn set_section_activity_changes_one() {
+    let (app, _, path) = open("section-activity");
+    let id = recorded_with_rest(&app);
+    let detail = app.set_section_activity(id, 2, Activity::Mtb).unwrap();
+    assert_eq!(
+        detail
+            .sections
+            .iter()
+            .map(|s| s.activity)
+            .collect::<Vec<_>>(),
+        [Activity::Bike, Activity::Bike, Activity::Mtb]
+    );
+    assert_eq!(detail.record.activity, Activity::Bike);
+    let detail = app.set_section_activity(id, 0, Activity::Hike).unwrap();
+    assert_eq!(
+        detail.record.activity,
+        Activity::Hike,
+        "the first section's"
+    );
+    assert_eq!(app.list_tracks().unwrap()[0].activity, Activity::Hike);
+    let track = core_storage::Storage::open(&path)
+        .unwrap()
+        .load_track(id)
+        .unwrap();
+    let (total, sections) = compute_section_stats(&track, StatsParams::for_activity);
+    assert_eq!(detail.record.stats, Some(total));
+    assert_eq!(
+        detail
+            .sections
+            .iter()
+            .map(|s| s.stats.clone())
+            .collect::<Vec<_>>(),
+        sections
+    );
+
+    for index in [1, 3, 99] {
+        let error = app
+            .set_section_activity(id, index, Activity::Hike)
+            .unwrap_err();
+        assert!(
+            matches!(error, AppError::InvalidSection),
+            "{index}: {error:?}"
+        );
+        assert_eq!(error.code(), "invalid_section");
+    }
+    assert!(matches!(
+        app.set_section_activity(Uuid::nil(), 0, Activity::Hike),
+        Err(AppError::Storage(_))
+    ));
+}
+
+/// Turning rest detection off during a rest ends the rest: the way on is no rest.
+#[test]
+fn turning_rest_detection_off_during_a_rest_ends_it() {
+    let (app, listener, _) = open("rest-turned-off");
+    app.set_rest_detection(Some(RestParams::DEFAULT));
+    app.start_recording(Activity::Bike).unwrap();
+    for i in 0..=10 {
+        app.handle_fix(fix(i));
+    }
+    for t in 11..=370 {
+        app.handle_fix(at(10, t));
+    }
+    assert!(app.recording_status().resting);
+    app.set_rest_detection(None);
+    assert!(
+        !listener
+            .0
+            .lock()
+            .unwrap()
+            .recordings
+            .last()
+            .unwrap()
+            .resting,
+        "the listener is told at once"
+    );
+    for k in 1..=20 {
+        app.handle_fix(at(10 + k, 370 + k));
+    }
+    let record = app.stop_recording().unwrap().unwrap();
+    assert_eq!(
+        reasons(&app, record.id)
+            .iter()
+            .map(|r| r.1)
+            .collect::<Vec<_>>(),
+        [
+            SegmentReason::Start,
+            SegmentReason::Rest,
+            SegmentReason::RestEnd
+        ]
+    );
+    let detail = app.track_detail(record.id).unwrap();
+    assert!(detail.sections[2].stats.distance_m > 90.0, "{detail:?}");
 }

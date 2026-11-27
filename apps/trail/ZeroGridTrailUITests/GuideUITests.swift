@@ -98,18 +98,17 @@ final class GuideUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["location-accuracy"].waitForExistence(timeout: 20))
     }
 
-    /// A tap on the map offers what a search hit offers; with the position "Hierher führen" also guides.
-    func testTapOnMapGuidesThere() throws {
+    /// The first waypoint offers the way there from the own position; "Hierher führen" also guides.
+    /// Without a position there is no card: the tap is a waypoint.
+    func testFirstWaypointGuidesThere() throws {
         let app = try launchWithoutRoute()
         let card = app.otherElements["map-point"]
 
-        // Without a position only a route that begins there.
         app.place(0.3, 0.45).tap()
-        XCTAssertTrue(card.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["plan-from-here"].exists)
-        XCTAssertFalse(app.buttons["guide-here"].exists)
-        app.buttons["point-close"].tap()
-        XCTAssertTrue(card.waitForNonExistence(timeout: 5))
+        app.waitForStatus("first point") { $0.int("waypoints") == 1 }
+        XCTAssertFalse(card.exists)
+        app.buttons["plan-clear"].tap()
+        app.waitForStatus("cleared") { $0.int("waypoints") == 0 }
 
         locate(app)
         app.place(0.3, 0.45).tap()
@@ -121,15 +120,13 @@ final class GuideUITests: XCTestCase {
         }
         XCTAssertTrue(app.otherElements["guide-bar"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.buttons["guide-toggle"].value as? String, "an")
-        XCTAssertEqual(app.mapStatus.int("picking"), 0)
+        XCTAssertEqual(app.mapStatus.values["mode"], "waypoints")
     }
 
-    /// The first point set with "+ Punkt" offers the way from the own position;
-    /// afterwards taps add points until "Fertig".
+    /// The first point offers the way from the own position; afterwards taps add points.
     func testFirstPointOffersTheWayFromThePosition() throws {
         let app = try launchWithoutRoute()
         locate(app)
-        app.buttons["plan-pick"].tap()
         app.place(0.3, 0.45).tap()
         XCTAssertTrue(app.staticTexts["Von meinem Standort hierher?"].waitForExistence(timeout: 5))
         app.buttons["route-here"].tap()

@@ -264,7 +264,7 @@ Die iOS-App (`apps/trail/`, SwiftUI und MapLibre Native) zeigt die Sommer- und W
 samt Hangneigung und Höhenlinien offline aus installierten Regionen, dazu die eigene
 Position. Routen plant sie ohne Netz, mit Valhalla in der App (valhalla-mobile) und der
 Planungslogik des Rust-Kerns. Regionen und Routen holt sie im Heimnetz vom Desktop, ohne
-Kabel. Die Aufzeichnung folgt.
+Kabel. Touren zeichnet sie mit Abschnitten je Sportart und erkannten Rasten auf.
 
 Voraussetzungen: ein Mac mit Apple-Chip, Xcode, `brew install xcodegen` und
 `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
@@ -324,12 +324,16 @@ Dann die App beenden (im App-Umschalter wegwischen) und neu starten: Sie prüft 
 installiert die Region und entfernt den Ordner. Schlägt die Prüfung fehl, meldet die App das, und der Ordner bleibt liegen.
 
 **Routen planen auf dem iPhone:** Unten liegt ein Bereich, der sich in drei Stufen hochziehen
-lässt.
+lässt. Der Schalter **„Wegpunkte / Abschnitte“** unter der Kartenleiste sagt, was ein Tipp auf
+die Karte tut; nach jedem Start steht er auf „Wegpunkte“.
 
-- **„+ Punkt“** schaltet den Planmodus ein. Dann setzt Tippen auf die Karte einen Wegpunkt,
-  „Fertig“ beendet den Modus. Außerhalb davon verschiebt und zoomt Tippen nur die Karte.
-- Einen Wegpunkt **ziehen** verschiebt ihn. **Tippen** auf einen Wegpunkt öffnet ein Menü mit
-  „Etappenende hier“ (nur innere Punkte) und „Entfernen“.
+- **„Wegpunkte“:** Jeder Tipp setzt einen Wegpunkt, auch auf der Route oder einem Track (etwa
+  für den Rückweg auf demselben Weg). Beim ersten Punkt bietet die App mit bekannter Position
+  „Route hierher“ und „Hierher führen“ an.
+- **„Abschnitte“:** Ein Tipp auf die Route wählt ein Teilstück (eigene Sportart, „In der Mitte
+  teilen“), ein Tipp auf einen Track einen Abschnitt; Tippen daneben hebt die Wahl auf.
+- Einen Wegpunkt **ziehen** verschiebt ihn, in beiden Modi. **Tippen** auf einen Wegpunkt öffnet
+  ein Menü mit „Etappenende hier“ (nur innere Punkte) und „Entfernen“.
 - Das **Sportart-Menü** und die Regler gelten für das letzte und alle neuen Teilstücke.
   ↶ nimmt den letzten Punkt weg, ⌫ leert die Planung und beginnt eine neue Route.
 - Ein Teilstück, das sich nicht berechnen lässt, ist rot gestrichelt und zählt in der
@@ -339,6 +343,15 @@ lässt.
 - **„Speichern“** überschreibt die geladene oder zuletzt gespeicherte Route, **„Als neue Route
   speichern“** legt eine neue an. Ganz hochgezogen steht die Liste „Routen“: Tippen lädt
   eine Route, Wischen nach links bietet „Umbenennen“ und „Löschen“.
+
+**Touren aufzeichnen:** Der rote Knopf rechts fragt nach der Sportart und startet. In der
+Leiste wechselt das Menü „Rad ▾“ die Sportart; jeder Wechsel beginnt einen Abschnitt. Bleibt
+man 5 min innerhalb von 50 m, beginnt ein Rast-Abschnitt, und das GPS wird gedrosselt
+(„Stark“, „Mäßig“ oder „Aus“, in der Leiste und unter ⋯ zusammen mit „Rast nach“ und
+„Rastumkreis“; nie während der Führung). „Beenden“ fragt nur nach „Speichern“ oder
+„Verwerfen“. Im Track (Liste „Tracks“) stehen die Abschnitte; im Modus „Abschnitte“ sind
+Grenzen und Rasten auf der Karte eingezeichnet, ein Abschnitt lässt sich dort oder in der Liste
+wählen und seine Sportart ändern.
 
 ## Entwickeln
 

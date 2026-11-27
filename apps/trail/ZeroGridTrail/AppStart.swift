@@ -21,6 +21,8 @@ enum AppStart {
         var catalogSource: String?
         /// `-replayGPX <path>`: the points of this GPX file stand in for the GPS.
         var replayGPX: String?
+        /// `-replaySpeed <n>`: how many times as fast as recorded (10 without it).
+        var replaySpeed: Double?
         /// `-route <lat>,<lon>;<lat>,<lon>`: a route to plan at the start.
         var route: [[Double]] = []
         /// `-failPlansAfter <n>`: after `n` computed routes, every computation
@@ -41,6 +43,9 @@ enum AppStart {
             }
             if let flag = arguments.firstIndex(of: "-replayGPX"), flag + 1 < arguments.count {
                 replayGPX = arguments[flag + 1]
+            }
+            if let flag = arguments.firstIndex(of: "-replaySpeed"), flag + 1 < arguments.count {
+                replaySpeed = Double(arguments[flag + 1])
             }
             if let flag = arguments.firstIndex(of: "-startZoom"), flag + 1 < arguments.count {
                 startZoom = Double(arguments[flag + 1])
@@ -87,6 +92,7 @@ enum AppStart {
         let documents = try CoreHost.documentsDirectory()
         if options.resetData {
             MapController.resetLook()
+            RecordingController.resetSettings()
             try? files.removeItem(at: data)
             try? files.removeItem(at: documents.appendingPathComponent("Import"))
         }

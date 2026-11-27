@@ -54,7 +54,7 @@ private struct RootView: View {
         case .success(let start):
             var replay: GPXReplay?
             if let path = start.options.replayGPX {
-                replay = try? GPXReplay(contentsOf: URL(fileURLWithPath: path))
+                replay = try? GPXReplay(contentsOf: URL(fileURLWithPath: path), speedUp: start.options.replaySpeed ?? 10)
             }
             let location = LocationService(core: start.host.core, manager: replay)
             let map = MapController(
@@ -71,16 +71,13 @@ private struct RootView: View {
             search.onSelectionCleared = { [weak routeHere] in routeHere?.dismiss() }
             routeHere.onDone = { [weak search] in search?.routeDone() }
             map.searchOverlay.onOtherMove = { [weak search] in search?.mapMoved() }
-            // A tap first answers "where does the route start", then sets a waypoint, then opens a dot.
-            // A tap on a search hit opens it; elsewhere it offers a route to the place, as a hit does.
-            plan.onFreeTap = { [weak search, weak map, weak routeHere] at in
-                if let index = map?.searchOverlay.dot(at: at) {
-                    search?.tappedDot(index)
-                } else if search?.selected == nil {
-                    routeHere?.offer(at)
-                }
+            // A tap on a search hit opens it, in both modes; elsewhere the mode decides.
+            plan.onMapTap = { [weak search, weak map] at in
+                guard let index = map?.searchOverlay.dot(at: at) else { return false }
+                search?.tappedDot(index)
+                return true
             }
-            // The first point of a route set with "+ Punkt": the way there from the own position is offered.
+            // The first waypoint of a route: the way there from the own position is offered.
             plan.onPickedTap = { [weak routeHere, weak location] at, first in
                 if first && location?.knowsPosition == true {
                     routeHere?.offer(at, placed: true)
@@ -97,6 +94,19 @@ private struct RootView: View {
                 core: start.host.core, location: location, changes: start.host.guidanceChanges, overlay: map.guide,
                 camera: map)
             tracks.onOpen = { [weak guide] in guide?.following = false }
+            // "Abschnitte bearbeiten": taps on the lines choose legs of the route and sections of the tracks.
+            map.route.sectionHit = { [weak map] point in map?.tracks.hit(at: point) }
+            map.route.onSectionTap = { [weak tracks] section in tracks?.select(section) }
+            map.route.onAmbiguousTap = { [weak plan] leg, section in
+                plan?.ambiguousTap = .init(leg: leg, section: section)
+            }
+            plan.onModeChanged = { [weak tracks] mode in tracks?.setEditing(mode == .sections) }
+            plan.onFreeTap = { [weak tracks] in tracks?.select(nil) }
+            plan.onLegChosen = { [weak tracks] in
+                if tracks?.selectedSection != nil { tracks?.select(nil) }
+            }
+            tracks.onWantsEditing = { [weak plan] in plan?.mode = .sections }
+            tracks.onSectionChosen = { [weak plan] in plan?.selectLeg(nil) }
             // The cards offer "anhängen" only with a route: they follow it.
             plan.onRouteChanged = { [weak routeHere] in routeHere?.objectWillChange.send() }
             // Off the route: the route is planned anew from there, the old one goes.

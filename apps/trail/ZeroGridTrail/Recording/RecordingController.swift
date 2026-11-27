@@ -19,12 +19,60 @@ enum Activity {
     }
 }
 
-/// The recording of a tour: one button starts it, the activity is chosen
-/// when saving. Holds the GPS while it runs and draws its line. Independent
-/// of the planned route and the guidance.
+/// How much the GPS is throttled during a rest ("Drosseln bei Rast").
+enum RestThrottle: String, CaseIterable {
+    case strong, moderate, off
+
+    var name: String {
+        switch self {
+        case .strong: "Stark"
+        case .moderate: "Mäßig"
+        case .off: "Aus"
+        }
+    }
+
+    /// The GPS during a rest; nil: as always.
+    var profile: LocationProfile? {
+        switch self {
+        case .strong: .restStrong
+        case .moderate: .restModerate
+        case .off: nil
+        }
+    }
+}
+
+/// The recording of a tour: it starts with an activity, which may change on
+/// the way; each activity and each rest is a section of its own. Holds the
+/// GPS while it runs, throttles it during a rest and draws the line.
+/// Independent of the planned route and the guidance.
 @MainActor
 final class RecordingController: ObservableObject {
     @Published private(set) var info: RecordingInfo
+    /// "Aufnahme starten" asks for the activity.
+    @Published private(set) var choosingActivity = false
+    /// "Drosseln bei Rast"; also in the bar while recording.
+    @Published var throttle: RestThrottle {
+        didSet {
+            defaults.set(throttle.rawValue, forKey: Self.throttleKey)
+            applyThrottle()
+        }
+    }
+    /// "Rast nach", in minutes.
+    @Published var restDwellMin: Int {
+        didSet {
+            defaults.set(restDwellMin, forKey: Self.restDwellKey)
+            applyRestDetection()
+        }
+    }
+    /// "Rastumkreis", in metres.
+    @Published var restRadiusM: Int {
+        didSet {
+            defaults.set(restRadiusM, forKey: Self.restRadiusKey)
+            applyRestDetection()
+        }
+    }
+    /// The activity the last recording started with; chosen first next time.
+    private(set) var lastActivity: String
     /// The track just ended, waiting for "Speichern" or "Verwerfen". It is
     /// stored already, so nothing is lost if the app ends meanwhile.
     @Published private(set) var ended: TrackSummary?
@@ -36,29 +84,64 @@ final class RecordingController: ObservableObject {
     var onTracksChanged: (() -> Void)?
 
     static let idle = RecordingInfo(
-        phase: "idle", trackId: nil, activity: nil, distanceM: 0, movingS: 0, elapsedS: 0, ascentM: nil, appended: [])
+        phase: "idle", trackId: nil, activity: nil, resting: false, distanceM: 0, movingS: 0, elapsedS: 0, ascentM: nil,
+        appended: [])
     /// Longer than this without a fix is a gap, as in the core (`GAP_MS`).
     static let gap: TimeInterval = 120
     static let interruptedNotice = "Eine Aufzeichnung wurde unterbrochen und als Track gespeichert."
+    nonisolated static func gapNotice(minutes: Int) -> String {
+        "GPS war \(minutes) min weg. Die Aufzeichnung läuft weiter."
+    }
+    /// How long the notice of a gap stays.
+    static var gapNoticeSeconds: TimeInterval = 15
+    static let throttleKey = "restThrottle"
+    static let restDwellKey = "restDwellMin"
+    static let restRadiusKey = "restRadiusM"
+    static let lastActivityKey = "lastRecordingActivity"
+    /// The choices of "Rast nach" and "Rastumkreis".
+    static let restDwellChoices = [3, 5, 10, 15]
+    static let restRadiusChoices = [30, 50, 100]
+
+    /// Back to the settings of a first start; for the UI tests.
+    nonisolated static func resetSettings(_ defaults: UserDefaults = .standard) {
+        for key in [throttleKey, restDwellKey, restRadiusKey, lastActivityKey] {
+            defaults.removeObject(forKey: key)
+        }
+    }
 
     private let core: CoreApp
     private let location: LocationService
     private let overlay: TrackOverlay?
+    private let defaults: UserDefaults
     private var watches: [AnyCancellable] = []
     /// The time of the last fix during this recording.
     private var lastFix: Date?
 
     var active: Bool { info.phase != "idle" }
     var paused: Bool { info.phase == "paused" }
+    /// The activity of the running section.
+    var activity: String { info.activity ?? "other" }
+    /// The sections with points so far; for the self-test status.
+    var sectionCount: Int { core.recordingLine().filter { !$0.isEmpty }.count }
 
     init(
         core: CoreApp, location: LocationService, changes: AnyPublisher<RecordingInfo, Never>,
-        overlay: TrackOverlay? = nil
+        overlay: TrackOverlay? = nil, defaults: UserDefaults = .standard
     ) {
         self.core = core
         self.location = location
         self.overlay = overlay
+        self.defaults = defaults
+        throttle = defaults.string(forKey: Self.throttleKey).flatMap(RestThrottle.init) ?? .strong
+        let dwell = defaults.integer(forKey: Self.restDwellKey)
+        restDwellMin = Self.restDwellChoices.contains(dwell) ? dwell : 5
+        let radius = defaults.integer(forKey: Self.restRadiusKey)
+        restRadiusM = Self.restRadiusChoices.contains(radius) ? radius : 50
+        lastActivity = defaults.string(forKey: Self.lastActivityKey).flatMap { Activity.all.contains($0) ? $0 : nil }
+            ?? "other"
         info = core.recordingStatus()
+        // The core does not keep the setting: it is told at every start.
+        applyRestDetection()
         watches.append(changes.sink { [weak self] status in self?.changed(status) })
         watches.append(location.$last.compactMap { $0 }.sink { [weak self] fix in self?.received(fix) })
         saveInterrupted()
@@ -94,10 +177,13 @@ final class RecordingController: ObservableObject {
         // The last points come with the end, after the line was taken away.
         if status.phase != "idle" {
             overlay?.append(status.appended)
+            // The rest begins with the fix that told it, the first point of a new section.
+            if status.resting && !info.resting { overlay?.markRecordingRest() }
         }
         var status = status
         status.appended = []
         info = status
+        followSection()
     }
 
     /// The return values of the calls carry the same points as the listener;
@@ -106,14 +192,38 @@ final class RecordingController: ObservableObject {
         var status = status
         status.appended = []
         info = status
+        followSection()
     }
 
-    /// A gap of more than two minutes without GPS is told once the GPS is back.
+    /// The GPS follows the activity and the rest of the running section.
+    private func followSection() {
+        guard active else { return }
+        if location.activity != activity { location.activity = activity }
+        applyThrottle()
+    }
+
+    /// Throttles the GPS during a rest; the location service keeps it fine while guiding.
+    private func applyThrottle() {
+        let profile = active && info.resting ? throttle.profile : nil
+        if location.restProfile != profile { location.restProfile = profile }
+    }
+
+    private func applyRestDetection() {
+        core.setRestDetection(settings: RestSettings(dwellS: UInt32(restDwellMin * 60), radiusM: Double(restRadiusM)))
+    }
+
+    /// A gap of more than two minutes without GPS is told once the GPS is back,
+    /// for a while: it is over by then.
     private func received(_ fix: CLLocation) {
         guard active else { return }
         if let lastFix, fix.timestamp.timeIntervalSince(lastFix) > Self.gap {
             let minutes = Int((fix.timestamp.timeIntervalSince(lastFix) / 60).rounded())
-            notice = "Kein GPS für \(minutes) min. Die Aufzeichnung läuft weiter."
+            let told = Self.gapNotice(minutes: minutes)
+            notice = told
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(Self.gapNoticeSeconds * 1_000_000_000))
+                if self?.notice == told { self?.notice = nil }
+            }
         }
         lastFix = max(lastFix ?? fix.timestamp, fix.timestamp)
     }
@@ -124,21 +234,47 @@ final class RecordingController: ObservableObject {
         if fresh {
             overlay?.clearRecording()
         } else {
-            overlay?.setRecording(core.recordingLine())
+            let rests = info.trackId.flatMap { try? core.trackDetail(id: $0) }.map(TracksController.rests) ?? []
+            overlay?.setRecording(core.recordingLine(), rests: rests)
         }
         lastFix = nil
-        location.activity = "other"
+        location.activity = activity
+        applyThrottle()
         location.require(.recording)
     }
 
-    /// The button on the map: records at once, the activity comes when saving.
-    func start() {
+    /// The button on the map: asks for the activity first.
+    func requestStart() {
+        guard !active else { return }
+        ended = nil
+        choosingActivity = true
+    }
+
+    func cancelStart() {
+        choosingActivity = false
+    }
+
+    /// Records with `activity` ("other" for none).
+    func start(activity: String) {
+        choosingActivity = false
         do {
-            take(try core.startRecording(activity: "other"))
+            take(try core.startRecording(activity: activity))
             ended = nil
+            lastActivity = activity
+            defaults.set(activity, forKey: Self.lastActivityKey)
             follow(fresh: true)
         } catch {
             message = "Die Aufzeichnung konnte nicht starten: \(describe(error))"
+        }
+    }
+
+    /// From the bar: a new section with `activity`.
+    func switchActivity(_ activity: String) {
+        guard active, activity != self.activity else { return }
+        do {
+            take(try core.switchRecordingActivity(activity: activity))
+        } catch {
+            message = "Die Sportart konnte nicht gewechselt werden: \(describe(error))"
         }
     }
 
@@ -163,6 +299,7 @@ final class RecordingController: ObservableObject {
     func stop() {
         defer {
             location.release(.recording)
+            location.restProfile = nil
             location.activity = ""
             lastFix = nil
         }
@@ -184,19 +321,11 @@ final class RecordingController: ObservableObject {
         }
     }
 
-    /// "Speichern": keeps the track with `activity` ("other" for none) and its name.
-    func save(activity: String) {
-        guard let track = ended else { return }
-        do {
-            if activity != track.activity {
-                _ = try core.setTrackActivity(id: track.id, activity: activity)
-            }
-            try core.renameTrack(id: track.id, name: Self.name(startedMs: track.startedMs, activity: activity))
-            ended = nil
-            onTracksChanged?()
-        } catch {
-            message = "Der Track konnte nicht gespeichert werden: \(describe(error))"
-        }
+    /// "Speichern": keeps the track as it is, named after its first activity.
+    func save() {
+        guard ended != nil else { return }
+        ended = nil
+        onTracksChanged?()
     }
 
     /// "Verwerfen", after asking: the track is deleted.

@@ -42,7 +42,10 @@ Zum Ausprobieren: `track-cli stats tour.gpx --set ele_threshold_m=5`.
   die Bewegungserkennung, zeitgewichteter Median der Einzelgeschwindigkeiten für die
   Höchstgeschwindigkeit (Fenster 10 s) – einzelne falsche Zeitstempel heben ihn nicht an.
 - **Gesamtzeit:** je Segment letzter minus erster Zeitstempel; eine Pause beginnt ein neues
-  Segment und zählt nicht.
+  Segment und zählt nicht. Bei Abschnitten (unten, 6b) zählt auch die Zeit vom letzten Fix eines
+  Abschnitts zum ersten des nächsten, wenn dieser ihn fortsetzt (Sportwechsel, GPS-Lücke, Rast,
+  Rastende), nicht nach Pause/Weiter oder Fortsetzen nach Absturz: Die Tour läuft vom ersten
+  zum letzten Fix ohne die Pausen.
 - **Zeit in Bewegung:** Intervalle mit Geschwindigkeit ≥ `v_move`. Ein Abfall, der kürzer als
   `stop_delay_s` dauert, zählt als Bewegung, ein längerer ganz als Stillstand.
 - **Lücken** über 30 s (Tunnel, kein Empfang): Die Strecke zählt; als Bewegungszeit die Zeit,
@@ -157,7 +160,34 @@ Beurteilung im Gelände.
   Aktivität vergangen sind, und **sofort** in SQLite geschrieben (WAL). Nach einem Absturz
   fehlt höchstens der letzte Punkt; die App bietet „Fortsetzen“ oder „Abschließen“ an. Wer
   stattdessen neu startet, schließt die alte Aufzeichnung als eigenen Track ab.
-- Die Oberfläche bekommt höchstens alle 250 ms einen Stand mit den neuen Linienpunkten.
+- Die Oberfläche bekommt höchstens alle 250 ms einen Stand mit den neuen Linienpunkten;
+  beginnt oder endet eine Rast, sofort (die App drosselt danach das GPS).
+- **Abschnitte:** Jedes Segment ist ein Abschnitt mit eigener Sportart und dem Grund seines
+  Beginns (Start, Sportwechsel, Weiter, GPS-Lücke, Rast, Rastende, Fortsetzen). Ein Sportwechsel
+  während der Aufnahme beginnt mit dem nächsten Fix einen neuen Abschnitt, der im Intervall der
+  neuen Sportart aufzeichnet. Rast, Pause und Lücke behalten die Sportart. `tracks.activity` ist
+  die Sportart des ersten Abschnitts.
+- **Statistik je Abschnitt:** Jeder Abschnitt wird mit den Parametern seiner Sportart gerechnet
+  (`compute_section_stats`), die Tour ist die Summe (Höchstgeschwindigkeit und Höhen: Maximum
+  bzw. Minimum). Eine Rast zählt nur zur Gesamtzeit, nicht zu Bewegungszeit, Strecke oder
+  Höhenmetern. Der Abschnitt nach einer Rast bekommt zusätzlich die Gerade vom ersten Fix der
+  Rast (dem Erkennungsfix am Rastplatz) zu seinem ersten Fix als Strecke: Während der Rast sind
+  die Fixe grob oder selten, die letzten schon auf dem Weg, so ginge dieses Stück verloren.
+  Mit Geländehöhen gilt dasselbe je Abschnitt.
+- **Rasterkennung** (`RestDetector`, im Kern standardmäßig aus, Trail schaltet sie ein):
+  Voreinstellung 5 min innerhalb von 50 m. Vor der Rast zählen nur brauchbare Fixe: gemeldete
+  Genauigkeit ≤ Radius oder unbekannt. Der erste brauchbare Fix nach einem Zurücksetzen ist der
+  Rastpunkt; ein brauchbarer Fix weiter als der Radius davon wird der neue Rastpunkt. Die Rast
+  beginnt mit dem ersten brauchbaren Fix im Radius mindestens 5 min nach dem Rastpunkt, in einem
+  eigenen Abschnitt; die Fixe davor bleiben, wo sie sind. Während der Rast zählt jeder Fix, mit
+  seiner Genauigkeit als Spielraum: „weg“ ist ein Fix weiter als Radius + Genauigkeit (0, wenn
+  unbekannt). Zwei Weg-Fixe nacheinander beenden die Rast (Abschnitt Rastende ab dem zweiten);
+  ein Fix im Spielraum dazwischen setzt die Zählung zurück, ein einzelner Sprung beendet nichts.
+  Pause, Sportwechsel und Weiter setzen die Erkennung zurück. Wird die Erkennung während einer
+  Rast geändert oder ausgeschaltet, endet die Rast: Der nächste Fix beginnt einen Abschnitt
+  Rastende. Während einer Rast bricht eine
+  Funkstille über 120 s keine GPS-Lücke: Das gedrosselte GPS meldet im Stand oft minutenlang
+  nichts.
 
 ## 6. Regionspakete (`core-maps`)
 
@@ -169,11 +199,13 @@ Beurteilung im Gelände.
 ## 6b. Aufzeichnung in Trail (`core-app`, `Inner::record`)
 
 - **Ohne Sportart:** Trail startet jede Aufnahme als `other` („Keine Angabe“); die Sportart kommt
-  beim Speichern (`set_track_activity`), danach wird die Statistik mit deren Werten neu gerechnet.
+  beim Speichern (`set_track_activity`, setzt alle Abschnitte außer Rasten), danach wird die
+  Statistik mit deren Werten neu gerechnet. Einzelne Abschnitte ändert `set_section_activity`.
   `other` speichert einen Punkt je Sekunde wie Rad und MTB, denn es kann alles sein. Die
   Statistik nimmt ab 1 km/h Bewegung an und hält bis 110 km/h für plausibel.
 - **GPS-Lücke:** Liegt ein Fix mehr als 120 s hinter dem letzten gespeicherten, beginnt ein neues
-  Teilstück. Die Lücke zählt weder als Strecke noch als Bewegungszeit; ein Tunnel fehlt dadurch
+  Teilstück (Grund „Lücke“, außer während einer Rast). Die Lücke zählt weder als Strecke noch als
+  Bewegungszeit, wohl aber zur Gesamtzeit; ein Tunnel fehlt dadurch
   in der Strecke, dafür zählt keine Autofahrt mit ausgeschaltetem GPS. Importierte Tracks mit
   langen Pausen ohne Punkte werden beim Abspielen genauso geteilt.
 

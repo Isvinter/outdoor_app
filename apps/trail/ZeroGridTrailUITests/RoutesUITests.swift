@@ -1,7 +1,7 @@
 import XCTest
 
-/// Places in the upper half of the map, clear of the sheet at its middle step.
-private let upper: [(Double, Double)] = [(0.3, 0.2), (0.7, 0.25), (0.5, 0.36), (0.2, 0.33)]
+/// Places in the upper half of the map, below the bars and clear of the sheet at its middle step.
+private let upper: [(Double, Double)] = [(0.3, 0.31), (0.7, 0.34), (0.5, 0.44), (0.2, 0.42)]
 
 extension XCUIApplication {
     /// Presses "Speichern" or "Als neue Route speichern" in the sheet, which
@@ -9,6 +9,14 @@ extension XCUIApplication {
     func saveRoute(asNew: Bool = false) {
         buttons[asNew ? "route-save-new" : "route-save"].tap()
         alerts.buttons["Speichern"].tap()
+    }
+
+    /// Scrolls the sheet until the saved routes show: a route with an elevation
+    /// profile pushes them below the screen.
+    func showSavedRoutes() {
+        for _ in 0..<3 where !buttons["route-row-1"].isHittable {
+            collectionViews.firstMatch.swipeUp()
+        }
     }
 }
 
@@ -91,11 +99,10 @@ final class RoutesUITests: XCTestCase {
         XCTAssertEqual(loaded.values["route_id"], first.values["route_id"])
         XCTAssertEqual(loaded.int("distance_m"), first.int("distance_m"))
         XCTAssertEqual(loaded.list("leg_profiles"), ["manual", "manual"])
-        XCTAssertEqual(loaded.int("picking"), 0)
+        XCTAssertEqual(loaded.int("picking"), 1, "loading leaves the mode as it is")
 
         // The sheet went down and the map shows the route: add a point and save.
-        app.buttons["plan-pick"].tap()
-        app.place(0.5, 0.15).tap()
+        app.place(0.55, 0.29).tap()
         let longer = app.waitForPlan(waypoints: 4)
         XCTAssertGreaterThan(longer.int("distance_m"), loaded.int("distance_m"))
         app.pullSheet(by: -250)
@@ -110,6 +117,7 @@ final class RoutesUITests: XCTestCase {
     func testRenameAndDelete() {
         let (app, first) = appWithSavedRoute()
         app.pullSheet(by: -500)
+        app.showSavedRoutes()
         let row = app.buttons["route-row-1"]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         XCTAssertTrue(row.label.contains("Skitour (manuell)"), row.label)

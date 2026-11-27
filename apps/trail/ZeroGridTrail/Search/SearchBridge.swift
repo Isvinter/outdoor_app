@@ -48,8 +48,4 @@ final class LiveRouteHereHost: RouteHereHost {
     func beginRoute(at: CLLocationCoordinate2D) -> Bool {
         plan.beginRoute(at: at)
     }
-
-    func keepPicking() {
-        plan.picking = true
-    }
 }

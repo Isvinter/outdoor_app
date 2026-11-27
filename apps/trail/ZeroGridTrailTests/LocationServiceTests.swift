@@ -63,6 +63,22 @@ final class LocationServiceTests: XCTestCase {
         sandbox.remove()
     }
 
+    /// The rest profile holds while nobody guides; the guidance gets the best fixes.
+    func testRestProfileOnlyWithoutGuidance() {
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyBest)
+        service.require(.recording)
+        service.restProfile = .restStrong
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyHundredMeters)
+        XCTAssertEqual(manager.distanceFilter, 25)
+        service.require(.guidance)
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyBest)
+        XCTAssertEqual(manager.distanceFilter, kCLDistanceFilterNone)
+        service.release(.guidance)
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyHundredMeters)
+        service.restProfile = nil
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyBest)
+    }
+
     func testDemandsUnionAndRelease() {
         service.require(.map)
         service.require(.recording)

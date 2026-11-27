@@ -17,9 +17,16 @@ extension XCUIApplication {
         return app
     }
 
-    /// Records a walk and saves it as "Wandern".
-    func recordWalk(seconds: TimeInterval = 8, file: StaticString = #filePath, line: UInt = #line) {
+    /// Starts a recording with `activity`.
+    func startRecording(_ activity: String = "hike", file: StaticString = #filePath, line: UInt = #line) {
         buttons["record"].tap()
+        XCTAssertTrue(staticTexts["Aufnahme starten"].waitForExistence(timeout: 5), file: file, line: line)
+        buttons["activity-\(activity)"].tap()
+    }
+
+    /// Records a walk as "Wandern" and saves it.
+    func recordWalk(seconds: TimeInterval = 8, file: StaticString = #filePath, line: UInt = #line) {
+        startRecording(file: file, line: line)
         let distance = staticTexts["recording-distance"]
         XCTAssertTrue(distance.waitForExistence(timeout: 10), file: file, line: line)
         Thread.sleep(forTimeInterval: seconds)
@@ -27,7 +34,6 @@ extension XCUIApplication {
         XCTAssertNotEqual(distance.label, "0 m", "nothing recorded", file: file, line: line)
         buttons["recording-stop"].tap()
         XCTAssertTrue(buttons["track-save"].waitForExistence(timeout: 5), file: file, line: line)
-        buttons["activity-hike"].tap()
         buttons["track-save"].tap()
         XCTAssertTrue(buttons["track-save"].waitForNonExistence(timeout: 5), file: file, line: line)
     }
@@ -38,12 +44,12 @@ final class RecordingUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// One tap records; nothing is asked before.
+    /// The activity is chosen at the start; ended, only "Speichern" or "Verwerfen" is asked.
     func testRecordPauseResumeStopSave() {
         let app = XCUIApplication.replaying()
         app.waitForStatus("map rendered") { $0.rendered }
 
-        app.buttons["record"].tap()
+        app.startRecording("bike")
         let distance = app.staticTexts["recording-distance"]
         XCTAssertTrue(distance.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["record"].exists)
@@ -58,9 +64,6 @@ final class RecordingUITests: XCTestCase {
         app.buttons["recording-stop"].tap()
         XCTAssertTrue(distance.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Track speichern?"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.buttons["activity-other"].value as? String, "gewählt")
-        app.buttons["activity-bike"].tap()
-        XCTAssertEqual(app.buttons["activity-bike"].value as? String, "gewählt")
         XCTAssertTrue(app.staticTexts["save-track-name"].label.contains(" Rad · "))
         app.buttons["track-save"].tap()
         XCTAssertTrue(app.buttons["record"].waitForExistence(timeout: 5))
@@ -76,7 +79,7 @@ final class RecordingUITests: XCTestCase {
     func testStopAndDiscard() {
         let app = XCUIApplication.replaying()
         app.waitForStatus("map rendered") { $0.rendered }
-        app.buttons["record"].tap()
+        app.startRecording()
         let distance = app.staticTexts["recording-distance"]
         expectation(for: NSPredicate(format: "label != %@", "0 m"), evaluatedWith: distance)
         waitForExpectations(timeout: 20)
@@ -99,7 +102,7 @@ final class RecordingUITests: XCTestCase {
     func testInterruptedRecordingIsSaved() {
         let app = XCUIApplication.replaying()
         app.waitForStatus("map rendered") { $0.rendered }
-        app.buttons["record"].tap()
+        app.startRecording()
         let distance = app.staticTexts["recording-distance"]
         expectation(for: NSPredicate(format: "label != %@", "0 m"), evaluatedWith: distance)
         waitForExpectations(timeout: 20)
@@ -114,5 +117,79 @@ final class RecordingUITests: XCTestCase {
         again.pullSheet(by: -700)
         again.segmentedControls["saved-lists"].buttons["Tracks"].tap()
         XCTAssertTrue(again.buttons["track-row-1"].waitForExistence(timeout: 5))
+    }
+
+    /// "Aufnahme starten" offers the activities with the last one chosen; "Abbrechen" records nothing.
+    func testStartAsksForActivity() {
+        let app = XCUIApplication.replaying()
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.buttons["record"].tap()
+        XCTAssertTrue(app.staticTexts["Aufnahme starten"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["activity-other"].value as? String, "gewählt")
+        for activity in ["bike", "mtb", "hike", "ski_tour"] {
+            XCTAssertTrue(app.buttons["activity-\(activity)"].exists, activity)
+        }
+        app.buttons["start-cancel"].tap()
+        XCTAssertFalse(app.staticTexts["Aufnahme starten"].exists)
+        XCTAssertFalse(app.staticTexts["recording-distance"].exists)
+
+        app.buttons["record"].tap()
+        app.buttons["activity-mtb"].tap()
+        XCTAssertTrue(app.staticTexts["recording-distance"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons["recording-activity"].label, "MTB ▾")
+        let distance = app.staticTexts["recording-distance"]
+        expectation(for: NSPredicate(format: "label != %@", "0 m"), evaluatedWith: distance)
+        waitForExpectations(timeout: 20)
+        app.buttons["recording-stop"].tap()
+        app.buttons["track-save"].tap()
+
+        app.buttons["record"].tap()
+        XCTAssertTrue(app.staticTexts["Aufnahme starten"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["activity-mtb"].value as? String, "gewählt")
+    }
+
+    /// The menu in the bar starts a section with another activity; the name keeps the first.
+    func testSwitchActivityInBar() {
+        // Slower than usual, so that the walk goes on after the switch.
+        let app = XCUIApplication.replaying(arguments: ["-replaySpeed", "4"])
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.startRecording("mtb")
+        app.waitForStatus("first section") { $0.int("recording_sections") == 1 }
+        app.buttons["recording-activity"].tap()
+        app.buttons["switch-hike"].tap()
+        expectation(for: NSPredicate(format: "label == %@", "Wandern ▾"), evaluatedWith: app.buttons["recording-activity"])
+        waitForExpectations(timeout: 5)
+        app.waitForStatus("second section", timeout: 40) { $0.int("recording_sections") == 2 }
+
+        app.buttons["recording-stop"].tap()
+        XCTAssertTrue(app.buttons["track-save"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["activity-hike"].exists, "no activity chips when saving")
+        XCTAssertTrue(app.staticTexts["save-track-name"].label.contains(" MTB · "))
+        app.buttons["track-save"].tap()
+    }
+
+    /// Standing still for six minutes is a rest: told in the bar, gone once on the way again.
+    func testRestHintShows() {
+        let app = XCUIApplication.replaying("rest", arguments: ["-replaySpeed", "20"])
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.startRecording()
+        let hint = app.staticTexts["rest-hint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 40))
+        XCTAssertEqual(hint.label, "Rast – GPS gedrosselt")
+        XCTAssertTrue(hint.waitForNonExistence(timeout: 30))
+        app.waitForStatus("rest over") { $0.values["resting"] == "0" }
+    }
+
+    /// With "Aus" in the bar the rest is told without throttling.
+    func testThrottleLevelInBar() {
+        let app = XCUIApplication.replaying("rest", arguments: ["-replaySpeed", "20"])
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.startRecording()
+        app.buttons["recording-throttle"].tap()
+        app.buttons["Aus"].tap()
+        XCTAssertEqual(app.buttons["recording-throttle"].value as? String, "Aus")
+        let hint = app.staticTexts["rest-hint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 40))
+        XCTAssertEqual(hint.label, "Rast")
     }
 }

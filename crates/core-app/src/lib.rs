@@ -11,7 +11,9 @@ mod routes;
 mod search;
 mod share;
 
-pub use app::{App, AppListener, LinePoint, RecordingPhase, RecordingStatus, TrackDetail};
+pub use app::{
+    App, AppListener, LinePoint, RecordingPhase, RecordingStatus, SectionDetail, TrackDetail,
+};
 pub use error::AppError;
 pub use guide::{
     Guide, GuideParams, GuidePhase, GuideStatus, HintParams, HintStage, LegKind, LegSpan, LineTurn,

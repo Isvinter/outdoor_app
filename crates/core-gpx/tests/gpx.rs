@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use core_gpx::{GpxDocument, GpxError, GpxWaypoint, parse_gpx, write_gpx};
-use core_track::{Activity, Segment, Track, TrackPoint};
+use core_track::{Activity, Segment, SegmentReason, Track, TrackPoint};
 
 const FIXTURE: &str = include_str!("../../../fixtures/gpx/synthetic_two_segments.gpx");
 
@@ -196,6 +196,7 @@ fn writes_gpx_1_1_header_escaped_text_and_millisecond_times() {
             activity: Some(Activity::SkiTour),
             segments: vec![Segment {
                 points: vec![p, TrackPoint::new(0.0, 0.0)],
+                ..Default::default()
             }],
         }],
     };
@@ -222,6 +223,7 @@ fn refuses_to_write_non_finite_coordinates() {
             activity: None,
             segments: vec![Segment {
                 points: vec![TrackPoint::new(f64::NAN, 1.0)],
+                ..Default::default()
             }],
         }],
     };
@@ -253,6 +255,7 @@ fn waypoints_are_written_before_tracks() {
                     h_accuracy_m: None,
                     speed_mps: None,
                 }],
+                ..Default::default()
             }],
         }],
     };
@@ -266,4 +269,82 @@ fn waypoints_are_written_before_tracks() {
     ));
     // Waypoints are not read back; the track is.
     assert_eq!(parse_gpx(&xml).unwrap().tracks.len(), 1);
+}
+
+#[test]
+fn sections_round_trip() {
+    let seg = |activity, reason| Segment {
+        points: vec![TrackPoint::new(47.0, 11.0), TrackPoint::new(47.1, 11.1)],
+        activity,
+        reason,
+    };
+    let doc = GpxDocument {
+        tracks: vec![Track {
+            name: None,
+            activity: Some(Activity::Bike),
+            segments: vec![
+                seg(Some(Activity::Bike), SegmentReason::Start),
+                seg(Some(Activity::Hike), SegmentReason::Rest),
+                seg(None, SegmentReason::Gap),
+            ],
+        }],
+        ..Default::default()
+    };
+    let xml = write_gpx(&doc).unwrap();
+    assert!(xml.contains(r#"xmlns:zg="urn:zerogrid:gpx:1""#));
+    assert!(xml.contains(r#"<zg:section activity="hike" reason="rest"/>"#));
+    // GPX 1.1: `extensions` follows the `trkpt` elements of its `trkseg`.
+    for seg in xml.split("<trkseg>").skip(1) {
+        assert!(seg.rfind("<trkpt").unwrap() < seg.find("<extensions>").unwrap());
+    }
+    let back = parse_gpx(&xml).unwrap();
+    let got: Vec<_> = back.tracks[0]
+        .segments
+        .iter()
+        .map(|s| (s.activity, s.reason))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (Some(Activity::Bike), SegmentReason::Start),
+            (Some(Activity::Hike), SegmentReason::Rest),
+            (None, SegmentReason::Gap),
+        ]
+    );
+}
+
+#[test]
+fn plain_gpx_has_no_sections() {
+    let doc = parse_gpx(FIXTURE).unwrap();
+    for s in &doc.tracks[0].segments {
+        assert_eq!(s.activity, None);
+        assert_eq!(s.reason, SegmentReason::Start);
+    }
+}
+
+/// Unknown values read as none (activity) and `start` (reason); other extensions are left alone.
+#[test]
+fn unknown_section_values_and_foreign_extensions() {
+    let gpx = r#"<?xml version="1.0"?>
+<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:zg="urn:zerogrid:gpx:1" xmlns:other="urn:example:other">
+  <trk><trkseg>
+    <trkpt lat="47.5" lon="11.5"><time>2026-11-24T10:00:00Z</time></trkpt>
+    <trkpt lat="47.501" lon="11.5"><time>2026-11-24T10:00:10Z</time></trkpt>
+    <extensions><other:colour value="red"/><zg:section activity="swim" reason="nap"/></extensions>
+  </trkseg>
+  <trkseg>
+    <trkpt lat="47.502" lon="11.5"><time>2026-11-24T10:00:20Z</time></trkpt>
+    <extensions><other:note text="x"/><zg:section activity="hike" reason="activity_change"/></extensions>
+  </trkseg></trk>
+</gpx>"#;
+    let doc = parse_gpx(gpx).unwrap();
+    let track = &doc.tracks[0];
+    let segments = &track.segments;
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0].activity, None);
+    assert_eq!(segments[0].reason, SegmentReason::Start);
+    assert_eq!(segments[0].points.len(), 2);
+    assert_eq!(segments[1].activity, Some(Activity::Hike));
+    assert_eq!(segments[1].reason, SegmentReason::ActivityChange);
 }

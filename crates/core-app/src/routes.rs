@@ -217,7 +217,10 @@ fn plan_gpx(plan: &RoutePlan, name: &str) -> Result<String, AppError> {
             activity: if uniform { first } else { None },
             segments: segments
                 .into_iter()
-                .map(|(_, points)| Segment { points })
+                .map(|(_, points)| Segment {
+                    points,
+                    ..Default::default()
+                })
                 .collect(),
         });
     }

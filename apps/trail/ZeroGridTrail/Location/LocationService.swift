@@ -7,8 +7,7 @@ enum LocationDemand: Hashable {
     case map, recording, guidance
 }
 
-/// How the GPS is set. Only "Standard" for now; the profiles that save
-/// battery come once the measurements are there.
+/// How the GPS is set: "Standard", or coarser during a rest to save battery.
 struct LocationProfile: Equatable {
     let accuracy: CLLocationAccuracy
     let distanceFilter: CLLocationDistance
@@ -16,6 +15,10 @@ struct LocationProfile: Equatable {
     /// The usual setting of such apps; how often a point is kept is up to
     /// the core (by activity).
     static let standard = LocationProfile(accuracy: kCLLocationAccuracyBest, distanceFilter: kCLDistanceFilterNone)
+    /// During a rest, "Stark".
+    static let restStrong = LocationProfile(accuracy: kCLLocationAccuracyHundredMeters, distanceFilter: 25)
+    /// During a rest, "Mäßig".
+    static let restModerate = LocationProfile(accuracy: kCLLocationAccuracyNearestTenMeters, distanceFilter: 15)
 }
 
 /// Told about positions and permission changes by a `LocationManaging`.
@@ -115,6 +118,10 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
         didSet { manager.activityType = Self.activityType(for: activity) }
     }
     let profile: LocationProfile
+    /// Set during a rest: holds instead of `profile`, but never while guiding.
+    var restProfile: LocationProfile? {
+        didSet { applyProfile() }
+    }
 
     private let core: CoreApp
     private let manager: LocationManaging
@@ -131,8 +138,7 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
         authorization = manager.authorizationStatus
         super.init()
         manager.sink = self
-        manager.desiredAccuracy = profile.accuracy
-        manager.distanceFilter = profile.distanceFilter
+        applyProfile()
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .other
         manager.allowsBackgroundLocationUpdates = false
@@ -167,8 +173,21 @@ final class LocationService: NSObject, ObservableObject, LocationSink {
         update()
     }
 
+    /// The profile in force: the guidance needs the best fixes.
+    var currentProfile: LocationProfile {
+        guard let restProfile, !demands.contains(.guidance) else { return profile }
+        return restProfile
+    }
+
+    private func applyProfile() {
+        let current = currentProfile
+        if manager.desiredAccuracy != current.accuracy { manager.desiredAccuracy = current.accuracy }
+        if manager.distanceFilter != current.distanceFilter { manager.distanceFilter = current.distanceFilter }
+    }
+
     /// Starts or stops the GPS and sets the background mode after the demands.
     private func update() {
+        applyProfile()
         blocked = (demands.contains(.recording) || demands.contains(.guidance))
             && (authorization == .denied || authorization == .restricted)
         let background = demands.contains(.recording) || demands.contains(.guidance)

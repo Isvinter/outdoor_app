@@ -9,11 +9,13 @@ pub mod geo;
 mod model;
 mod params;
 mod recorder;
+mod rest;
 mod stats;
 
 pub use error::TrackError;
 pub use filter::filter_segment;
-pub use model::{Activity, Segment, Track, TrackPoint};
+pub use model::{Activity, Segment, SegmentReason, Track, TrackPoint};
 pub use params::StatsParams;
 pub use recorder::{Recorder, RecorderState};
-pub use stats::{TrackStats, compute_stats, elevation_gain};
+pub use rest::{RestDetector, RestEvent, RestParams};
+pub use stats::{TrackStats, compute_section_stats, compute_stats, elevation_gain};
