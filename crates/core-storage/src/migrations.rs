@@ -77,6 +77,30 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     ALTER TABLE track_segments ADD COLUMN activity TEXT;
     ALTER TABLE track_segments ADD COLUMN reason TEXT;
     ",
+    // 5: photos and notes of a track; the files live in the app's data folder
+    "
+    CREATE TABLE track_media (
+        id          BLOB PRIMARY KEY NOT NULL,
+        track_id    BLOB NOT NULL REFERENCES tracks (id),
+        -- NULL: the whole track
+        segment_id  BLOB REFERENCES track_segments (id),
+        kind        TEXT NOT NULL,
+        source      TEXT NOT NULL,
+        time_ms     INTEGER,
+        lat         REAL,
+        lon         REAL,
+        -- relative to the app's data folder
+        file        TEXT,
+        text        TEXT,
+        transcribed INTEGER NOT NULL DEFAULT 0,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        deleted_at  INTEGER,
+        rev         INTEGER NOT NULL DEFAULT 1,
+        synced_rev  INTEGER NOT NULL DEFAULT 0
+    ) STRICT;
+    CREATE INDEX track_media_track ON track_media (track_id);
+    ",
 ];
 
 pub(crate) fn schema_version(conn: &Connection) -> Result<u32, StorageError> {

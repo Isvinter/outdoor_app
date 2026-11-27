@@ -305,7 +305,10 @@ fn routes_survive_reopening_and_old_databases_gain_the_table() {
     };
     let storage = Storage::open(&path).unwrap();
     assert_eq!(storage.list_routes().unwrap()[0].id, id);
-    assert_eq!(storage.schema_version().unwrap(), 4);
+    assert_eq!(
+        storage.schema_version().unwrap(),
+        Storage::CURRENT_SCHEMA_VERSION
+    );
 }
 
 #[test]
@@ -374,7 +377,8 @@ fn migration_4_keeps_old_segments() {
     // Turn the database back into schema 3.
     let conn = rusqlite::Connection::open(&path).unwrap();
     conn.execute_batch(
-        "ALTER TABLE track_segments DROP COLUMN activity;
+        "DROP TABLE track_media;
+         ALTER TABLE track_segments DROP COLUMN activity;
          ALTER TABLE track_segments DROP COLUMN reason;",
     )
     .unwrap();
@@ -382,7 +386,10 @@ fn migration_4_keeps_old_segments() {
     drop(conn);
 
     let db = Storage::open(&path).unwrap();
-    assert_eq!(db.schema_version().unwrap(), 4);
+    assert_eq!(
+        db.schema_version().unwrap(),
+        Storage::CURRENT_SCHEMA_VERSION
+    );
     let loaded = db.load_track(id).unwrap();
     assert_eq!(loaded.segments.len(), 1);
     assert_eq!(loaded.segments[0].points, [point(0)]);

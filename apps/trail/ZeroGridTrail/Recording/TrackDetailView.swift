@@ -1,10 +1,13 @@
 import SwiftUI
 
-/// One recorded track, while the map shows it: its numbers, and renaming,
-/// sharing as GPX and deleting.
+/// One recorded track, while the map shows it: its numbers, its sections
+/// with their photos and notes, and renaming, sharing as GPX and deleting.
+/// Photos and notes are changed in "Abschnitte bearbeiten" only.
 struct TrackDetailView: View {
     @ObservedObject var tracks: TracksController
+    @ObservedObject var media: MediaController
     let track: TrackView
+    @StateObject private var player = VoicePlayer()
     @State private var renaming = false
     @State private var deleting = false
     @State private var name = ""
@@ -35,13 +38,22 @@ struct TrackDetailView: View {
                 }
             }
             .font(.callout)
-            // With one section, its numbers are those above.
-            if track.sections.count > 1 {
+            if let permission = tracks.blocked {
+                PermissionNotice(permission: permission) { tracks.blocked = nil }
+            }
+            // With one section and nothing to it, its numbers are those above.
+            if track.sections.count > 1 || tracks.editing || !track.media.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Abschnitte")
                         .font(.subheadline.weight(.semibold))
+                    wholeTour
                     ForEach(track.sections, id: \.index) { section in
+                        let index = Int(section.index)
                         SectionRow(tracks: tracks, section: section)
+                        MediaList(
+                            tracks: tracks, media: media, player: player, trackId: track.summary.id,
+                            items: TracksController.media(of: track, section: index), section: index,
+                            editing: tracks.editing && tracks.selectedSection == .track(index))
                     }
                 }
             }
@@ -66,6 +78,7 @@ struct TrackDetailView: View {
                     .accessibilityIdentifier("track-delete")
             }
         }
+        .onDisappear { player.stop() }
         .alert("Track umbenennen", isPresented: $renaming) {
             TextField("Name des Tracks", text: $name)
             Button("Umbenennen") { tracks.rename(track.summary, to: name) }
@@ -74,6 +87,29 @@ struct TrackDetailView: View {
         .alert("Track löschen?", isPresented: $deleting) {
             Button("Löschen", role: .destructive) { tracks.delete(track.summary) }
             Button("Abbrechen", role: .cancel) {}
+        }
+    }
+
+    /// "Ganze Tour": photos and notes that belong to no section.
+    @ViewBuilder private var wholeTour: some View {
+        let items = TracksController.media(of: track, section: nil)
+        if !items.isEmpty || tracks.editing {
+            HStack {
+                Text("Ganze Tour")
+                    .font(.callout.weight(.semibold))
+                    .accessibilityIdentifier("whole-tour")
+                Spacer(minLength: 0)
+                if tracks.editing && !tracks.untranscribed.isEmpty {
+                    Button("Alle umwandeln") { Task { await tracks.transcribeAll() } }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("transcribe-all")
+                }
+            }
+            .padding(.horizontal, 6)
+            MediaList(
+                tracks: tracks, media: media, player: player, trackId: track.summary.id, items: items, section: nil,
+                editing: tracks.editing)
         }
     }
 

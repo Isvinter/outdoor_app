@@ -5,6 +5,7 @@
 mod app;
 mod error;
 mod guide;
+mod media;
 mod plan;
 mod regions;
 mod routes;
@@ -20,6 +21,7 @@ pub use guide::{
     NextWaypoint, OffNetwork, Projection, Remaining, RouteLine, TurnHint, WayBack, WayBackRouter,
     WayBackTarget,
 };
+pub use media::{MediaDetail, MediaInput};
 pub use plan::{
     KnownPosition, Leg, LegError, LegSpec, MAX_POSITION_AGE_S, PlanRequest, RoutePlan, RoutePoint,
     RouteStart, Stage, Totals,

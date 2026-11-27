@@ -8,6 +8,7 @@ struct PlanSheet: View {
     @ObservedObject var regions: RegionsController
     @ObservedObject var tracks: TracksController
     @ObservedObject var guide: GuideController
+    @ObservedObject var media: MediaController
     @Environment(\.colorScheme) private var colorScheme
     @Binding var detent: PresentationDetent
     @State private var showingRemoteRoutes = false
@@ -34,7 +35,7 @@ struct PlanSheet: View {
                 // A list, for the swipe actions of the saved routes.
                 List {
                     if let track = tracks.selected {
-                        TrackDetailView(tracks: tracks, track: track)
+                        TrackDetailView(tracks: tracks, media: media, track: track)
                             .listRowSeparator(.hidden)
                     } else {
                         Section {
@@ -55,6 +56,7 @@ struct PlanSheet: View {
         .padding(.top, 22)
         .frame(maxHeight: .infinity, alignment: .top)
         .modifier(WaypointMenu(plan: plan, guide: guide))
+        .modifier(MediaPresenter(media: media, tracks: tracks))
         // From here, because the map already presents this sheet.
         .sheet(isPresented: $regions.showing) {
             RegionsScreen(regions: regions)

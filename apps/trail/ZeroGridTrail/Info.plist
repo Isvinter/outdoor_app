@@ -30,11 +30,17 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Liest den QR-Code der Freigabe in ZeroGrid Base.</string>
+	<string>Fotografiert unterwegs für deine Tour und liest den QR-Code der Freigabe in ZeroGrid Base.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Lädt Karten und Routen von ZeroGrid Base im Heimnetz.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Zeigt deine Position auf der Karte, zeichnet Touren auf und führt dich auf der Route.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nimmt Sprachnotizen zu deiner Tour auf.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Sichert deine Fotos von unterwegs auch in der Fotomediathek.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Wandelt deine Sprachnotizen auf dem iPhone in Text um, ohne Netz.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

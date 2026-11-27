@@ -208,6 +208,16 @@ Beurteilung im Gelände.
   Bewegungszeit, wohl aber zur Gesamtzeit; ein Tunnel fehlt dadurch
   in der Strecke, dafür zählt keine Autofahrt mit ausgeschaltetem GPS. Importierte Tracks mit
   langen Pausen ohne Punkte werden beim Abspielen genauso geteilt.
+- **Fotos und Notizen** (`core-app`, Modul `media`): Ein Medium unterwegs bekommt die Zeit des
+  Aufrufs, den Ort des letzten Fixes und den **letzten gespeicherten Abschnitt mit einem Punkt**:
+  den laufenden, während einer Rast den Rast-Abschnitt, während einer Pause den vorigen, nach
+  einem Sportwechsel bis zum nächsten Fix noch den vorigen, nach dem Fortsetzen einer
+  abgebrochenen Aufnahme den letzten gespeicherten; vor dem ersten Punkt die ganze Tour. So
+  entsteht nie ein leerer Abschnitt nur für ein Foto. Gespeichert wird die UUID des Segments,
+  nicht seine Position; der Index für die Anzeige folgt aus der Reihenfolge der Segmente.
+  Nachträglich eingefügte Bilder und Notizen ohne Zeit bekommen den ersten Zeitpunkt ihres
+  Abschnitts (bei der ganzen Tour den des Tracks). Eine Aufnahme ohne Punkt, aber mit Medien,
+  wird beim Beenden behalten statt verworfen.
 
 ## 7. Live-Routing (`core-app`, Modul `guide`)
 

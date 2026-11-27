@@ -59,7 +59,10 @@ targets:
           - location
           - audio
         NSLocalNetworkUsageDescription: Lädt Karten und Routen von ZeroGrid Base im Heimnetz.
-        NSCameraUsageDescription: Liest den QR-Code der Freigabe in ZeroGrid Base.
+        NSCameraUsageDescription: Fotografiert unterwegs für deine Tour und liest den QR-Code der Freigabe in ZeroGrid Base.
+        NSMicrophoneUsageDescription: Nimmt Sprachnotizen zu deiner Tour auf.
+        NSPhotoLibraryAddUsageDescription: Sichert deine Fotos von unterwegs auch in der Fotomediathek.
+        NSSpeechRecognitionUsageDescription: Wandelt deine Sprachnotizen auf dem iPhone in Text um, ohne Netz.
         # The desktop's share is plain HTTP in the home network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

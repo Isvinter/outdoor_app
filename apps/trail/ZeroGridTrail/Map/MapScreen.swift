@@ -10,6 +10,7 @@ struct MapScreen: View {
     @ObservedObject var recording: RecordingController
     @ObservedObject var tracks: TracksController
     @ObservedObject var guide: GuideController
+    @ObservedObject var media: MediaController
     let start: AppStart.Ready
     @State private var detent = PlanSheet.collapsed
 
@@ -48,9 +49,9 @@ struct MapScreen: View {
                         .onTapGesture { guide.message = nil }
                 }
                 if recording.active {
-                    RecordingBar(recording: recording)
+                    RecordingBar(recording: recording, media: media)
                     if case .recording = tracks.selectedSection, let section = tracks.recordingSection {
-                        RecordingSectionCard(tracks: tracks, section: section)
+                        RecordingSectionCard(tracks: tracks, media: media, section: section)
                     }
                 } else if recording.choosingActivity {
                     StartRecordingPanel(recording: recording)
@@ -66,6 +67,13 @@ struct MapScreen: View {
                 if let message = recording.message {
                     Notice(text: message, warning: true)
                         .onTapGesture { recording.message = nil }
+                }
+                if let message = media.message {
+                    Notice(text: message, warning: true)
+                        .onTapGesture { media.message = nil }
+                }
+                if let permission = media.blocked {
+                    PermissionNotice(permission: permission) { media.blocked = nil }
                 }
                 if let message = tracks.message {
                     Notice(text: message, warning: true)
@@ -104,7 +112,9 @@ struct MapScreen: View {
                 MapSideButtons(
                     recording: recording,
                     record: recording.active || recording.ended != nil || recording.choosingActivity
-                        ? nil : { recording.requestStart() })
+                        ? nil : { recording.requestStart() },
+                    // During a recording "Foto" in the bar takes its place.
+                    camera: recording.active ? nil : { media.openCamera() })
                 LocationButton(accuracy: controller.locationAccuracy, on: controller.locating) {
                     controller.toggleLocation()
                 }
@@ -116,7 +126,7 @@ struct MapScreen: View {
             if start.options.selftest {
                 SelfTestStatus(
                     controller: controller, plan: plan, regions: regions, guide: guide, recording: recording,
-                    tracks: tracks, start: start)
+                    tracks: tracks, media: media, start: start)
             }
         }
         // The hits and the chosen one must not end up behind a raised sheet.
@@ -128,7 +138,7 @@ struct MapScreen: View {
         }
         // Always there, like the sheet of Apple Maps; the map stays usable beside it.
         .sheet(isPresented: .constant(true)) {
-            PlanSheet(plan: plan, regions: regions, tracks: tracks, guide: guide, detent: $detent)
+            PlanSheet(plan: plan, regions: regions, tracks: tracks, guide: guide, media: media, detent: $detent)
                 .presentationDetents(PlanSheet.detents, selection: $detent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
                 .presentationDragIndicator(.visible)
@@ -222,6 +232,7 @@ private struct SelfTestStatus: View {
     @ObservedObject var guide: GuideController
     @ObservedObject var recording: RecordingController
     @ObservedObject var tracks: TracksController
+    @ObservedObject var media: MediaController
     let start: AppStart.Ready
 
     var body: some View {
@@ -293,7 +304,11 @@ private struct SelfTestStatus: View {
         if recording.active {
             parts.append("recording_sections=\(recording.sectionCount)")
             parts.append("resting=\(recording.info.resting ? 1 : 0)")
+            parts.append("media=\(recording.mediaCount)")
         }
+        parts.append("media_files=\(media.fileCount)")
+        parts.append("library=\(media.librarySaved)")
+        parts.append("voice=\(media.voiceRecording ? 1 : 0)")
         let waypoints = plan.request.waypoints.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
         if let first = waypoints.first {
             parts.append("waypoint_xy=\(controller.screenPoints(of: waypoints))")
@@ -341,12 +356,33 @@ struct MapModeSwitch: View {
     }
 }
 
-/// The chosen section of the recording that runs; it changes in step 2 (notes, photos).
+/// The chosen section of the recording that runs, with its photos and notes,
+/// which can be changed here ("Abschnitte bearbeiten" is on while it shows).
 private struct RecordingSectionCard: View {
     @ObservedObject var tracks: TracksController
+    @ObservedObject var media: MediaController
     let section: TrackSection
+    @StateObject private var player = VoicePlayer()
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            if let view = tracks.recordingView {
+                let index = Int(section.index)
+                MediaList(
+                    tracks: tracks, media: media, player: player, trackId: view.summary.id,
+                    items: TracksController.media(of: view, section: index), section: index, editing: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: 480)
+        .panelBackground(in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("recording-section")
+        .onDisappear { player.stop() }
+    }
+
+    private var header: some View {
         HStack(spacing: 8) {
             Text(text)
                 .font(.callout)
@@ -363,11 +399,6 @@ private struct RecordingSectionCard: View {
             .accessibilityIdentifier("recording-section-close")
             .accessibilityLabel("Auswahl aufheben")
         }
-        .padding(12)
-        .frame(maxWidth: 480)
-        .panelBackground(in: RoundedRectangle(cornerRadius: 12))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("recording-section")
     }
 
     private var text: String {

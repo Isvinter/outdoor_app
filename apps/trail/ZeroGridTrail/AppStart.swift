@@ -28,6 +28,9 @@ enum AppStart {
         /// `-failPlansAfter <n>`: after `n` computed routes, every computation
         /// fails as a whole, as with a broken engine.
         var failPlansAfter: Int?
+        /// `-media-fakes`: camera, microphone, photo library and speech
+        /// recognition are stand-ins, as the simulator has none of them.
+        var mediaFakes = false
 
         init(arguments: [String] = ProcessInfo.processInfo.arguments) {
             guard arguments.contains("-selftest") else { return }
@@ -35,6 +38,7 @@ enum AppStart {
             // Wiping the data is for the UI tests only, never for a released app.
             #if DEBUG
             resetData = arguments.contains("-resetData")
+            mediaFakes = arguments.contains("-media-fakes")
             if let flag = arguments.firstIndex(of: "-importFixture"), flag + 1 < arguments.count {
                 importFixture = arguments[flag + 1]
             }
@@ -93,6 +97,7 @@ enum AppStart {
         if options.resetData {
             MapController.resetLook()
             RecordingController.resetSettings()
+            MediaController.resetSettings()
             try? files.removeItem(at: data)
             try? files.removeItem(at: documents.appendingPathComponent("Import"))
         }

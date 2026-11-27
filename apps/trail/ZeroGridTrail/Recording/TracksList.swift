@@ -17,6 +17,18 @@ final class TracksController: ObservableObject {
     @Published private(set) var selectedSection: SectionRef?
     /// The chosen section of the recording that runs, as the core has it now.
     @Published private(set) var recordingSection: TrackSection?
+    /// The recording that runs, while one of its sections is chosen: its photos and notes.
+    @Published private(set) var recordingView: TrackView?
+    /// Voice notes being turned into text.
+    @Published private(set) var transcribing: Set<String> = []
+    /// A photo or note to delete, once the user agrees.
+    @Published var confirmDelete: MediaItem?
+    /// The speech recognition was refused: the hint says where to allow it.
+    @Published var blocked: MediaPermission?
+    /// Turns voice notes into text, on the device only.
+    var transcriber: Transcribing = SystemTranscriber()
+    var permissions: PermissionAsking = SystemPermissions()
+    static let noOnDeviceMessage = "Umwandeln geht für Deutsch auf diesem iPhone nur mit Netz. Das Audio bleibt."
     /// A row was tapped outside "Abschnitte bearbeiten": the mode is to change.
     var onWantsEditing: (() -> Void)?
     /// A section was chosen: a chosen leg of the route goes.
@@ -99,8 +111,10 @@ final class TracksController: ObservableObject {
         selectedSection = section
         overlay?.select(section)
         recordingSection = nil
+        recordingView = nil
         if case .recording(let index) = section, let id = core.recordingStatus().trackId {
-            recordingSection = (try? core.trackDetail(id: id))?.sections.first { Int($0.index) == index }
+            recordingView = try? core.trackDetail(id: id)
+            recordingSection = recordingView?.sections.first { Int($0.index) == index }
         }
         if section != nil { onSectionChosen?() }
     }
@@ -134,6 +148,154 @@ final class TracksController: ObservableObject {
             refresh()
         } catch {
             message = "Der Track konnte nicht gelöscht werden: \(describe(error))"
+        }
+    }
+
+    // MARK: Photos and notes
+
+    /// The photos and notes of a section (`nil`: the whole tour) of the track looked at.
+    func media(for section: Int?) -> [MediaItem] {
+        Self.media(of: selected, section: section)
+    }
+
+    nonisolated static func media(of view: TrackView?, section: Int?) -> [MediaItem] {
+        view?.media.filter { $0.section.map(Int.init) == section } ?? []
+    }
+
+    /// Where the file of a photo or voice note lies.
+    func fileURL(_ item: MediaItem) -> URL? {
+        guard let file = item.file else { return nil }
+        return URL(fileURLWithPath: core.mediaDir(), isDirectory: true).deletingLastPathComponent()
+            .appendingPathComponent(file)
+    }
+
+    /// The photo or note and its track, in the track looked at or the recording.
+    private func find(_ id: String) -> (MediaItem, String)? {
+        for view in [selected, recordingView].compactMap({ $0 }) {
+            if let item = view.media.first(where: { $0.id == id }) { return (item, view.summary.id) }
+        }
+        return nil
+    }
+
+    /// The photos and notes of `track` changed: what shows it is read anew.
+    func mediaChanged(track: String) {
+        if selected?.summary.id == track, let view = try? core.trackDetail(id: track) {
+            selected = view
+        }
+        if let view = recordingView, view.summary.id == track, let fresh = try? core.trackDetail(id: track) {
+            recordingView = fresh
+            if let index = recordingSection?.index {
+                recordingSection = fresh.sections.first { $0.index == index }
+            }
+        }
+    }
+
+    /// "Notiz" for a section or the whole tour; its time is the start of the section.
+    func addNote(track: String, section: Int?, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        do {
+            _ = try core.addTrackMedia(
+                trackId: track, section: section.map(UInt32.init),
+                input: MediaInput(kind: "text", source: "typed", file: nil, text: text, timeMs: nil, lat: nil, lon: nil))
+            mediaChanged(track: track)
+        } catch {
+            message = "Die Notiz konnte nicht gespeichert werden: \(describe(error))"
+        }
+    }
+
+    /// "Bild einfügen": copies of the pictures go to `media/` in their own
+    /// format, with time and place from their metadata if they have any.
+    func insertImages(track: String, section: Int?, files: [URL]) {
+        let directory = URL(fileURLWithPath: core.mediaDir(), isDirectory: true)
+        for file in files {
+            let (url, relative) = MediaController.newFileURL(in: directory, ext: LibraryImport.fileExtension(of: file))
+            do {
+                try FileManager.default.copyItem(at: file, to: url)
+                let found = LibraryImport.metadata(of: url)
+                _ = try core.addTrackMedia(
+                    trackId: track, section: section.map(UInt32.init),
+                    input: MediaInput(
+                        kind: "photo", source: "library", file: relative, text: nil, timeMs: found.timeMs,
+                        lat: found.lat, lon: found.lon))
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+                message = "Das Bild konnte nicht eingefügt werden: \(describe(error))"
+            }
+        }
+        // The copies of the picker, each choice in a folder of its own.
+        for folder in Set(files.map { $0.deletingLastPathComponent() }) {
+            try? FileManager.default.removeItem(at: folder)
+        }
+        mediaChanged(track: track)
+    }
+
+    /// The text of a note or voice note changed; an empty note is offered for deleting.
+    func editText(id: String, text: String) {
+        guard let (item, track) = find(id) else { return }
+        do {
+            _ = try core.setMediaText(id: id, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+            mediaChanged(track: track)
+        } catch CoreError.Failed(let code, _) where code == "invalid_media" {
+            confirmDelete = item
+        } catch {
+            message = "Die Notiz konnte nicht geändert werden: \(describe(error))"
+        }
+    }
+
+    /// Deletes the photo or note and Trail's copy of its file (never the picture in the library).
+    func delete(id: String) {
+        let track = find(id)?.1
+        do {
+            try core.deleteMedia(id: id)
+            if let track { mediaChanged(track: track) }
+        } catch {
+            message = "Das konnte nicht gelöscht werden: \(describe(error))"
+        }
+    }
+
+    /// "In Text umwandeln": on the device only; the audio stays.
+    func transcribe(id: String) async {
+        guard let (item, track) = find(id), item.kind == "voice", let url = fileURL(item) else { return }
+        guard transcriber.supportsOnDevice else {
+            message = Self.noOnDeviceMessage
+            return
+        }
+        guard await permissions.request(.speech) else {
+            blocked = .speech
+            return
+        }
+        transcribing.insert(id)
+        defer { transcribing.remove(id) }
+        do {
+            let text = try await transcriber.transcribe(url).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                message = "In der Sprachnotiz wurde nichts erkannt."
+                return
+            }
+            _ = try core.setMediaTranscript(id: id, text: text)
+            mediaChanged(track: track)
+        } catch {
+            message = "Die Sprachnotiz konnte nicht umgewandelt werden: \(describe(error))"
+        }
+    }
+
+    /// The voice notes of the track looked at that have no text yet.
+    var untranscribed: [MediaItem] {
+        selected?.media.filter { $0.kind == "voice" && !$0.transcribed && ($0.text ?? "").isEmpty } ?? []
+    }
+
+    /// "Alle umwandeln": each voice note of the tour without text, one after the other.
+    func transcribeAll() async {
+        let pending = untranscribed
+        guard !pending.isEmpty else { return }
+        guard transcriber.supportsOnDevice else {
+            message = Self.noOnDeviceMessage
+            return
+        }
+        for item in pending {
+            await transcribe(id: item.id)
+            if blocked != nil { return }
         }
     }
 

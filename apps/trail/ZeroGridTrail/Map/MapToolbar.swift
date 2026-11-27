@@ -76,14 +76,18 @@ struct MapToolbar: View {
     }
 }
 
-/// Above the location button: start a recording, and the settings of the guidance and the rests.
+/// Above the location button: start a recording, the camera, and the settings of the guidance, the rests
+/// and the photos.
 struct MapSideButtons: View {
     @ObservedObject var recording: RecordingController
     /// Starts a recording; nil while one runs.
     var record: (() -> Void)?
+    /// Opens the camera; the photo goes to the library. Nil during a recording.
+    var camera: (() -> Void)?
     @AppStorage(DeviationAlert.soundKey) private var deviationSound = true
     @AppStorage(TurnAnnouncer.notificationsKey) private var turnNotifications = false
     @AppStorage(TurnAnnouncer.speechKey) private var turnSpeech = false
+    @AppStorage(MediaController.saveToLibraryKey) private var savePhotosToLibrary = true
 
     var body: some View {
         VStack(spacing: 12) {
@@ -109,6 +113,8 @@ struct MapSideButtons: View {
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("rest-throttle")
+                Toggle("Fotos auch in der Mediathek sichern", isOn: $savePhotosToLibrary)
+                    .accessibilityIdentifier("save-photos-to-library")
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.title3)
@@ -118,6 +124,17 @@ struct MapSideButtons: View {
             }
             .accessibilityIdentifier("map-settings")
             .accessibilityLabel("Einstellungen")
+            if let camera {
+                Button(action: camera) {
+                    Image(systemName: "camera")
+                        .font(.title2)
+                        .foregroundStyle(Color.primary)
+                        .frame(width: 48, height: 48)
+                        .panelBackground(in: Circle())
+                }
+                .accessibilityIdentifier("camera")
+                .accessibilityLabel("Kamera")
+            }
             if let record {
                 Button(action: record) {
                     Image(systemName: "record.circle")
