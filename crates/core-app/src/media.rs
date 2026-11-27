@@ -216,15 +216,17 @@ impl App {
     }
 
     /// Sets the text transcribed from a voice note; other media have no voice:
-    /// [`AppError::InvalidMedia`].
+    /// [`AppError::InvalidMedia`]. Nothing recognised (an empty text) leaves the
+    /// note without text and not transcribed, to be tried again.
     pub fn set_media_transcript(&self, id: Uuid, text: &str) -> Result<MediaDetail, AppError> {
         let mut inner = self.shared.inner();
         if inner.storage.media(id)?.kind != MediaKind::Voice {
             return Err(AppError::InvalidMedia);
         }
+        let text = (!text.trim().is_empty()).then_some(text);
         inner
             .storage
-            .set_media_text(id, Some(text), true, now_ms())?;
+            .set_media_text(id, text, text.is_some(), now_ms())?;
         detail_of(&inner.storage, id)
     }
 

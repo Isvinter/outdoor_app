@@ -45,3 +45,17 @@ Danach Abschlussprüfung des ganzen Branchs, iPhone-Test durch den Nutzer, PR.
 - `setMediaTranscript` mit leerem Text speichert `""` mit `transcribed = true` (statt keinen Text).
 - Unterwegs ist der Ort der letzte Fix, auch wenn er alt ist (lange ohne GPS); kein Alterslimit.
 - Bleibt eine Datei liegen, weil das Melden scheitert oder die App dazwischen endet, räumt niemand sie auf.
+
+## Abschluss auf dem Mac (2026-11-27)
+
+- Tasks 4 und 5 in einem Commit (785c666; sie teilen `MediaController` und das Präsentieren aus dem
+  PlanSheet). Testersatz mit `-media-fakes`: JPEG und stumme m4a erzeugt die App selbst.
+- iPhone-Test durch den Nutzer bestanden. Dabei aufgefallen und behoben (5c6aa89): „Rückgängig“/„Leeren“
+  waren ohne Wegpunkte gesperrt, sahen aber aktiv aus. Im Modus „Abschnitte bearbeiten“ bleiben sie mit
+  Route an (Teilstücke der Route).
+- Abschlussprüfung: `setMediaTranscript` mit leerem Text speichert jetzt keinen Text und lässt
+  `transcribed` aus (neuer Test `empty_transcript_is_no_text`); „Bild einfügen“ räumt seine
+  Hilfsordner auf. Trail: 220 Tests grün; `core-storage`, `core-app`, `core-ffi` grün, clippy sauber.
+- Offen als spätere Aufgaben: Ort unterwegs ohne Alterslimit des letzten Fixes; liegen gebliebene
+  Dateien in `media/` räumt niemand auf; ein Foto, dessen Kamera noch offen war, als die Aufnahme
+  endete, geht nur in die Mediathek.

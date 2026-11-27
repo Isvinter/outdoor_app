@@ -87,7 +87,8 @@ final class LibraryImportTests: XCTestCase {
         let copy = try XCTUnwrap(recorded.tracks.fileURL(item))
         XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path))
         XCTAssertEqual(copy.deletingLastPathComponent().lastPathComponent, "media")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: heic.path), "the scratch copy is gone")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: heic.deletingLastPathComponent().path), "the scratch copy is gone")
         // Without a time of its own: the start of the section.
         XCTAssertEqual(item.timeMs, recorded.tracks.selected?.sections.first?.startMs)
         XCTAssertNil(item.lat)

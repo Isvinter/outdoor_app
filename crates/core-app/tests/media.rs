@@ -516,6 +516,29 @@ fn edit_text_keeps_transcribed() {
 }
 
 #[test]
+fn empty_transcript_is_no_text() {
+    let app = open("empty-transcript");
+    let track = finished_track(&app);
+    let file = media_file(&app, "s.m4a");
+    let id = app
+        .add_track_media(
+            track,
+            None,
+            MediaInput {
+                kind: MediaKind::Voice,
+                source: MediaSource::Spoken,
+                ..library_input(file, None, None)
+            },
+        )
+        .unwrap()
+        .record
+        .id;
+    let silent = app.set_media_transcript(id, "  ").unwrap();
+    assert_eq!(silent.record.text, None);
+    assert!(!silent.record.transcribed);
+}
+
+#[test]
 fn transcript_only_for_voice() {
     let app = open("transcript-text");
     let track = finished_track(&app);

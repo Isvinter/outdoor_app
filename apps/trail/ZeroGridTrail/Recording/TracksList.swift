@@ -222,7 +222,10 @@ final class TracksController: ObservableObject {
                 try? FileManager.default.removeItem(at: url)
                 message = "Das Bild konnte nicht eingefügt werden: \(describe(error))"
             }
-            try? FileManager.default.removeItem(at: file)
+        }
+        // The copies of the picker, each choice in a folder of its own.
+        for folder in Set(files.map { $0.deletingLastPathComponent() }) {
+            try? FileManager.default.removeItem(at: folder)
         }
         mediaChanged(track: track)
     }
