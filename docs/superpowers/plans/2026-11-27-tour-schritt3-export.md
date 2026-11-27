@@ -75,7 +75,7 @@
 
 Titel = Name, sonst Startdatum `dd.MM.yyyy, HH:mm`, sonst „Tour“. „Abschnitt n“ zählt `index + 1` (Rasten mitgezählt, damit n zu `index` passt). Jeder Abschnitt hat eine Überschrift, auch ohne Medien; „Ganze Tour“ nur mit Medien. Medien in Manifest-Reihenfolge (nach Zeit). Textnotiz „Notiz: <Text>“; Folgezeilen eines Textes mit zwei Leerzeichen eingerückt. Fehlende Datei: „Foto (Datei fehlt)“ bzw. „Sprachnotiz (Datei fehlt)“.
 
-- [ ] **Step 1: Tests schreiben** (`tests/package.rs`; Tracks über die vorhandenen Fix-Helfer aus `tests/common` aufnehmen, Dateien in `app.media_dir()` anlegen, `TrackDetail` mit `app.track_detail`)
+- [x] **Step 1: Tests schreiben** (`tests/package.rs`; Tracks über die vorhandenen Fix-Helfer aus `tests/common` aufnehmen, Dateien in `app.media_dir()` anlegen, `TrackDetail` mit `app.track_detail`)
   - `manifest_has_stable_ids` (Tour-ID = Track-ID, `sections[i].id == segment_ids[i]`, Medien-IDs gleich; zweiter Aufruf → gleiche IDs).
   - `manifest_round_trips_json` (`serde_json::to_string` → `from_str` → gleich; `format == "zerogrid-tour"`, `version == 1`).
   - `rest_section_is_rest` (Rast-Abschnitt → `activity == "rest"`, `reason == Rest`; `tour.activities` ohne Rast, `[Bike, Hike]` bei Wechsel Rad → Wandern).
@@ -86,10 +86,10 @@ Titel = Name, sonst Startdatum `dd.MM.yyyy, HH:mm`, sonst „Tour“. „Abschni
   - `markdown_without_name_or_times` (kein Name, keine Zeiten → Titel „Tour“, Zeiten „–“).
   - `markdown_keeps_multiline_text` (Text `"Zeile 1\n# Zeile 2 *x*"` → `- – · Notiz: Zeile 1\n  # Zeile 2 *x*`; im Manifest exakt der Ausgangstext).
   - `markdown_missing_file` (→ „Foto (Datei fehlt)“).
-- [ ] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-app --test package` · Expected: Kompilierfehler für die neuen Namen.
-- [ ] **Step 3: Implementieren** in `package.rs`. Lokale Zeit: `time::UtcOffset::from_whole_seconds(offset * 60)` (`time` als Abhängigkeit von `core-app` aus dem Workspace ergänzen). Sportartnamen als `fn activity_label(Activity) -> &'static str` mit den Texten der Global Constraints.
-- [ ] **Step 4: Tests laufen lassen** — Run: `cargo test -p core-app` · Expected: alle PASS.
-- [ ] **Step 5: Commit** — `git commit -m "Describe a tour as manifest and readable notes"`.
+- [x] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-app --test package` · Expected: Kompilierfehler für die neuen Namen.
+- [x] **Step 3: Implementieren** in `package.rs`. Lokale Zeit: `time::UtcOffset::from_whole_seconds(offset * 60)` (`time` als Abhängigkeit von `core-app` aus dem Workspace ergänzen). Sportartnamen als `fn activity_label(Activity) -> &'static str` mit den Texten der Global Constraints.
+- [x] **Step 4: Tests laufen lassen** — Run: `cargo test -p core-app` · Expected: alle PASS.
+- [x] **Step 5: Commit** — `git commit -m "Describe a tour as manifest and readable notes"`.
 
 ---
 
@@ -106,7 +106,7 @@ Titel = Name, sonst Startdatum `dd.MM.yyyy, HH:mm`, sonst „Tour“. „Abschni
   - `AppError::ExportNoSpace` (Code `export_no_space`, aus `io::ErrorKind::StorageFull`), `AppError::Export(String)` (Code `export_failed`, alle anderen I/O- und ZIP-Fehler). Laufende Aufnahme → vorhandenes `RecordingActive`; unbekannter Track → vorhandenes `NotFound`.
   - FFI (Swift-Name): `exportTour(trackId: String, path: String, utcOffsetMin: Int32) throws`.
 
-- [ ] **Step 1: Tests schreiben** (ZIP in Tests mit dem `zip`-Crate lesen; `zip` auch als dev-dependency)
+- [x] **Step 1: Tests schreiben** (ZIP in Tests mit dem `zip`-Crate lesen; `zip` auch als dev-dependency)
   - `zip_has_expected_entries` (Track mit Kamerafoto, Bild aus der Mediathek, Sprachnotiz, Textnotiz → Einträge genau `track.gpx`, `tour.json`, `notizen.md`, `fotos/<a>.jpg`, `fotos/<b>.heic`, `notizen/<c>.m4a`; Fotos/Audio `CompressionMethod::Stored`, Text `Deflated`).
   - `zip_content_matches_sources` (`track.gpx` == `export_gpx(id)`; Fotobytes gleich der Datei in `media/`; `tour.json` parst als `TourManifest`; `notizen.md` == `notes_markdown(&manifest)`).
   - `deleted_media_is_left_out` (gelöschtes Foto → weder Eintrag noch Datei).
@@ -119,11 +119,11 @@ Titel = Name, sonst Startdatum `dd.MM.yyyy, HH:mm`, sonst „Tour“. „Abschni
   - `existing_dest_is_replaced` (zweimal auf denselben Pfad → gültige ZIP, keine `.part`).
   - `storage_full_maps_to_no_space` (Umwandlung `io::Error` mit `StorageFull` → `AppError::ExportNoSpace`, Code `export_no_space`; als Unit-Test der Umwandlungsfunktion in `package.rs`).
   - FFI: `export_tour_through_ffi` (Track mit Foto, `export_tour(id, path, 60)` → Datei ist eine ZIP mit `tour.json`); `export_bad_id_has_code`.
-- [ ] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-app --test package && cargo test -p core-ffi` · Expected: Kompilierfehler für die neuen Namen.
-- [ ] **Step 3: Implementieren.** `zip` in `[workspace.dependencies]` (aktuelle Version, `default-features = false`, nur das Deflate-Feature über `flate2`). Unter der Sperre nur einsammeln: `track_detail`, `segment_ids`, `list_media`, GPX-Text; dann Sperre frei. Schreiben über `ZipWriter<BufWriter<File>>`, Medien mit `std::io::copy` aus der geöffneten Datei, `large_file(true)` für Einträge über 4 GiB − 1. Ob eine Datei da ist, entscheidet ein Versuch, sie zu öffnen (`present` in Task 1 bekommt dieses Ergebnis). `exported_at_ms` = jetzt.
-- [ ] **Step 4: Alles prüfen** — Run: `cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check` · Expected: alle grün.
-- [ ] **Step 5: Commit** — `git commit -m "Pack a tour with photos and notes into a ZIP"`.
-- [ ] **Step 6: Übergabe schreiben** — `docs/superpowers/plans/2026-11-27-uebergabe-tour-schritt3-mac.md` (erledigte Commits, Testzahl, Hinweise für Swift: Zielpfad, Codes, Dauer bei großen Touren, Aufräumen), committen. **Anhalten**, dem Nutzer zeigen; Push nach Rückfrage für die Mac-Sitzung.
+- [x] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-app --test package && cargo test -p core-ffi` · Expected: Kompilierfehler für die neuen Namen.
+- [x] **Step 3: Implementieren.** `zip` in `[workspace.dependencies]` (aktuelle Version, `default-features = false`, nur das Deflate-Feature über `flate2`). Unter der Sperre nur einsammeln: `track_detail`, `segment_ids`, `list_media`, GPX-Text; dann Sperre frei. Schreiben über `ZipWriter<BufWriter<File>>`, Medien mit `std::io::copy` aus der geöffneten Datei, `large_file(true)` für Einträge über 4 GiB − 1. Ob eine Datei da ist, entscheidet ein Versuch, sie zu öffnen (`present` in Task 1 bekommt dieses Ergebnis). `exported_at_ms` = jetzt.
+- [x] **Step 4: Alles prüfen** — Run: `cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check` · Expected: alle grün.
+- [x] **Step 5: Commit** — `git commit -m "Pack a tour with photos and notes into a ZIP"`.
+- [x] **Step 6: Übergabe schreiben** — `docs/superpowers/plans/2026-11-27-uebergabe-tour-schritt3-mac.md` (erledigte Commits, Testzahl, Hinweise für Swift: Zielpfad, Codes, Dauer bei großen Touren, Aufräumen), committen. **Anhalten**, dem Nutzer zeigen; Push nach Rückfrage für die Mac-Sitzung.
 
 ---
 
