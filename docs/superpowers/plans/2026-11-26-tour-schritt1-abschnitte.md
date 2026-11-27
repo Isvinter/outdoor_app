@@ -194,7 +194,9 @@ Nachtrag 2026-11-27 nach dem iPhone-Test; Spec: „Kartenmodi“ in Schritt 1. N
   Abweichungen beim Bau: Schalter oben unter der Kartenleiste statt unten links (unten verdeckt ihn das Blatt, sobald ein
   Track offen ist); Tipp-Stellen der Routen-Tests darunter verschoben. `keepPicking` entfällt (der Modus wechselt nur über
   den Schalter). Rastsymbol als Bitmap (eingefärbtes SF-Symbol fehlte im Dunkelmodus).
-- [ ] **Step 6: Anhalten**, iPhone-Test durch den Nutzer; danach Abschlussprüfung des Branchs und PR.
+- [x] **Step 6: Anhalten**, iPhone-Test durch den Nutzer; danach Abschlussprüfung des Branchs und PR.
+  iPhone-Test 2026-11-27 bestanden („funktioniert alles wie erwünscht“). Abschlussprüfung: 8a19e33 (ungültige
+  Rast-Einstellungen schalten die Erkennung aus, fehlende Tests ergänzt, README).
 
 ## Nachtrag für Schritt 2 (Plan entsteht unter Linux)
 

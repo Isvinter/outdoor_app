@@ -24,6 +24,11 @@ des ganzen Branchs, iPhone-Test durch den Nutzer, PR.
 - Task 4: cf39d9c, Task 5: ac0e719, alle Trail-Tests grün; iPhone-Test bestanden bis auf die Befunde in Task 5 Step 6.
 - a9bb76a: Hinweis zur GPS-Lücke verschwindet von selbst.
 - Neu: Task 6 (Kartenmodi) im Plan, Nachtrag für Schritt 2 am Ende des Plans; Spec ergänzt.
+- Task 6: 294c55a, iPhone-Test bestanden. Abschlussprüfung: 8a19e33. Schritt 1 ist fertig; weiter mit dem Plan für
+  Schritt 2 unter Linux (Nachtrag am Ende des Plans beachten).
+- Offen gelassen (im PR genannt, klein): Namensraum von `<zg:section>` wird beim Lesen nicht geprüft;
+  `set_track_activity` ohne gemeinsame Transaktion; Pause → Sportwechsel → Weiter speichert Grund `Resume`;
+  `import_gpx` nimmt die gewählte Sportart als Track-Sportart, auch wenn der erste Abschnitt eine andere hat.
 
 ## Entscheidungen unterwegs (gelten weiter)
 
