@@ -264,6 +264,20 @@ fn matrix_for_every_valhalla_profile() {
     }
 }
 
+/// `count` points evenly on a circle of `radius_km` around `centre`.
+fn ring(centre: LatLon, radius_km: f64, count: u32) -> Vec<LatLon> {
+    (0..count)
+        .map(|i| {
+            let angle = f64::from(i) / f64::from(count) * std::f64::consts::TAU;
+            LatLon {
+                lat: centre.lat + radius_km / 111.195 * angle.cos(),
+                lon: centre.lon
+                    + radius_km / (111.195 * centre.lat.to_radians().cos()) * angle.sin(),
+            }
+        })
+        .collect()
+}
+
 /// Timing on a real region: `ZG_MATRIX_TILES=<routing.tar> cargo test --release
 /// -p core-routing --features valhalla --test valhalla measure_matrix -- --ignored --nocapture`.
 #[test]
@@ -280,36 +294,9 @@ fn measure_matrix_on_real_tiles() {
     println!("profile  radius_km  median_ms  routed/30");
     for profile in [Profile::Hike, Profile::Trekking, Profile::Mtb] {
         for radius_km in [10.0_f64, 25.0, 50.0] {
-            let to: Vec<LatLon> = (0..30)
-                .map(|i| {
-                    let angle = f64::from(i) / 30.0 * std::f64::consts::TAU;
-                    LatLon {
-                        lat: bolzano.lat + radius_km / 111.195 * angle.cos(),
-                        lon: bolzano.lon
-                            + radius_km / (111.195 * bolzano.lat.to_radians().cos()) * angle.sin(),
-                    }
-                })
-                .collect();
+            let to = ring(bolzano, radius_km, 30);
             let req = matrix_request(profile, bolzano, to);
-            let first = router.matrix(&req).unwrap();
-            if std::env::var("ZG_MATRIX_CHECK").is_ok() {
-                let missing: Vec<usize> = (0..30).filter(|&i| first[i].is_none()).collect();
-                let single_ok = missing
-                    .iter()
-                    .filter_map(|&i| {
-                        router
-                            .route(&request(profile, bolzano, req.to[i]))
-                            .ok()
-                            .map(|r| r.distance_m)
-                    })
-                    .collect::<Vec<_>>();
-                println!(
-                    "check {profile:?} {radius_km}: matrix None {}, single routes ok {} {:?}",
-                    missing.len(),
-                    single_ok.len(),
-                    single_ok
-                );
-            }
+            router.matrix(&req).unwrap();
             let mut times = Vec::new();
             let mut routed = 0;
             for _ in 0..3 {
@@ -324,5 +311,64 @@ fn measure_matrix_on_real_tiles() {
             times.sort_by(f64::total_cmp);
             println!("{profile:?}  {radius_km}  {:.0}  {routed}", times[1]);
         }
+    }
+}
+
+#[test]
+fn target_outside_the_tiles_does_not_blank_the_others() {
+    let outside = LatLon {
+        lat: 48.5,
+        lon: 12.5,
+    };
+    let entries = router()
+        .matrix(&matrix_request(
+            Profile::Hike,
+            STATION,
+            vec![NEUREUTH, outside],
+        ))
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    assert!(entries[0].is_some());
+    assert!(entries[1].is_none(), "{:?}", entries[1]);
+}
+
+/// A search for a target without a way must not run on and on: batch of 29 targets at
+/// 50 km around Bozen plus one point (in the Dolomites) that bikes cannot reach.
+#[test]
+#[ignore = "needs a real region in ZG_MATRIX_TILES"]
+fn matrix_with_an_unreachable_target_stays_fast() {
+    use std::time::Instant;
+
+    let tiles = std::env::var("ZG_MATRIX_TILES").expect("ZG_MATRIX_TILES");
+    let router = ValhallaRouter::open(&PathBuf::from(tiles)).unwrap();
+    let bolzano = LatLon {
+        lat: 46.4983,
+        lon: 11.3548,
+    };
+    let unreachable = LatLon {
+        lat: 46.65,
+        lon: 12.27,
+    };
+    println!("profile  median_ms  routed/30");
+    for profile in [Profile::Trekking, Profile::Mtb] {
+        let mut to = ring(bolzano, 50.0, 29);
+        to.push(unreachable);
+        let req = matrix_request(profile, bolzano, to);
+        router.matrix(&req).unwrap();
+        let mut times = Vec::new();
+        let mut entries = Vec::new();
+        for _ in 0..3 {
+            let start = Instant::now();
+            entries = router.matrix(&req).unwrap();
+            times.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        times.sort_by(f64::total_cmp);
+        println!(
+            "{profile:?}  {:.0}  {}",
+            times[1],
+            entries.iter().flatten().count()
+        );
+        assert!(entries[29].is_none(), "{profile:?} reaches the point");
+        assert!(times[1] < 300.0, "{profile:?}: {} ms", times[1]);
     }
 }

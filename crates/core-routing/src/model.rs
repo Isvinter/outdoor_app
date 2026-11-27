@@ -265,7 +265,8 @@ pub enum RoutingError {
 pub trait Router: Send + Sync {
     fn route(&self, request: &RouteRequest) -> Result<Route, RoutingError>;
     /// Route distance and time from one point to many. The result has one
-    /// entry per target, in order; `None` means there is no way.
+    /// entry per target, in order; `None` means there is no way (also for a
+    /// target that cannot be placed on the network, e.g. outside the map).
     fn matrix(&self, _request: &MatrixRequest) -> Result<Vec<Option<MatrixEntry>>, RoutingError> {
         Err(RoutingError::Unavailable(
             "this router has no matrix".into(),
