@@ -33,7 +33,6 @@ pub struct SearchHit {
     pub town: Option<String>,
     pub lat: f64,
     pub lon: f64,
-    /// From the point the search was made around.
     /// From the own position if one was used, else from the search point.
     pub distance_m: f64,
     /// As the crow flies from the point the search was made around.

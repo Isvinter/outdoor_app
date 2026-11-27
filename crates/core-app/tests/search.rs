@@ -828,7 +828,7 @@ fn far_places_keep_their_slots() {
         &dir,
         &[
             lodging("Seeblick Hostel", -13.509, -71.5),
-            place("Seeblick", -13.5, -73.5),
+            place("Seeblickort", -13.5, -73.5),
         ],
     );
     let router = fake(vec![(at(-13.509, -71.5), way(6_000.0))]);
@@ -841,7 +841,7 @@ fn far_places_keep_their_slots() {
         Some(&from(Profile::Trekking, 5.0)),
     );
     let names: Vec<_> = found.hits.iter().map(|h| h.name.as_str()).collect();
-    assert_eq!(names, ["Seeblick Hostel", "Seeblick"]);
+    assert_eq!(names, ["Seeblick Hostel", "Seeblickort"]);
     let far = &found.hits[1];
     assert!(far.route_m.is_none() && !far.no_route);
     assert!(
@@ -893,4 +893,30 @@ fn only_shown_hits_are_routed() {
     let calls = router.calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].to.len(), 3);
+}
+
+#[test]
+fn exact_far_town_ranks_above_partial_hits_with_position() {
+    let dir = common::temp_dir("route-far-town");
+    let app = lodgings(
+        &dir,
+        &[
+            lodging("Seeblickhof", -13.509, -71.5),
+            place("Seeblick", -13.5, -73.5),
+        ],
+    );
+    app.set_router_for_tests("a", fake(vec![(at(-13.509, -71.5), way(6_000.0))]));
+    let with = app.search_from(
+        "Seeblick",
+        CENTRE,
+        2_000.0,
+        30,
+        Some(&from(Profile::Trekking, 5.0)),
+    );
+    let without = app.search("Seeblick", CENTRE, 2_000.0, 30);
+    let order = |r: &core_app::SearchResults| -> Vec<String> {
+        r.hits.iter().map(|h| h.name.clone()).collect()
+    };
+    assert_eq!(order(&with), ["Seeblick", "Seeblickhof"]);
+    assert_eq!(order(&without), order(&with));
 }

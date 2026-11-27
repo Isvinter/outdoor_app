@@ -96,9 +96,9 @@ impl App {
             });
         }
         measured.sort_by(|a, b| {
-            a.far
-                .cmp(&b.far)
-                .then(a.match_rank.cmp(&b.match_rank))
+            a.match_rank
+                .cmp(&b.match_rank)
+                .then(a.far.cmp(&b.far))
                 .then(a.group.cmp(&b.group))
                 .then(a.key.partial_cmp(&b.key).unwrap_or(Ordering::Equal))
         });
