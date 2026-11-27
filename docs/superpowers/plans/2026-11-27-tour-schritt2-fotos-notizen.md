@@ -55,7 +55,7 @@
   - `Storage::segment_ids(&self, track: Uuid) -> Result<Vec<Uuid>, StorageError>` (nach `seq`; Position = Abschnittsindex wie in `load_track`).
   - `delete_track` löscht in derselben Transaktion alle Medien des Tracks weich.
 
-- [ ] **Step 1: Tests schreiben** (`tests/media.rs`)
+- [x] **Step 1: Tests schreiben** (`tests/media.rs`)
   - `migration_5_opens_schema_4` (Datenbank mit Schema 4 wie die vorhandenen Migrationstests anlegen, öffnen → `schema_version() == 5`, `list_media(track)` leer).
   - `media_round_trip` (Foto mit Segment, Zeit, Ort, Datei; Text ohne Segment → `list_media` gibt beide mit allen Feldern, `transcribed == false`, `rev == 1`).
   - `list_orders_by_time_untimed_last`.
@@ -64,8 +64,8 @@
   - `deleted_media_is_not_listed` und `deleting_track_deletes_its_media` (Eintrag hat danach `deleted_at`, `media(id)` → `NotFound`).
   - `segment_ids_follow_seq` (drei `begin_segment` → IDs in dieser Reihenfolge).
   - `media_survives_section_activity_change` (`set_segment_activity` auf das Segment des Mediums → Medium unverändert gelistet).
-- [ ] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-storage --test media` · Expected: Kompilierfehler für die neuen Namen.
-- [ ] **Step 3: Implementieren.** Migration 5 (nur anhängen):
+- [x] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-storage --test media` · Expected: Kompilierfehler für die neuen Namen.
+- [x] **Step 3: Implementieren.** Migration 5 (nur anhängen):
   ```sql
   CREATE TABLE track_media (
       id          BLOB PRIMARY KEY NOT NULL,
@@ -88,8 +88,8 @@
   CREATE INDEX track_media_track ON track_media (track_id);
   ```
   Unbekannte `kind`/`source` beim Lesen → `StorageError::Corrupt`.
-- [ ] **Step 4: Tests laufen lassen** — Run: `cargo test -p core-storage` · Expected: alle PASS.
-- [ ] **Step 5: Commit** — `git commit -m "Store photos and notes of a track"`.
+- [x] **Step 4: Tests laufen lassen** — Run: `cargo test -p core-storage` · Expected: alle PASS.
+- [x] **Step 5: Commit** — `git commit -m "Store photos and notes of a track"`.
 
 ---
 
@@ -114,7 +114,7 @@
   - `App::delete_media(&self, id: Uuid) -> Result<(), AppError>` (weich löschen, dann Datei entfernen; fehlende Datei ist kein Fehler).
   - `AppError::InvalidMedia` (Code `invalid_media`, unzulässige Kombination aus Art, Herkunft, Datei, Text), `AppError::MediaFile(String)` (Code `media_file`).
 
-- [ ] **Step 1: Tests schreiben** (`tests/media.rs`; Dateien mit `std::fs::write` in `app.media_dir()` anlegen)
+- [x] **Step 1: Tests schreiben** (`tests/media.rs`; Dateien mit `std::fs::write` in `app.media_dir()` anlegen)
   - `photo_during_recording_goes_to_running_section` (Aufnahme, 3 Fixe, Foto → `section == Some(0)`, Ort = letzter Fix, Zeit ≈ jetzt; erscheint in `track_detail(..).media`).
   - `before_first_fix_is_whole_tour` (→ `section == None`, kein Ort).
   - `during_pause_goes_to_last_section` (Fixe, Pause, Foto → `Some(0)`; Weiter, Fixe → das spätere Foto `Some(1)`).
@@ -128,10 +128,10 @@
   - `stop_keeps_track_with_media_but_no_points` (Aufnahme ohne Fix, Textnotiz, `stop_recording` → `Some(record)`, Notiz in `track_detail`); ohne Medien und Punkte weiter `None`.
   - `delete_media_removes_file` und `delete_media_with_missing_file_succeeds`; `delete_track_removes_media_files`.
   - `edit_text_keeps_transcribed` (`set_media_transcript` → `transcribed`; danach `set_media_text` → Text neu, `transcribed` bleibt `true`); `transcript_only_for_voice`.
-- [ ] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-app --test media` · Expected: Kompilierfehler für die neuen Namen.
-- [ ] **Step 3: Implementieren.** `ActiveRecording` bekommt `last_stored_segment: Option<Uuid>`, gesetzt beim Anhängen eines Punkts; `continue_interrupted` setzt es auf die letzte ID aus `segment_ids`, deren Segment Punkte hat. Index für `MediaDetail` über die Position von `segment_id` in `segment_ids`. Pfadprüfung: genau zwei Komponenten `media/<name>`, kein `..`, Datei existiert unter dem Datenordner. `finish` löscht einen punktlosen Track nur, wenn `list_media` leer ist. `delete_track`: Dateien nach dem erfolgreichen Datenbank-Löschen entfernen, Fehler beim Entfernen ignorieren.
-- [ ] **Step 4: Tests laufen lassen** — Run: `cargo test -p core-app` · Expected: alle PASS.
-- [ ] **Step 5: Commit** — `git commit -m "Attach photos and notes to the sections of a recording"`.
+- [x] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-app --test media` · Expected: Kompilierfehler für die neuen Namen.
+- [x] **Step 3: Implementieren.** `ActiveRecording` bekommt `last_stored_segment: Option<Uuid>`, gesetzt beim Anhängen eines Punkts; `continue_interrupted` setzt es auf die letzte ID aus `segment_ids`, deren Segment Punkte hat. Index für `MediaDetail` über die Position von `segment_id` in `segment_ids`. Pfadprüfung: genau zwei Komponenten `media/<name>`, kein `..`, Datei existiert unter dem Datenordner. `finish` löscht einen punktlosen Track nur, wenn `list_media` leer ist. `delete_track`: Dateien nach dem erfolgreichen Datenbank-Löschen entfernen, Fehler beim Entfernen ignorieren.
+- [x] **Step 4: Tests laufen lassen** — Run: `cargo test -p core-app` · Expected: alle PASS.
+- [x] **Step 5: Commit** — `git commit -m "Attach photos and notes to the sections of a recording"`.
 
 ---
 
@@ -153,12 +153,12 @@
   - `setMediaText(id: String, text: String) throws -> MediaItem`, `setMediaTranscript(id: String, text: String) throws -> MediaItem`, `deleteMedia(id: String) throws`.
   - Fehlercodes: `invalid_media`, `media_file`, `invalid_section`, `no_recording`, `media_id` (keine UUID), `unknown_media_kind`, `unknown_media_source`.
 
-- [ ] **Step 1: Tests schreiben** — `media_round_trip_through_ffi` (Aufnahme, Fix, Datei in `media_dir()`, `add_recording_media("photo", "camera", Some("media/x.jpg"), None)` → `section == Some(0)`; `track_detail(..).media` enthält es); `unknown_kind_has_code` (`"video"` → `unknown_media_kind`); `bad_media_id_has_code`.
-- [ ] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-ffi` · Expected: FAIL.
-- [ ] **Step 3: Implementieren** wie die vorhandenen Umwandlungen in `track.rs` (keine Logik in der FFI).
-- [ ] **Step 4: Alles prüfen** — Run: `cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check` · Expected: alle grün.
-- [ ] **Step 5: Commit** — `git commit -m "Offer photos and notes to the apps"`.
-- [ ] **Step 6: Übergabe schreiben** — `docs/superpowers/plans/2026-11-27-uebergabe-tour-schritt2-mac.md` (erledigte Commits, Testzahl, Swift-Hinweise wie bei Schritt 1), committen. **Anhalten**, dem Nutzer zeigen; Push nach Rückfrage für die Mac-Sitzung.
+- [x] **Step 1: Tests schreiben** — `media_round_trip_through_ffi` (Aufnahme, Fix, Datei in `media_dir()`, `add_recording_media("photo", "camera", Some("media/x.jpg"), None)` → `section == Some(0)`; `track_detail(..).media` enthält es); `unknown_kind_has_code` (`"video"` → `unknown_media_kind`); `bad_media_id_has_code`.
+- [x] **Step 2: Laufen lassen, schlagen fehl** — Run: `cargo test -p core-ffi` · Expected: FAIL.
+- [x] **Step 3: Implementieren** wie die vorhandenen Umwandlungen in `track.rs` (keine Logik in der FFI).
+- [x] **Step 4: Alles prüfen** — Run: `cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check` · Expected: alle grün.
+- [x] **Step 5: Commit** — `git commit -m "Offer photos and notes to the apps"`.
+- [x] **Step 6: Übergabe schreiben** — `docs/superpowers/plans/2026-11-27-uebergabe-tour-schritt2-mac.md` (erledigte Commits, Testzahl, Swift-Hinweise wie bei Schritt 1), committen. **Anhalten**, dem Nutzer zeigen; Push nach Rückfrage für die Mac-Sitzung.
 
 ---
 
