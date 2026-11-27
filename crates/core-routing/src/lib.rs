@@ -13,11 +13,12 @@ mod valhalla_router;
 pub use json_router::{JsonEngine, JsonRouter};
 pub use manual::{DinParams, din_time_s, manual_route};
 pub use model::{
-    FAILED_LEG_COLOR, LatLon, OptionSpec, Profile, Route, RouteOptions, RouteRequest, Router,
-    RoutingError, Turn, TurnKind,
+    FAILED_LEG_COLOR, LatLon, MatrixEntry, MatrixRequest, OptionSpec, Profile, Route, RouteOptions,
+    RouteRequest, Router, RoutingError, Turn, TurnKind,
 };
 pub use valhalla_api::{
-    VALHALLA_PROFILES, costing_json, decode_polyline6, engine_error, parse_valhalla_route,
+    VALHALLA_PROFILES, costing_json, decode_polyline6, engine_error, matrix_json,
+    parse_valhalla_matrix, parse_valhalla_route,
 };
 #[cfg(feature = "valhalla")]
 pub use valhalla_router::ValhallaRouter;

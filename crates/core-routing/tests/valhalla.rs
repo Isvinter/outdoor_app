@@ -7,7 +7,8 @@
 use std::path::PathBuf;
 
 use core_routing::{
-    LatLon, Profile, RouteOptions, RouteRequest, Router, RoutingError, ValhallaRouter,
+    LatLon, MatrixRequest, Profile, RouteOptions, RouteRequest, Router, RoutingError,
+    ValhallaRouter,
 };
 
 const STATION: LatLon = LatLon {
@@ -211,4 +212,96 @@ fn places_without_routing_data_are_reported_as_no_route() {
 fn missing_tile_file_is_reported_as_unavailable() {
     let result = ValhallaRouter::open(&PathBuf::from("/nonexistent/routing.tar"));
     assert!(matches!(result, Err(RoutingError::Unavailable(_))));
+}
+
+fn matrix_request(profile: Profile, from: LatLon, to: Vec<LatLon>) -> MatrixRequest {
+    MatrixRequest {
+        from,
+        to,
+        profile,
+        options: RouteOptions::default(),
+    }
+}
+
+#[test]
+fn matrix_matches_single_routes() {
+    let router = router();
+    let targets = [NEUREUTH, SOMMERWEG[0]];
+    let entries = router
+        .matrix(&matrix_request(Profile::Hike, STATION, targets.to_vec()))
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    for (entry, target) in entries.iter().zip(targets) {
+        let entry = entry.expect("routable");
+        let route = router
+            .route(&request(Profile::Hike, STATION, target))
+            .unwrap();
+        assert!(
+            (entry.distance_m - route.distance_m).abs() <= route.distance_m * 0.1,
+            "{} m vs {} m",
+            entry.distance_m,
+            route.distance_m
+        );
+        assert!(entry.duration_s > 0.0);
+    }
+}
+
+#[test]
+fn target_at_the_position_counts_as_routed() {
+    let entries = router()
+        .matrix(&matrix_request(Profile::Hike, STATION, vec![STATION]))
+        .unwrap();
+    let entry = entries[0].expect("routed");
+    assert!(entry.distance_m < 100.0, "{} m", entry.distance_m);
+}
+
+#[test]
+fn matrix_for_every_valhalla_profile() {
+    let router = router();
+    for profile in core_routing::VALHALLA_PROFILES {
+        let entries = router.matrix(&matrix_request(profile, STATION, vec![NEUREUTH]));
+        assert_eq!(entries.map(|e| e.len()).ok(), Some(1), "{profile:?}");
+    }
+}
+
+/// Timing on a real region: `ZG_MATRIX_TILES=<routing.tar> cargo test --release
+/// -p core-routing --features valhalla --test valhalla measure_matrix -- --ignored --nocapture`.
+#[test]
+#[ignore = "needs a real region in ZG_MATRIX_TILES"]
+fn measure_matrix_on_real_tiles() {
+    use std::time::Instant;
+
+    let tiles = std::env::var("ZG_MATRIX_TILES").expect("ZG_MATRIX_TILES");
+    let router = ValhallaRouter::open(&PathBuf::from(tiles)).unwrap();
+    let bolzano = LatLon {
+        lat: 46.4983,
+        lon: 11.3548,
+    };
+    println!("profile  radius_km  median_ms  routed/30");
+    for profile in [Profile::Hike, Profile::Trekking, Profile::Mtb] {
+        for radius_km in [10.0_f64, 25.0, 50.0] {
+            let to: Vec<LatLon> = (0..30)
+                .map(|i| {
+                    let angle = f64::from(i) / 30.0 * std::f64::consts::TAU;
+                    LatLon {
+                        lat: bolzano.lat + radius_km / 111.195 * angle.cos(),
+                        lon: bolzano.lon
+                            + radius_km / (111.195 * bolzano.lat.to_radians().cos()) * angle.sin(),
+                    }
+                })
+                .collect();
+            let req = matrix_request(profile, bolzano, to);
+            router.matrix(&req).unwrap();
+            let mut times = Vec::new();
+            let mut routed = 0;
+            for _ in 0..3 {
+                let start = Instant::now();
+                let entries = router.matrix(&req).unwrap();
+                times.push(start.elapsed().as_secs_f64() * 1000.0);
+                routed = entries.iter().flatten().count();
+            }
+            times.sort_by(f64::total_cmp);
+            println!("{profile:?}  {radius_km}  {:.0}  {routed}", times[1]);
+        }
+    }
 }

@@ -7,9 +7,13 @@ use valhalla::config::{Logging, Mjolnir};
 use valhalla::proto::options::Action;
 use valhalla::{Actor, ConfigBuilder, Response};
 
-use crate::model::{Profile, Route, RouteRequest, Router, RoutingError};
+use crate::model::{
+    MatrixEntry, MatrixRequest, Profile, Route, RouteRequest, Router, RoutingError,
+};
 use crate::valhalla_api::VALHALLA_PROFILES;
-use crate::valhalla_api::{costing_json, engine_error, parse_valhalla_route};
+use crate::valhalla_api::{
+    costing_json, engine_error, matrix_json, parse_valhalla_matrix, parse_valhalla_route,
+};
 
 /// Routes on the Valhalla tiles of one region (`routing.tar`).
 pub struct ValhallaRouter {
@@ -61,6 +65,29 @@ impl Router for ValhallaRouter {
             Ok(Response::Json(answer)) => parse_valhalla_route(&answer, request),
             Ok(_) => Err(RoutingError::Engine("unexpected answer format".into())),
             Err(e) => Err(engine_error(&e.to_string())),
+        }
+    }
+
+    fn matrix(&self, request: &MatrixRequest) -> Result<Vec<Option<MatrixEntry>>, RoutingError> {
+        let json = matrix_json(request)?;
+        if request.to.is_empty() {
+            return Ok(Vec::new());
+        }
+        let options = Actor::parse_json_request(&json, Action::SourcesToTargets)
+            .map_err(|e| RoutingError::Engine(e.to_string()))?;
+        let response = self
+            .actor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .matrix(&options);
+        match response {
+            Ok(Response::Json(answer)) => parse_valhalla_matrix(&answer, request.to.len()),
+            Ok(_) => Err(RoutingError::Engine("unexpected answer format".into())),
+            // No way to any of the targets.
+            Err(e) => match engine_error(&e.to_string()) {
+                RoutingError::NoRoute(_) => Ok(vec![None; request.to.len()]),
+                other => Err(other),
+            },
         }
     }
 

@@ -4,7 +4,10 @@
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::model::{LatLon, Profile, Route, RouteRequest, RoutingError, Turn, TurnKind};
+use crate::model::{
+    LatLon, MatrixEntry, MatrixRequest, Profile, Route, RouteOptions, RouteRequest, RoutingError,
+    Turn, TurnKind,
+};
 use crate::turns::{TURN_REACH_M, angle_at, kind_for_angle};
 
 /// The profiles Valhalla computes.
@@ -33,12 +36,12 @@ pub fn engine_error(message: &str) -> RoutingError {
     }
 }
 
-/// The Valhalla route request for `request` as JSON.
-pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
-    if request.waypoints.len() < 2 {
-        return Err(RoutingError::TooFewWaypoints);
-    }
-    let (costing, bicycle_type) = match request.profile {
+/// Valhalla's costing name and `costing_options` for a profile and its settings.
+fn costing_parts(
+    profile: Profile,
+    route_options: &RouteOptions,
+) -> Result<(&'static str, Map<String, Value>), RoutingError> {
+    let (costing, bicycle_type) = match profile {
         Profile::RoadBike => ("bicycle", Some("road")),
         Profile::Trekking => ("bicycle", Some("hybrid")),
         Profile::Mtb => ("bicycle", Some("mountain")),
@@ -50,8 +53,8 @@ pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
     if let Some(bicycle_type) = bicycle_type {
         options.insert("bicycle_type".into(), json!(bicycle_type));
     }
-    for spec in request.profile.options() {
-        let value = request.options.get(spec.key).unwrap_or(spec.default);
+    for spec in profile.options() {
+        let value = route_options.get(spec.key).unwrap_or(spec.default);
         if !(spec.min..=spec.max).contains(&value) {
             return Err(RoutingError::InvalidOption(format!(
                 "{} must be between {} and {}",
@@ -69,21 +72,31 @@ pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
     // Settings the profile does not have are still checked, so that a typo
     // in a caller cannot slip through as "ignored".
     let shares = [
-        request.options.use_hills,
-        request.options.use_roads,
-        request.options.avoid_bad_surfaces,
+        route_options.use_hills,
+        route_options.use_roads,
+        route_options.avoid_bad_surfaces,
     ];
     if shares
         .iter()
         .flatten()
         .any(|value| !(0.0..=1.0).contains(value))
-        || request
-            .options
+        || route_options
             .max_hiking_difficulty
             .is_some_and(|grade| !(1..=6).contains(&grade))
     {
         return Err(RoutingError::InvalidOption("value out of range".into()));
     }
+    let mut costing_options = Map::new();
+    costing_options.insert(costing.into(), Value::Object(options));
+    Ok((costing, costing_options))
+}
+
+/// The Valhalla route request for `request` as JSON.
+pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
+    if request.waypoints.len() < 2 {
+        return Err(RoutingError::TooFewWaypoints);
+    }
+    let (costing, costing_options) = costing_parts(request.profile, &request.options)?;
     let locations: Vec<Value> = request
         .waypoints
         .iter()
@@ -97,8 +110,6 @@ pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
             location
         })
         .collect();
-    let mut costing_options = Map::new();
-    costing_options.insert(costing.into(), Value::Object(options));
     Ok(json!({
         "locations": locations,
         "costing": costing,
@@ -107,6 +118,65 @@ pub fn costing_json(request: &RouteRequest) -> Result<String, RoutingError> {
         "directions_type": "maneuvers",
     })
     .to_string())
+}
+
+/// The Valhalla matrix request (one source, many targets) as JSON.
+pub fn matrix_json(request: &MatrixRequest) -> Result<String, RoutingError> {
+    let (costing, costing_options) = costing_parts(request.profile, &request.options)?;
+    let location = |point: &LatLon| json!({ "lat": point.lat, "lon": point.lon });
+    let targets: Vec<Value> = request.to.iter().map(location).collect();
+    Ok(json!({
+        "sources": [location(&request.from)],
+        "targets": targets,
+        "costing": costing,
+        "costing_options": costing_options,
+        "units": "kilometers",
+        "verbose": true,
+    })
+    .to_string())
+}
+
+#[derive(Deserialize)]
+struct MatrixAnswer {
+    sources_to_targets: Vec<Vec<MatrixCell>>,
+}
+
+#[derive(Deserialize)]
+struct MatrixCell {
+    to_index: usize,
+    /// Seconds; `null` where there is no way.
+    time: Option<f64>,
+    /// Kilometres; `null` where there is no way.
+    distance: Option<f64>,
+}
+
+/// Turns Valhalla's matrix answer for one source and `targets` targets into
+/// entries in target order; `None` where there is no way.
+pub fn parse_valhalla_matrix(
+    json: &str,
+    targets: usize,
+) -> Result<Vec<Option<MatrixEntry>>, RoutingError> {
+    let wrong = |what: &str| RoutingError::Engine(format!("unexpected matrix answer: {what}"));
+    let answer: MatrixAnswer = serde_json::from_str(json).map_err(|e| wrong(&e.to_string()))?;
+    let [row] = answer.sources_to_targets.as_slice() else {
+        return Err(wrong("expected one row"));
+    };
+    if row.len() != targets {
+        return Err(wrong("wrong number of targets"));
+    }
+    let mut entries = vec![None; targets];
+    for cell in row {
+        let slot = entries
+            .get_mut(cell.to_index)
+            .ok_or_else(|| wrong("target index out of range"))?;
+        if let (Some(time), Some(distance)) = (cell.time, cell.distance) {
+            *slot = Some(MatrixEntry {
+                distance_m: distance * 1000.0,
+                duration_s: time,
+            });
+        }
+    }
+    Ok(entries)
 }
 
 /// Decodes an encoded polyline with six decimal places, as Valhalla writes shapes.
@@ -265,7 +335,6 @@ pub fn parse_valhalla_route(json: &str, request: &RouteRequest) -> Result<Route,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{RouteOptions, Turn, TurnKind};
 
     /// A point `north_m` north and `east_m` east of a fixed origin.
     fn at(north_m: f64, east_m: f64) -> LatLon {
@@ -445,5 +514,77 @@ mod tests {
     #[test]
     fn answer_without_maneuvers_has_empty_turns() {
         assert_eq!(turns_of(&answer(&[(bend(90.0), None)])), vec![]);
+    }
+
+    fn matrix_request(profile: Profile) -> MatrixRequest {
+        MatrixRequest {
+            from: at(0.0, 0.0),
+            to: vec![at(100.0, 0.0), at(0.0, 100.0)],
+            profile,
+            options: RouteOptions::default(),
+        }
+    }
+
+    #[test]
+    fn matrix_json_has_sources_targets_and_costing() {
+        let json: Value =
+            serde_json::from_str(&matrix_json(&matrix_request(Profile::Mtb)).unwrap()).unwrap();
+        let from = at(0.0, 0.0);
+        assert_eq!(json["sources"].as_array().unwrap().len(), 1);
+        assert_eq!(json["sources"][0]["lat"], json!(from.lat));
+        assert_eq!(json["sources"][0]["lon"], json!(from.lon));
+        assert_eq!(json["targets"].as_array().unwrap().len(), 2);
+        assert_eq!(json["costing"], "bicycle");
+        assert_eq!(
+            json["costing_options"]["bicycle"]["bicycle_type"],
+            "mountain"
+        );
+        assert_eq!(json["units"], "kilometers");
+        assert_eq!(json["verbose"], true);
+        assert!(json.get("locations").is_none());
+    }
+
+    #[test]
+    fn matrix_json_rejects_manual() {
+        assert!(matches!(
+            matrix_json(&matrix_request(Profile::Manual)),
+            Err(RoutingError::NotRoutable(Profile::Manual))
+        ));
+    }
+
+    #[test]
+    fn matrix_json_checks_options() {
+        let mut request = matrix_request(Profile::Hike);
+        request.options.use_hills = Some(2.0);
+        assert!(matches!(
+            matrix_json(&request),
+            Err(RoutingError::InvalidOption(_))
+        ));
+    }
+
+    #[test]
+    fn matrix_answer_becomes_entries() {
+        let json = r#"{"sources_to_targets":[[{"to_index":1,"time":600,"distance":2.5},{"to_index":0,"time":null,"distance":null}]]}"#;
+        assert_eq!(
+            parse_valhalla_matrix(json, 2).unwrap(),
+            vec![
+                None,
+                Some(MatrixEntry {
+                    distance_m: 2500.0,
+                    duration_s: 600.0
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn matrix_answer_with_wrong_shape_is_an_engine_error() {
+        let short = r#"{"sources_to_targets":[[{"to_index":0,"time":1,"distance":1.0}]]}"#;
+        for json in ["{}", short] {
+            assert!(matches!(
+                parse_valhalla_matrix(json, 2),
+                Err(RoutingError::Engine(_))
+            ));
+        }
     }
 }
