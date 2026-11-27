@@ -78,6 +78,83 @@ final class TracksUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["section-1-title"].exists)
         XCTAssertFalse(app.buttons["section-1-activity"].exists)
     }
+
+    /// Records a walk with a photo, saves it and opens it.
+    private func trackWithPhoto() -> XCUIApplication {
+        let app = XCUIApplication.replaying(arguments: ["-media-fakes"])
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.startRecording()
+        app.waitForStatus("first point") { $0.values["recording_xy"] != nil }
+        app.buttons["media-photo"].tap()
+        let shutter = app.buttons["camera-shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+        shutter.tap()
+        app.waitForStatus("photo") { $0.int("media") == 1 }
+        Thread.sleep(forTimeInterval: 3)
+        app.buttons["recording-stop"].tap()
+        XCTAssertTrue(app.buttons["track-save"].waitForExistence(timeout: 5))
+        app.buttons["track-save"].tap()
+        XCTAssertTrue(app.buttons["track-save"].waitForNonExistence(timeout: 5))
+        openFirstTrack(app)
+        return app
+    }
+
+    private func openFirstTrack(_ app: XCUIApplication) {
+        app.pullSheet(by: -700)
+        app.segmentedControls["saved-lists"].buttons["Tracks"].tap()
+        let row = app.buttons["track-row-1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.staticTexts["track-title"].waitForExistence(timeout: 5))
+    }
+
+    /// "Tour exportieren" builds the package and offers it; closing the sheet takes it away.
+    func testExportTourOpensShareSheet() {
+        let app = trackWithPhoto()
+        let export = app.buttons["tour-export"]
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(export.frame.height, 56)
+        XCTAssertEqual(app.mapStatus.values["export"], "none")
+        export.tap()
+        let share = app.otherElements["ActivityListView"]
+        XCTAssertTrue(share.waitForExistence(timeout: 15))
+        XCTAssertEqual(app.mapStatus.values["export"], "file")
+        // Its buttons live in another process; a tap beside it closes it.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+        XCTAssertTrue(share.waitForNonExistence(timeout: 5))
+        app.waitForStatus("package removed") { $0.values["export"] == "none" }
+        XCTAssertTrue(export.isEnabled)
+        // "Als GPX teilen" stays as it was.
+        XCTAssertTrue(app.buttons["track-share"].exists)
+    }
+
+    /// The recording that runs is no track to open, so not to export; finished ones are.
+    func testNoExportWhileRecording() {
+        let app = XCUIApplication.replaying()
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.recordWalk()
+        app.startRecording()
+        XCTAssertTrue(app.staticTexts["recording-distance"].waitForExistence(timeout: 10))
+        app.pullSheet(by: -700)
+        app.segmentedControls["saved-lists"].buttons["Tracks"].tap()
+        XCTAssertTrue(app.buttons["track-row-1"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["track-row-2"].exists, "the recording is not listed")
+        XCTAssertFalse(app.buttons["tour-export"].exists)
+        app.buttons["track-row-1"].tap()
+        let export = app.buttons["tour-export"]
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        export.tap()
+        XCTAssertTrue(app.otherElements["ActivityListView"].waitForExistence(timeout: 15))
+    }
+
+    func testGpxShareStillThere() {
+        let app = XCUIApplication.replaying()
+        app.waitForStatus("map rendered") { $0.rendered }
+        app.recordWalk()
+        openFirstTrack(app)
+        XCTAssertTrue(app.buttons["track-share"].exists)
+        XCTAssertTrue(app.buttons["tour-export"].exists)
+    }
 }
 
 extension XCUIApplication {
