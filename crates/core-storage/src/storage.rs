@@ -60,7 +60,7 @@ pub struct TrackRecord {
 
 /// Handle to the application database.
 pub struct Storage {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 const TRACK_COLUMNS: &str = "
@@ -301,13 +301,24 @@ impl Storage {
     }
 
     /// Marks a track as deleted. The row stays as a tombstone for synchronisation.
+    /// Its photos and notes are marked deleted with it.
     pub fn delete_track(&mut self, track: Uuid, now_ms: i64) -> Result<(), StorageError> {
-        self.update_track(
-            track,
+        let tx = self.conn.transaction()?;
+        let changed = tx.execute(
             "UPDATE tracks SET deleted_at = ?2, updated_at = ?2, rev = rev + 1
              WHERE id = ?1 AND deleted_at IS NULL",
             params![track, now_ms],
-        )
+        )?;
+        if changed == 0 {
+            return Err(StorageError::NotFound(track));
+        }
+        tx.execute(
+            "UPDATE track_media SET deleted_at = ?2, updated_at = ?2, rev = rev + 1
+             WHERE track_id = ?1 AND deleted_at IS NULL",
+            params![track, now_ms],
+        )?;
+        tx.commit()?;
+        Ok(())
     }
 
     /// Ids and deletion times of deleted tracks.
@@ -392,7 +403,7 @@ impl Storage {
         })
     }
 
-    fn require_track(&self, id: Uuid) -> Result<(), StorageError> {
+    pub(crate) fn require_track(&self, id: Uuid) -> Result<(), StorageError> {
         let found: Option<i64> = self
             .conn
             .query_row(
@@ -404,7 +415,8 @@ impl Storage {
         found.map(|_| ()).ok_or(StorageError::NotFound(id))
     }
 
-    fn update_track(
+    /// Runs an update of one row; [`StorageError::NotFound`] if it changed none.
+    pub(crate) fn update_track(
         &mut self,
         id: Uuid,
         sql: &str,
