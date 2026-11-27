@@ -291,7 +291,25 @@ fn measure_matrix_on_real_tiles() {
                 })
                 .collect();
             let req = matrix_request(profile, bolzano, to);
-            router.matrix(&req).unwrap();
+            let first = router.matrix(&req).unwrap();
+            if std::env::var("ZG_MATRIX_CHECK").is_ok() {
+                let missing: Vec<usize> = (0..30).filter(|&i| first[i].is_none()).collect();
+                let single_ok = missing
+                    .iter()
+                    .filter_map(|&i| {
+                        router
+                            .route(&request(profile, bolzano, req.to[i]))
+                            .ok()
+                            .map(|r| r.distance_m)
+                    })
+                    .collect::<Vec<_>>();
+                println!(
+                    "check {profile:?} {radius_km}: matrix None {}, single routes ok {} {:?}",
+                    missing.len(),
+                    single_ok.len(),
+                    single_ok
+                );
+            }
             let mut times = Vec::new();
             let mut routed = 0;
             for _ in 0..3 {
@@ -300,6 +318,9 @@ fn measure_matrix_on_real_tiles() {
                 times.push(start.elapsed().as_secs_f64() * 1000.0);
                 routed = entries.iter().flatten().count();
             }
+            // Every target around Bozen has a way; with Valhalla's default
+            // matrix reach, bikes lost most targets beyond 25 km.
+            assert_eq!(routed, 30, "{profile:?} at {radius_km} km");
             times.sort_by(f64::total_cmp);
             println!("{profile:?}  {radius_km}  {:.0}  {routed}", times[1]);
         }

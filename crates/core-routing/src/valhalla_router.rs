@@ -3,7 +3,9 @@
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use valhalla::config::{Logging, Mjolnir};
+use valhalla::config::{
+    Logging, Mjolnir, ServiceLimits, ServiceLimitsBicycle, ServiceLimitsPedestrian,
+};
 use valhalla::proto::options::Action;
 use valhalla::{Actor, ConfigBuilder, Response};
 
@@ -14,6 +16,10 @@ use crate::valhalla_api::VALHALLA_PROFILES;
 use crate::valhalla_api::{
     costing_json, engine_error, matrix_json, parse_valhalla_matrix, parse_valhalla_route,
 };
+
+/// Matrix search reach for bikes and pedestrians, in metres of Valhalla's
+/// `max_matrix_distance`.
+const MATRIX_REACH_M: f64 = 1_000_000.0;
 
 /// Routes on the Valhalla tiles of one region (`routing.tar`).
 pub struct ValhallaRouter {
@@ -39,6 +45,21 @@ impl ValhallaRouter {
             },
             mjolnir: Mjolnir {
                 tile_extract: tile_extract.display().to_string(),
+                ..Default::default()
+            },
+            // The matrix search stops at a cost derived from this distance
+            // (assuming 10 mph by bike, 2 mph on foot). Bike costs include
+            // hill and surface penalties, so with the default 200 km it
+            // missed most targets beyond about 20 km that single routes find.
+            service_limits: ServiceLimits {
+                bicycle: ServiceLimitsBicycle {
+                    max_matrix_distance: MATRIX_REACH_M,
+                    ..Default::default()
+                },
+                pedestrian: ServiceLimitsPedestrian {
+                    max_matrix_distance: MATRIX_REACH_M,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             ..Default::default()
