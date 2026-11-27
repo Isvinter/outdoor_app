@@ -33,6 +33,10 @@ pub enum AppError {
     ActivityRequired,
     #[error("no such section, or a rest, whose activity cannot be set")]
     InvalidSection,
+    #[error("a photo or note needs a fitting kind, source, file and text")]
+    InvalidMedia,
+    #[error("media file: {0}")]
+    MediaFile(String),
     #[error("unknown search category: {0}")]
     SearchCategory(String),
 }
@@ -62,6 +66,8 @@ impl AppError {
             AppError::NothingInterrupted => "nothing_interrupted",
             AppError::ActivityRequired => "activity_required",
             AppError::InvalidSection => "invalid_section",
+            AppError::InvalidMedia => "invalid_media",
+            AppError::MediaFile(_) => "media_file",
             AppError::SearchCategory(_) => "search_category",
         }
     }

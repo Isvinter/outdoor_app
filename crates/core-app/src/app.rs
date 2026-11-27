@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::AppError;
 use crate::guide::{ActiveGuide, GuideStatus};
+use crate::media::{MediaDetail, media_details, remove_media_files};
 
 /// Recording updates are sent to the listener at most this often.
 const UPDATE_INTERVAL: Duration = Duration::from_millis(250);
@@ -69,6 +70,8 @@ pub struct TrackDetail {
     pub dem_stats: Option<TrackStats>,
     /// The sections (segments) of the track, in the order of `line`.
     pub sections: Vec<SectionDetail>,
+    /// Its photos and notes, by time.
+    pub media: Vec<MediaDetail>,
 }
 
 /// A section of a stored track: a segment with its own activity.
@@ -119,6 +122,8 @@ pub struct App {
 
 pub(crate) struct Shared {
     inner: Mutex<Inner>,
+    /// The folder of the database; media files are named relative to it.
+    pub(crate) data_dir: PathBuf,
     pub(crate) maps: crate::regions::Maps,
     pub(crate) routing: crate::routes::Routing,
     /// Separate from `inner`: stopping a source joins its thread, which may be
@@ -150,6 +155,9 @@ struct ActiveRecording {
     recorder: Recorder,
     /// Database segment that receives points, and the recorder segment it mirrors.
     segment: Option<(usize, Uuid)>,
+    /// The last database segment that received a point: the section photos and
+    /// notes taken now belong to. `None` before the first point.
+    last_stored_segment: Option<Uuid>,
     last_recorded_ms: Option<i64>,
     /// Points not yet announced to the listener.
     pending: Vec<LinePoint>,
@@ -157,12 +165,18 @@ struct ActiveRecording {
 }
 
 impl ActiveRecording {
-    fn new(track_id: Uuid, mut recorder: Recorder, rest: Option<RestParams>) -> Self {
+    fn new(
+        track_id: Uuid,
+        mut recorder: Recorder,
+        rest: Option<RestParams>,
+        last_stored_segment: Option<Uuid>,
+    ) -> Self {
         recorder.set_rest_detection(rest);
         Self {
             track_id,
             recorder,
             segment: None,
+            last_stored_segment,
             last_recorded_ms: None,
             pending: Vec::new(),
             last_update: None,
@@ -241,6 +255,14 @@ impl Inner {
         self.recording.as_ref().map(|rec| rec.track_id)
     }
 
+    /// The track being recorded and the segment a photo or note taken now
+    /// belongs to (`None`: the whole track).
+    pub(crate) fn recording_media_target(&self) -> Option<(Uuid, Option<Uuid>)> {
+        self.recording
+            .as_ref()
+            .map(|rec| (rec.track_id, rec.last_stored_segment))
+    }
+
     /// Adds a fix to the active recording. Returns a status if one is due.
     fn record(&mut self, fix: Fix) -> Result<Option<RecordingStatus>, AppError> {
         let Some(rec) = &mut self.recording else {
@@ -283,6 +305,7 @@ impl Inner {
             }
         };
         self.storage.append_point(segment_id, &point)?;
+        rec.last_stored_segment = Some(segment_id);
         rec.pending.push(LinePoint {
             segment: index,
             lon: fix.lon,
@@ -297,10 +320,12 @@ impl Inner {
     }
 
     /// Finishes a track: caches its statistics and takes the activity of its
-    /// first section, or deletes it if it has no points.
+    /// first section, or deletes it if it has neither points nor photos and notes.
     fn finish(&mut self, id: Uuid, track: &Track) -> Result<Option<TrackRecord>, AppError> {
         let now = now_ms();
-        if track.segments.iter().all(|s| s.points.is_empty()) {
+        if track.segments.iter().all(|s| s.points.is_empty())
+            && self.storage.list_media(id)?.is_empty()
+        {
             self.storage.delete_track(id, now)?;
             return Ok(None);
         }
@@ -375,6 +400,8 @@ impl App {
     /// definitions of regions built on this device in `region-defs`.
     pub fn open(db_path: &Path, listener: Arc<dyn AppListener>) -> Result<Self, AppError> {
         let data_dir = db_path.parent().unwrap_or(Path::new("."));
+        std::fs::create_dir_all(data_dir.join(crate::media::MEDIA_DIR))
+            .map_err(|e| AppError::MediaFile(format!("cannot create the media folder: {e}")))?;
         let regions_dir = data_dir.join("regions");
         let definitions_dir = data_dir.join("region-defs");
         let inner = Inner {
@@ -386,6 +413,7 @@ impl App {
         Ok(Self {
             shared: Arc::new(Shared {
                 inner: Mutex::new(inner),
+                data_dir: data_dir.to_path_buf(),
                 maps: crate::regions::Maps::open(&regions_dir, &definitions_dir)?,
                 routing: crate::routes::Routing::default(),
                 source: Mutex::new(None),
@@ -453,10 +481,12 @@ impl App {
                 .storage
                 .create_track(None, activity, TrackState::Recording, now_ms())?;
             let rest = inner.rest_detection;
-            let rec =
-                inner
-                    .recording
-                    .insert(ActiveRecording::new(id, Recorder::start(activity), rest));
+            let rec = inner.recording.insert(ActiveRecording::new(
+                id,
+                Recorder::start(activity),
+                rest,
+                None,
+            ));
             rec.status()
         };
         self.shared.listener.on_recording(&status);
@@ -623,11 +653,27 @@ impl App {
                 .iter()
                 .rposition(|s| !s.points.is_empty())
                 .map_or(record.activity, |i| track.segment_activity(i));
+            // Photos and notes taken before the next fix go to the last stored section.
+            let last_stored = track
+                .segments
+                .iter()
+                .rposition(|s| !s.points.is_empty())
+                .and_then(|i| {
+                    inner
+                        .storage
+                        .segment_ids(record.id)
+                        .map(|ids| ids.get(i).copied())
+                        .transpose()
+                })
+                .transpose()?;
             let rest = inner.rest_detection;
             let recorder = Recorder::continue_from(track, last);
-            let rec = inner
-                .recording
-                .insert(ActiveRecording::new(record.id, recorder, rest));
+            let rec = inner.recording.insert(ActiveRecording::new(
+                record.id,
+                recorder,
+                rest,
+                last_stored,
+            ));
             rec.status()
         };
         self.shared.listener.on_recording(&status);
@@ -658,9 +704,13 @@ impl App {
     }
 
     pub fn track_detail(&self, id: Uuid) -> Result<TrackDetail, AppError> {
-        let (record, track) = {
+        let (record, track, media) = {
             let inner = self.shared.inner();
-            (inner.storage.track(id)?, inner.storage.load_track(id)?)
+            (
+                inner.storage.track(id)?,
+                inner.storage.load_track(id)?,
+                media_details(&inner.storage, id)?,
+            )
         };
         let (dem_stats, section_stats) = match self.dem_stats(&track)? {
             Some((total, sections)) => (Some(total), sections),
@@ -674,6 +724,7 @@ impl App {
             line: line_of(&track),
             dem_stats,
             sections: sections_of(&track, section_stats),
+            media,
         })
     }
 
@@ -766,13 +817,17 @@ impl App {
             .rename_track(id, name, now_ms())?)
     }
 
-    /// Deletes a track; not the one being recorded, which would be lost on stopping.
+    /// Deletes a track with its photos and notes and their files; not the one
+    /// being recorded, which would be lost on stopping.
     pub fn delete_track(&self, id: Uuid) -> Result<(), AppError> {
         let mut inner = self.shared.inner();
         if inner.recording_track() == Some(id) {
             return Err(AppError::RecordingActive);
         }
-        Ok(inner.storage.delete_track(id, now_ms())?)
+        let media = inner.storage.list_media(id)?;
+        inner.storage.delete_track(id, now_ms())?;
+        remove_media_files(&self.shared.data_dir, &media);
+        Ok(())
     }
 
     /// Imports every track of a GPX document. `activity` overrides the type named
