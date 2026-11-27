@@ -15,10 +15,11 @@
 - Branch `feature/search-route-distance` (von `main`, ded03b7). Am Ende PR, Merge lokal mit `--no-ff`. Push nur nach Rückfrage.
 - **Anhalten und dem Nutzer zeigen:** nach Task 1 (Messwerte), nach Task 3 (Kern fertig; Push für den Mac nach Rückfrage), nach Task 4 (iPhone-Test).
 - Grenze fürs Routen: `ROUTE_LIMIT_M = 50_000.0` Luftlinie von der Position (Nutzer). Ist die Matrix bei 50 km deutlich über ~300 ms, **nicht selbst ändern, sondern den Nutzer fragen.**
+- Suchgrenze der Matrix (Nutzer, Variante A): `max_matrix_distance` je Profil so, dass der ungünstige Fall auf `alpenraum-ost` bei 50 km etwa ≤ 300 ms bleibt; nicht erreichte Ziele = `None` = „Umweg oder kein Weg“.
 - Position zählt nur, wenn `age_s <= MAX_POSITION_AGE_S` (120 s, `crates/core-app/src/plan.rs:27`).
 - Ohne `RouteFrom`, mit zu alter Position: Ergebnis exakt wie heute (gleiche Reihenfolge, `distance_m` von der Kartenmitte, keine Wegfelder).
 - Sortierung mit Position: zuerst `match_rank` (wie `best_first`), innerhalb gleicher Güte die Gruppen der Spec (1 mit Weg nach Wegstrecke, 2 ≤ 50 km ohne Weg nach Luftlinie, 3 sonst nach Luftlinie); ferne Orte außerhalb des Radius bleiben in ihren reservierten Plätzen am Ende.
-- Texte wörtlich: Umschalter „Weg“, Hinweis „kein Weg“, Luftlinie „Luftl. “ + `Format.distance` (z. B. „Luftl. 1,10 km“), Hinweis unter der Liste „Zeiten ohne Höhenmeter.“
+- Texte wörtlich: Umschalter „Weg“, Hinweis „Umweg oder kein Weg“, Luftlinie „Luftl. “ + `Format.distance` (z. B. „Luftl. 1,10 km“), Hinweis unter der Liste „Zeiten ohne Höhenmeter.“
 - Keine Änderung an Index, Suchradius, Kartenanpassung. Die Suche schaltet das GPS nicht ein. Umschalter nach Installation aus.
 - Möglichst nicht anfassen (laufende Arbeit auf `feature/tour-export`): `crates/core-ffi/tests/ffi.rs`, `crates/core-app/src/app.rs`, `error.rs`. In `crates/core-app/src/lib.rs` nur die Exportzeile von `search` erweitern.
 - Swift lässt sich unter Linux nicht bauen: Task 4 auf dem Mac, vorher `apps/trail/scripts/build-core.sh` und `xcodegen generate` in `apps/trail`. Echte Karten in `data/` nur lesen. Jeder Commit endet mit `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -213,7 +214,7 @@ git commit -m "Pass the route start through the search bindings"
   - `toggle_without_position_keeps_list`: an, Quelle liefert `nil` → Backend bekommt `nil`, Liste wie vorher; mit gewähltem Treffer bleibt `selected` erhalten.
   - `slow_routed_answer_does_not_replace_newer`: erste Antwort verzögert, zweite schnell → `results` ist die zweite.
   - `fit_uses_centre_distance`: Treffer mit `distanceM` 60 km (von Position), `centreDistanceM` 1 km, Radius 5 km → wird in `fit` einbezogen.
-  - `details_show_route_and_air`: `routeM 3200, routeS 3120, distanceM 1100` → `"Unterkunft · 3,20 km · 0:52 h · Luftl. 1,10 km"` (Kategorie `lodging`) (Reihenfolge Art, Ort, Weg, Zeit, Luftlinie; Formatierer aus `Format`); `noRoute` → `"… · 800 m · kein Weg"`; ohne Weg wie heute.
+  - `details_show_route_and_air`: `routeM 3200, routeS 3120, distanceM 1100` → `"Unterkunft · 3,20 km · 0:52 h · Luftl. 1,10 km"` (Kategorie `lodging`) (Reihenfolge Art, Ort, Weg, Zeit, Luftlinie; Formatierer aus `Format`); `noRoute` → `"… · 800 m · Umweg oder kein Weg"`; ohne Weg wie heute.
   - `ascent_note`: `ascentIgnored` → `notes` enthält `"Zeiten ohne Höhenmeter."`.
 
 - [ ] **Step 2: Tests scheitern** (Xcode, Schema `ZeroGridTrail`, nur `SearchControllerTests`) → FAIL.

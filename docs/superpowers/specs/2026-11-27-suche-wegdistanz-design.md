@@ -46,7 +46,7 @@ Namenstreffer bleibt vor einem halben (Nutzer). Innerhalb gleicher Güte – bei
 haben alle dieselbe – gilt diese Reihenfolge:
 1. Treffer mit Weg, nach Wegstrecke aufsteigend.
 2. Treffer bis 50 km Luftlinie ohne Weg (Valhalla findet keinen, oder Ziel außerhalb der
-   Routing-Region), nach Luftlinie, mit dem Hinweis „kein Weg“.
+   Routing-Region), nach Luftlinie, mit dem Hinweis „Umweg oder kein Weg“.
 3. Treffer über 50 km Luftlinie von der Position, nach Luftlinie, ohne Hinweis.
 4. Die weit entfernten Orte außerhalb des Radius bleiben in ihren reservierten Plätzen am
    Ende (wie `share_limit` heute), Luftlinie von der Position.
@@ -57,7 +57,7 @@ Eine Zeile mit Weg zeigt Wegstrecke und Zeit; die Luftlinie klein daneben:
 [ 🔍 Camping            ] [⇄ Weg]
   Campingplatz Seeblick   3,2 km · 0:52   Luftl. 1,1 km
   Camping Waldrand        4,0 km · 1:05
-  Zeltplatz Insel         0,8 km          kein Weg
+  Zeltplatz Insel         0,8 km          Umweg oder kein Weg
 ```
 
 Zeiten kommen für alle Sportarten aus der Matrix, auch beim Wandern (Nutzer). Valhallas
@@ -127,13 +127,27 @@ neu entschieden (z. B. kleinere Grenze je Sportart) – die 50 km sind seine Ent
 Valhallas `service_limits` (Matrix-Distanz und -Paare) für die Profile prüfen und ggf. in
 `ConfigBuilder` anheben.
 
+## Nachtrag 2026-11-27: Messung und Suchgrenze
+
+Gemessen auf `alpenraum-ost` (1,4 GB), 30 Ziele auf einem Ring um Bozen, Median: Wandern
+264 ms, MTB 232 ms, Trekking **2173 ms** bei 50 km (334 ms bei 25 km). Teuer sind die Ziele
+mit großem Umweg (50 km Luftlinie, 84–88 km Weg): Valhalla muss alles näher Liegende absuchen.
+Valhallas CostMatrix ist fast überall langsamer (Trekking 50 km 1412 ms).
+
+**Entscheidung des Nutzers (Variante A):** Die Matrix sucht nur bis zu einer festen Grenze
+(Valhallas `max_matrix_distance` je Profil), eingestellt auf etwa 300 ms im ungünstigen Fall.
+Ziele, die sie bis dahin nicht erreicht, zeigen „Umweg oder kein Weg“ statt „kein Weg“
+(Valhalla unterscheidet „zu weit“ nicht von „unerreichbar“). Begründung des Nutzers: Bei
+Bikepacking und Trekking in Alpen, Apennin und Pyrenäen träfe er diesen Fall oft; dann zählen
+Karte und Höhenprofil, die Liste ist nur grobe Orientierung – Warten wäre Akkuverschwendung.
+
 ## Meine Entscheidungen (vom Nutzer nicht ausdrücklich bestätigt)
 
 - Alle Treffer im Radius werden berechnet (Liste hat höchstens 30), nicht nur die ersten x.
 - Sortiert wird nach Wegstrecke, nicht nach Zeit.
 - Umschalter ist nach der Installation **aus**.
 - „Luftl.“ steht in jeder Zeile mit Weg klein daneben.
-- Unterhalb der 50 km ohne Weg: Hinweis „kein Weg“; darüber kein Hinweis.
+- Unterhalb der 50 km ohne Weg: Hinweis „Umweg oder kein Weg“; darüber kein Hinweis.
 
 ## Dem Bauenden überlassen
 
