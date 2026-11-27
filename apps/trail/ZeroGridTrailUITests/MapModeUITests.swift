@@ -24,6 +24,29 @@ final class MapModeUITests: XCTestCase {
         app.waitForStatus("sections mode") { $0.values["mode"] == "sections" }
     }
 
+    /// "Rückgängig" and "Leeren" change waypoints: off without any, in both modes; with a route
+    /// they stay on in "Abschnitte bearbeiten", for its legs.
+    func testUndoAndClearOnlyForWaypoints() {
+        let app = XCUIApplication.planning()
+        let undo = app.buttons["plan-undo"]
+        let clear = app.buttons["plan-clear"]
+        XCTAssertFalse(undo.isEnabled)
+        XCTAssertFalse(clear.isEnabled)
+
+        app.setWaypoints([(0.4, 0.4)])
+        app.waitForStatus("one waypoint") { $0.int("waypoints") == 1 }
+        XCTAssertTrue(undo.isEnabled)
+        XCTAssertTrue(clear.isEnabled)
+
+        app.buttons["mode-sections"].tap()
+        app.waitForStatus("sections mode") { $0.values["mode"] == "sections" }
+        XCTAssertTrue(undo.isEnabled)
+        undo.tap()
+        app.waitForStatus("waypoint undone") { $0.int("waypoints") == 0 }
+        XCTAssertFalse(undo.isEnabled)
+        XCTAssertFalse(clear.isEnabled)
+    }
+
     /// In "Wegpunkte setzen" a tap on a track sets a waypoint (a way back on the same path).
     func testTapOnTrackSetsWaypoint() {
         let app = XCUIApplication.replaying()

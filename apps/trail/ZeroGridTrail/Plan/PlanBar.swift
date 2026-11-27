@@ -36,15 +36,23 @@ struct PlanBar: View {
         .foregroundStyle(Color.primary)
     }
 
+    /// Undo and clear change the waypoints of the route: off without any, also with a track
+    /// open. In "Abschnitte bearbeiten" they stay on for the legs of a route.
+    private var editsWaypoints: Bool {
+        !plan.request.waypoints.isEmpty
+    }
+
     private func iconButton(
         _ symbol: String, label: String, identifier: String, action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
+                // Its own colour: the bar's primary would hide that the button is off.
+                .foregroundStyle(editsWaypoints ? Color.primary : Color(.tertiaryLabel))
                 .frame(width: 40, height: 40)
                 .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10))
         }
-        .disabled(plan.request.waypoints.isEmpty)
+        .disabled(!editsWaypoints)
         .accessibilityIdentifier(identifier)
         .accessibilityLabel(label)
     }
