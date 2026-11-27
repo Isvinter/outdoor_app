@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use outdoor_core::{
-    CoreApp, CoreError, CoreListener, FixInput, GuidanceInfo, LegInput, RecordingInfo,
+    CoreApp, CoreError, CoreListener, FixInput, GuidanceInfo, LegInput, MediaInput, RecordingInfo,
     RestSettings, plan_add_waypoint, plan_empty,
 };
 
@@ -411,4 +411,114 @@ fn track_view_has_sections() {
     let CoreError::Failed { code, .. } =
         core.set_section_activity(id, 1, "hike".into()).unwrap_err();
     assert_eq!(code, "invalid_section");
+}
+
+fn code(error: CoreError) -> String {
+    let CoreError::Failed { code, .. } = error;
+    code
+}
+
+#[test]
+fn media_round_trip_through_ffi() {
+    let (data, _) = setup("media");
+    let core = open(&data);
+    let dir = PathBuf::from(core.media_dir());
+    assert_eq!(dir, data.join("media"));
+    fs::write(dir.join("x.jpg"), b"jpeg").unwrap();
+    core.start_recording("bike".into()).unwrap();
+    for i in 0..3 {
+        core.handle_fix(fix(i));
+    }
+    let photo = core
+        .add_recording_media(
+            "photo".into(),
+            "camera".into(),
+            Some("media/x.jpg".into()),
+            None,
+        )
+        .unwrap();
+    assert_eq!(photo.section, Some(0));
+    assert_eq!(
+        (photo.kind.as_str(), photo.source.as_str()),
+        ("photo", "camera")
+    );
+    assert_eq!(photo.file.as_deref(), Some("media/x.jpg"));
+    assert_eq!((photo.lat, photo.lon), (Some(fix(2).lat), Some(fix(2).lon)));
+    assert!(!photo.transcribed);
+    let id = core.stop_recording().unwrap().unwrap().id;
+
+    let note = core
+        .add_track_media(
+            id.clone(),
+            None,
+            MediaInput {
+                kind: "text".into(),
+                source: "typed".into(),
+                file: None,
+                text: Some("Gipfel".into()),
+                time_ms: None,
+                lat: None,
+                lon: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(note.section, None);
+    assert_eq!(note.time_ms, Some(fix(0).time_ms));
+    let edited = core
+        .set_media_text(note.id.clone(), "Hütte".into())
+        .unwrap();
+    assert_eq!(edited.text.as_deref(), Some("Hütte"));
+    assert!(edited.updated_ms >= note.updated_ms);
+
+    let view = core.track_detail(id.clone()).unwrap();
+    assert_eq!(view.media.len(), 2);
+    assert!(view.media.contains(&photo));
+    core.delete_media(photo.id.clone()).unwrap();
+    assert!(!dir.join("x.jpg").exists());
+    assert_eq!(core.track_detail(id).unwrap().media.len(), 1);
+    assert_eq!(
+        code(core.set_media_transcript(note.id, "x".into()).unwrap_err()),
+        "invalid_media"
+    );
+}
+
+#[test]
+fn unknown_kind_has_code() {
+    let (data, _) = setup("media-kind");
+    let core = open(&data);
+    core.start_recording("bike".into()).unwrap();
+    let error = core
+        .add_recording_media("video".into(), "camera".into(), None, None)
+        .unwrap_err();
+    assert_eq!(code(error), "unknown_media_kind");
+    let error = core
+        .add_recording_media("text".into(), "keyboard".into(), None, Some("x".into()))
+        .unwrap_err();
+    assert_eq!(code(error), "unknown_media_source");
+    let error = core
+        .add_recording_media(
+            "photo".into(),
+            "camera".into(),
+            Some("media/fehlt.jpg".into()),
+            None,
+        )
+        .unwrap_err();
+    assert_eq!(code(error), "media_file");
+}
+
+#[test]
+fn bad_media_id_has_code() {
+    let (data, _) = setup("media-id");
+    let core = open(&data);
+    assert_eq!(
+        code(core.delete_media("kein-id".into()).unwrap_err()),
+        "media_id"
+    );
+    assert_eq!(
+        code(
+            core.set_media_text("kein-id".into(), "x".into())
+                .unwrap_err()
+        ),
+        "media_id"
+    );
 }

@@ -7,6 +7,7 @@ use core_storage::TrackRecord;
 use core_track::{Activity, RestParams, SegmentReason, TrackStats};
 use uuid::Uuid;
 
+use crate::media::{MediaItem, media_item};
 use crate::{CoreApp, CoreError, LatLon};
 
 /// A position of the receiver.
@@ -70,6 +71,8 @@ pub struct TrackView {
     pub elapsed_s: f64,
     /// The sections, in the order of `segments`.
     pub sections: Vec<TrackSection>,
+    /// Its photos and notes, by time.
+    pub media: Vec<MediaItem>,
 }
 
 /// A section of a stored track.
@@ -216,6 +219,7 @@ fn track_view(detail: TrackDetail) -> TrackView {
         max_ele_m: stats.and_then(|s| s.max_ele_m),
         elapsed_s: stats.map_or(0.0, |s| s.total_time_s),
         sections: detail.sections.iter().map(TrackSection::from).collect(),
+        media: detail.media.iter().map(media_item).collect(),
     }
 }
 
