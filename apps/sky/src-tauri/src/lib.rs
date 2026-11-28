@@ -14,6 +14,8 @@ mod share;
 #[cfg(desktop)]
 mod sim;
 mod smoke;
+// Used by the thermal tile route (next tasks); remove then.
+#[allow(dead_code)]
 mod thermal_layer;
 
 use std::path::PathBuf;
