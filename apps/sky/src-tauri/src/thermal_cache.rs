@@ -236,14 +236,11 @@ impl ThermalCache {
     }
 
     /// Calls of `answer`.
-    // Only the smoke report (a later task) reads the counters.
-    #[allow(dead_code)]
     pub fn requests(&self) -> u64 {
         self.requests.load(Ordering::Relaxed)
     }
 
     /// Calls of `Fetch::get`.
-    #[allow(dead_code)]
     pub fn fetches(&self) -> u64 {
         self.fetches.load(Ordering::Relaxed)
     }

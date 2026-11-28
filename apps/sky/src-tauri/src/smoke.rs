@@ -101,6 +101,7 @@ pub fn maybe_run(app: &AppHandle) {
         if std::env::var_os(DARK_ENV_VAR).is_some() {
             check_look(&window);
         }
+        check_thermal(&window);
         if std::env::var_os("VARIO_SMOKE_OPENAIP").is_some() {
             update_from_openaip(&window);
         }
@@ -218,6 +219,87 @@ fn check_look(window: &tauri::WebviewWindow) {
         }
     }
     eprintln!("smoke test: the look report did not arrive");
+}
+
+/// Presses the "Thermik" button on the map twice with real pointer events and prints
+/// what the map and the tile handler did. With the default `NoNetwork` fetcher nothing
+/// reaches kk7 (only `VARIO_SMOKE_KK7=1` allows that). The button is left off.
+fn check_thermal(window: &tauri::WebviewWindow) {
+    NOTED.store(false, Ordering::Relaxed);
+    let _ = window.eval(
+        r#"(async () => {
+          const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+          const counts = () => window.__TAURI__.core.invoke("smoke_thermal_counts");
+          // The same event sequence as the map tap, at the middle of the button.
+          const press = async () => {
+            const box = document.getElementById("thermal").getBoundingClientRect();
+            const at = { bubbles: true, button: 0, clientX: box.left + box.width / 2,
+                         clientY: box.top + box.height / 2 };
+            const target = document.elementFromPoint(at.clientX, at.clientY);
+            target.dispatchEvent(new PointerEvent("pointerdown", { ...at, pointerType: "mouse", isPrimary: true }));
+            target.dispatchEvent(new MouseEvent("mousedown", at));
+            await wait(150);
+            target.dispatchEvent(new PointerEvent("pointerup", { ...at, pointerType: "mouse", isPrimary: true }));
+            target.dispatchEvent(new MouseEvent("mouseup", at));
+            target.dispatchEvent(new MouseEvent("click", at));
+          };
+          document.querySelector("[data-page=map]").click();
+          await wait(500);
+          const startedOn = document.getElementById("thermal").classList.contains("on");
+          const before = await counts();
+          if (!startedOn) await press();
+          await wait(2000);
+          const attribution = document.querySelector(".maplibregl-ctrl-attrib")?.innerText ?? "";
+          const on = {
+            shown: FlightMap.thermalShown(),
+            buttonOn: document.getElementById("thermal").classList.contains("on"),
+            attributionHasKk7: attribution.includes("kk7"),
+            counts: await counts(),
+          };
+          await press();
+          await wait(2000);
+          const afterOff = await counts();
+          await wait(2000);
+          const later = await counts();
+          window.__TAURI__.core.invoke("smoke_note", { text: "thermal report: " + JSON.stringify({
+            startedOn,
+            before,
+            on,
+            off: {
+              shown: FlightMap.thermalShown(),
+              buttonOn: document.getElementById("thermal").classList.contains("on"),
+              counts: afterOff,
+              countsUnchangedAfter2s: afterOff.requests === later.requests && afterOff.fetches === later.fetches,
+            },
+            scriptErrors: window.scriptErrors,
+          }) });
+        })().catch((error) => window.__TAURI__.core.invoke("smoke_note",
+          { text: "thermal report failed: " + error }));"#,
+    );
+    for _ in 0..40 {
+        std::thread::sleep(Duration::from_millis(500));
+        if NOTED.swap(false, Ordering::Relaxed) {
+            return;
+        }
+    }
+    eprintln!("smoke test: the thermal report did not arrive");
+}
+
+/// How often the tile handler answered a thermal tile and how often it asked kk7.
+#[derive(serde::Serialize)]
+pub struct ThermalCounts {
+    requests: u64,
+    fetches: u64,
+}
+
+/// Counters for the smoke test's thermal check.
+#[tauri::command]
+pub fn smoke_thermal_counts(app: AppHandle) -> ThermalCounts {
+    let cache = app.state::<crate::thermal_cache::ThermalState>().get(&app);
+    ThermalCounts {
+        requests: cache.as_ref().map_or(0, |cache| cache.requests()),
+        fetches: cache.as_ref().map_or(0, |cache| cache.fetches()),
+    }
 }
 
 /// Ends the app with `code` once the test is over.

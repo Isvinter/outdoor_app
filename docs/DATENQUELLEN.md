@@ -51,6 +51,19 @@ Tabelle oben.
 Der Stil „OpenFreeMap (online)“ lädt gehostete OpenMapTiles-Kacheln von openfreemap.org
 (Daten ODbL). Er ist nur als Vergleich gedacht; alles andere arbeitet ohne Netz.
 
+### Thermikkarte (nur ZeroGrid Sky)
+
+| Inhalt | Quelle | Lizenz | Nennung | Verwendung |
+|---|---|---|---|---|
+| Thermikkarte (Wahrscheinlichkeit, Thermik anzutreffen; 256-px-PNG-Kacheln, Raster etwa 100 m, aus etwa 3,9 Mio. Streckenflügen) | kk7 Thermal Maps, thermal.kk7.ch (M. von Känel) | CC BY-NC-SA 4.0 (nicht-kommerziell: keine Bezahl-App, keine bezahlten Funktionen, keine Werbung) | „Thermik © thermal.kk7.ch (CC BY-NC-SA 4.0)“, in der Karte, solange die Thermikkarte an ist, und in den Einstellungen | nur Anzeige auf dem Gerät, keine Weitergabe, kein Vorabladen |
+
+Regeln von kk7 für fremde Apps: Kacheln nur für den Ausschnitt und Zoom holen, den der
+Nutzer ansieht, nie ganze Regionen, Zoombereiche oder Layer auf Vorrat; Zwischenspeichern auf
+dem Gerät ist erlaubt (Lebensdauer 30 Tage); jede Anfrage trägt `?src=ZeroGrid`, der
+User-Agent nennt die App, höchstens 10 Anfragen je Sekunde. Base lädt nichts von kk7 und
+verteilt nichts davon. Wird Sky je verkauft oder mit Werbung angeboten, braucht es eine
+eigene Vereinbarung mit kk7.
+
 ## Software
 
 | Komponente | Zweck | Lizenz |

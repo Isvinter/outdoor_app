@@ -616,7 +616,8 @@ pub fn run() {
             delete_region,
             dismiss_interrupted_session,
             smoke::smoke_report,
-            smoke::smoke_note
+            smoke::smoke_note,
+            smoke::smoke_thermal_counts
         ])
         .setup(|app| {
             *app.state::<AppState>().settings() = settings::load(app.handle());

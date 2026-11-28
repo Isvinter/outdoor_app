@@ -41,6 +41,7 @@ Phasen strikt nacheinander, nach jeder Phase auf Freigabe warten.
 | – | OLED-Dunkelmodus: Hell/Dunkel und Relief (Schattierung) an/aus in den Einstellungen; Höhenlinien bleiben im Dunkelmodus immer sichtbar | freigegeben (Linux- und macOS-Selbsttest; am 23.11.2026 auf dem iPhone mit Sky und Trail geprüft, auch die Höhenlinien ohne Relief; Ergebnisse: `docs/sky/ios-test.md`) |
 | – | Gleitzahl, Landepunkt, Wind: Gleitzahl über Grund (Zeitraum 10/20/30/60 s einstellbar), Landepunkt gegen das Gelände aus `dem.pmtiles` (Kreuz auf der Karte, Hinweis am Rand), Wind aus ganzen Kreisen (Windbox mit Pfeil, km/h und Sternen); Kacheln „GZ“ und „Wind“ auf der Instrumente-Seite | gebaut, mit Tests und im Desktop-Simulator geprüft; am 26.11.2026 auf macOS geprüft (Selbsttests mit und ohne Region, mit Testlufträumen, Zeitraum 10/20/60 s, ungültigem Zeitraum, Dunkelmodus), im iOS-Simulator gestartet (Wind dort nicht prüfbar: `simctl` liefert konstante Geschwindigkeit, kein Barometer), auf dem iPhone gestartet und angesehen; nicht im Flug geprüft |
 | – | Start-/Landeerkennung nach dem Vorbild des Flymaster GPS M: Start ab 20 m über Gelände (ohne Gelände ab Startgeschwindigkeit, Standard 15 km/h) für 5 s, Landung nach 30 s (ohne Gelände 60 s) Ruhe am Boden, beides zurückdatiert; Flüge vom Start bis zur Landung (mehrere pro Sitzung), Sitzung ohne Start mit Bewegung als markierter Flug; „Ton erst ab Start“ (Standard an) für Vario- und Warnton; Gleitzahl und Landepunkt nur in der Luft; Anzeige „Bereit / In der Luft / Gelandet“. Spezifikation: `docs/superpowers/specs/2026-11-26-start-landeerkennung-design.md` | gebaut, mit Tests und im Desktop-Simulator geprüft (26.11.2026: ganzer Flug vom Brauneck bis zur Landung im Isartal, mit und ohne Region, Ton erst ab Start aus); auf dem iPhone am Schreibtisch vom Nutzer geprüft (Bereit, kein Ton vor dem Start, Testton spielt, Herumgehen startet keinen Flug, nach Stopp kein neuer Flug); nicht an einem echten Start geprüft |
+| – | Thermikkarte: kk7-Kacheln halb durchsichtig auf der Karte, Knopf „Thermik“ (voreingestellt aus), Layer automatisch nach Jahreszeit und Tageszeit (Sonnenaufgang) oder fest gewählt, Speicher auf dem Gerät mit Ersatz-Layer ohne Netz. Spezifikation: `docs/superpowers/specs/2026-11-28-thermikkarte-design.md` | gebaut, mit Unit-Tests und dem Desktop-Selbsttest auf Linux geprüft (Knopf an/aus mit echten Mausereignissen, Quelle da/weg, keine Anfragen nach dem Ausschalten; einmal gegen kk7 mit leerem HOME: 6 Kacheln geholt); nicht auf dem iPhone, nicht im Flug und nicht auf das Aussehen (Deckkraft, Farben, hell/dunkel) geprüft |
 
 Den Status hier nach jeder Freigabe aktualisieren.
 
@@ -190,6 +191,18 @@ Dateien kommen nicht ins Repository.
 Zum Testen der Warnungen mit dem Desktop-Simulator `testdata/sky/airspace/brauneck-test.txt`
 (erfundene CTR und TMA am Flugweg) in diesen Ordner kopieren; der Selbsttest gibt dann
 den Text des Warnbanners aus. Warn-Einstellungen liegen in `airspace-warning.txt`.
+
+Thermikkarte: Die Kacheln von kk7 (CC BY-NC-SA 4.0, nur nicht-kommerziell) liegen als
+`thermals/<layer>/<z>/<x>/<y>.png` im Datenordner der App (nicht im Cache-Ordner, den iOS
+leeren darf) und werden nie automatisch gelöscht; nur „Thermik-Speicher leeren“ in den
+Einstellungen tut es. Es gibt keinen Abruf bei ausgeschalteter Thermikkarte, kein Vorabladen
+und keine Nachbarkacheln (kk7-Regeln, Details in `docs/DATENQUELLEN.md`). Anfragen tragen
+`?src=ZeroGrid`, höchstens 10 je Sekunde. Der Selbsttest läuft ohne Netz (`NoNetwork`);
+nur mit `VARIO_SMOKE_KK7=1` geht er wirklich an kk7, das nur selten und mit leerem HOME tun:
+`cargo build -p vario-app && HOME=$(mktemp -d) VARIO_SMOKE_TEST=1 VARIO_SMOKE_KK7=1 target/debug/vario-app`.
+Der Selbsttest schaltet die Thermikkarte am Ende wieder aus; `thermal report` zählt
+Aufrufe des Kachel-Handlers (`requests`) und Abrufversuche (`fetches`, ohne Netz gegen
+`NoNetwork`, also ohne Verkehr).
 
 Flüge liegen als IGC-Dateien im Ordner `flights` (iOS: Dokumente-Ordner der App, in der
 App „Dateien“ sichtbar; Desktop: Datenordner der App), Sensorlogs daneben in `logs`. Jeder

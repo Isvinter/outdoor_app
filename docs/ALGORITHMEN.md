@@ -483,3 +483,46 @@ das Gelände bekannt ist, entscheidet Sky über die Höhe statt über die Geschw
   und Geländemodell (Zoom 13, am Brauneck ca. 13 m je Pixel) um einige Meter.
 - **Ton:** Mit „Ton erst ab Start“ (Standard an) bleiben Vario- und Warnton außerhalb eines
   Flugs stumm; Warnbanner und Hervorhebung auf der Karte bleiben. Die Testknöpfe spielen immer.
+
+## 10. Thermikkarte: Layer-Wahl (`vario-app`, Module `thermal_layer`, `thermal_cache`; `flight-core`, Modul `sun`)
+
+Sky zeigt die Thermikkarte von kk7 (Statistik vergangener Streckenflüge, keine Vorhersage).
+kk7 bietet 20 Layer `<jahreszeit>_<tageszeit>`; Sky wählt sie nach Datum und Sonnenstand am
+aktuellen Ort (GPS, sonst Kartenmitte), sofern der Nutzer nichts fest eingestellt hat.
+
+- **Jahreszeit** aus dem Kalendermonat des Sonnentags (nächste Monatsmitte, wie kk7 rechnet):
+
+  | Monate | Layer |
+  |---|---|
+  | Dez., Jan., Feb. | `jan` |
+  | März, April, Mai | `apr` |
+  | Juni, Juli, Aug. | `jul` |
+  | Sept., Okt., Nov. | `oct` |
+
+  `all` (ganzes Jahr) gibt es nur als feste Wahl. Eine Sonderregel für die Südhalbkugel
+  braucht es nicht, weil kk7 ebenfalls in Kalendermonaten rechnet.
+- **Sonnentag:** Datum nach Ortszeit der Sonne (4 Minuten je Längengrad, `sun::solar_date`),
+  nicht das UTC-Datum. Sonst fiele z. B. in Cusco um 02:00 UTC (21:00 Ortszeit) der Abend auf
+  den falschen Tag.
+- **Tageszeit** aus den Stunden seit Sonnenaufgang: unter 5,5 h → `04` (morgens), 5,5 bis
+  unter 8,5 h → `07` (mittags), ab 8,5 h → `10` (abends). Das sind die Mitten zwischen den
+  überlappenden kk7-Zeiträumen (`04`: bis +7 h, `07`: +5 bis +11 h, `10`: ab +7 h). Vor
+  Sonnenaufgang gilt `04`; bei Polartag oder Polarnacht ohne Sonnenaufgang `all`.
+- **Sonnenaufgang** (`sun::sunrise`): NOAA-Näherung (Zeitgleichung und Deklination als
+  Fourier-Reihen, Zenitwinkel 90,833°), Genauigkeit etwa ±2 Minuten in mittleren Breiten.
+  Gerechnet wird mit absoluten Sekunden, damit ein Sonnenaufgang am Nachbartag (UTC) stimmt.
+  `flight-core` kennt keine Systemuhr; die Zeit reicht die App hinein.
+- **Ersatz-Layer**, wenn die Kachel weder frisch ist noch geholt werden kann und es auch
+  keine ältere Kachel desselben Layers gibt, aus dem Speicher in dieser Reihenfolge: andere
+  Tageszeiten derselben Jahreszeit (`07`, `04`, `10`, dann `all`), dann `all_all`. Ersatz-
+  Antworten tragen `Cache-Control: no-store`, damit der Web-View sie nicht behält und später
+  mit Netz die richtige Kachel kommt. Gibt es nichts: 204 (nichts zeichnen).
+- **Frische:** Eine Kachel gilt 30 Tage als frisch. Danach fragt Sky mit Netz zuerst
+  online nach; scheitert das, nimmt es die alte Kachel, egal wie alt. Gespeicherte Kacheln
+  werden nie automatisch gelöscht (nur „Thermik-Speicher leeren“).
+- **Drossel und Pausen:** höchstens 10 Anfragen je Sekunde an kk7; gleichzeitige Anfragen
+  nach derselben Kachel werden zusammengelegt. Ohne Netz pausiert Sky alle Abrufe 30 s, bei
+  einem HTTP-Fehler pro Kachel 10 min (keine schnelle Wiederholung). Timeout beim Abruf:
+  3 s Verbindung, 8 s insgesamt.
+- **Wahl prüfen:** etwa einmal pro Minute; ändert sich der Layer (Tageszeit im Flug),
+  bekommt die Karten-Quelle neue Kachel-Adressen.
