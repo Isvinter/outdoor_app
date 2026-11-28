@@ -6,6 +6,8 @@ import UserNotifications
 struct ZeroGridTrailApp: App {
     init() {
         _ = AppStart.launched
+        // Packages left over when the app ended while sharing one.
+        TracksController.removeLeftoverPackages()
     }
 
     var body: some Scene {

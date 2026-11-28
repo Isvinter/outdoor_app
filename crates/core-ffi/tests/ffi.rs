@@ -522,3 +522,40 @@ fn bad_media_id_has_code() {
         "media_id"
     );
 }
+
+#[test]
+fn export_tour_through_ffi() {
+    let (data, _) = setup("export");
+    let core = open(&data);
+    fs::write(data.join("media").join("x.jpg"), b"jpeg").unwrap();
+    core.start_recording("bike".into()).unwrap();
+    for i in 0..3 {
+        core.handle_fix(fix(i));
+    }
+    core.add_recording_media(
+        "photo".into(),
+        "camera".into(),
+        Some("media/x.jpg".into()),
+        None,
+    )
+    .unwrap();
+    let id = core.stop_recording().unwrap().unwrap().id;
+    let path = data.join("tour.zip");
+    core.export_tour(id, path.display().to_string(), 60)
+        .unwrap();
+    let bytes = fs::read(&path).unwrap();
+    assert_eq!(&bytes[..4], b"PK\x03\x04");
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.contains("tour.json"));
+}
+
+#[test]
+fn export_bad_id_has_code() {
+    let (data, _) = setup("export-id");
+    let core = open(&data);
+    let path = data.join("tour.zip").display().to_string();
+    assert_eq!(
+        code(core.export_tour("kein-id".into(), path, 0).unwrap_err()),
+        "track_id"
+    );
+}

@@ -8,6 +8,10 @@ final class TracksController: ObservableObject {
     /// The track being looked at, with the GPX file to share.
     @Published private(set) var selected: TrackView?
     @Published private(set) var shareFile: URL?
+    /// "Tour exportieren": the package is being built.
+    @Published private(set) var exporting = false
+    /// The built package, while the share sheet shows it.
+    @Published private(set) var exportFile: URL?
     @Published var message: String?
     /// The saved lists show the tracks rather than the routes.
     @Published var listShown = false
@@ -35,6 +39,8 @@ final class TracksController: ObservableObject {
     var onSectionChosen: (() -> Void)?
     /// A track is opened; the map is fitted to it.
     var onOpen: (() -> Void)?
+    /// Builds the package of a tour at a path; slow for a long tour, so off the main thread.
+    var buildTour: @Sendable (_ id: String, _ path: String, _ utcOffsetMin: Int32) throws -> Void
 
     private let core: CoreApp
     private let overlay: TrackOverlay?
@@ -43,6 +49,7 @@ final class TracksController: ObservableObject {
     init(core: CoreApp, overlay: TrackOverlay?, recordingChanges: AnyPublisher<RecordingInfo, Never>) {
         self.core = core
         self.overlay = overlay
+        buildTour = { [core] id, path, offset in try core.exportTour(id: id, path: path, utcOffsetMin: offset) }
         // A finished recording is a new track; its sections are no longer chosen.
         watch = recordingChanges.map(\.phase).removeDuplicates().filter { $0 == "idle" }.sink { [weak self] _ in
             guard let self else { return }
@@ -123,6 +130,7 @@ final class TracksController: ObservableObject {
         if case .track = selectedSection { select(nil) }
         selected = nil
         shareFile = nil
+        finishExport()
         overlay?.show(track: nil)
     }
 
@@ -297,6 +305,78 @@ final class TracksController: ObservableObject {
             await transcribe(id: item.id)
             if blocked != nil { return }
         }
+    }
+
+    // MARK: Package
+
+    static let noSpaceMessage = "Nicht genug freier Speicher für das Paket."
+    static let exportFailedMessage = "Das Paket konnte nicht gebaut werden."
+
+    /// `tmp/tours`: one folder per exported tour, emptied after sharing and at each start.
+    nonisolated static var toursDirectory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("tours", isDirectory: true)
+    }
+
+    /// Where the package of `track` goes: `tmp/tours/<id>/<Name oder Datum>.zip`.
+    nonisolated static func packageURL(_ track: TrackSummary) -> URL {
+        let name = (fileName(track) as NSString).deletingPathExtension + ".zip"
+        return toursDirectory.appendingPathComponent(track.id, isDirectory: true).appendingPathComponent(name)
+    }
+
+    /// The offset of local time at the start of the tour, in minutes.
+    nonisolated static func utcOffsetMin(_ track: TrackSummary) -> Int32 {
+        let start = Date(timeIntervalSince1970: Double(track.startedMs) / 1000)
+        return Int32(TimeZone.current.secondsFromGMT(for: start) / 60)
+    }
+
+    /// "Tour exportieren": the core builds the ZIP in the background, then the share sheet offers it.
+    func exportTour() async {
+        guard let track = selected?.summary, !exporting else { return }
+        let file = Self.packageURL(track)
+        let folder = file.deletingLastPathComponent()
+        let offset = Self.utcOffsetMin(track)
+        let build = buildTour
+        exporting = true
+        defer { exporting = false }
+        let result = await Task.detached(priority: .userInitiated) {
+            Result {
+                try? FileManager.default.removeItem(at: folder)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try build(track.id, file.path, offset)
+            }
+        }.value
+        switch result {
+        case .success where selected?.summary.id == track.id:
+            exportFile = file
+        case .success:
+            // The track was closed meanwhile: nobody shares the package.
+            try? FileManager.default.removeItem(at: folder)
+        case .failure(let error):
+            try? FileManager.default.removeItem(at: folder)
+            if case CoreError.Failed(let code, _) = error, code == "export_no_space" {
+                message = Self.noSpaceMessage
+            } else {
+                message = Self.exportFailedMessage
+            }
+        }
+    }
+
+    /// The share sheet closed, shared or not: the package goes.
+    func finishExport() {
+        guard let file = exportFile else { return }
+        exportFile = nil
+        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+    }
+
+    /// For the UI tests: whether a package lies in `tmp/tours`.
+    var exportStatus: String {
+        let folders = (try? FileManager.default.contentsOfDirectory(atPath: Self.toursDirectory.path)) ?? []
+        return folders.isEmpty ? "none" : "file"
+    }
+
+    /// At the start: packages left over when the app ended while sharing.
+    nonisolated static func removeLeftoverPackages() {
+        try? FileManager.default.removeItem(at: toursDirectory)
     }
 
     /// `<Name oder Datum>.gpx` in a folder of its own in the temporary directory.

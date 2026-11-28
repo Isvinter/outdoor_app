@@ -294,6 +294,7 @@ private struct SelfTestStatus: View {
         parts.append("following=\(guide.following ? 1 : 0)")
         parts.append("mode=\(plan.mode.rawValue)")
         parts.append("section=\(tracks.selectedSection?.status ?? "-")")
+        parts.append("export=\(tracks.exportStatus)")
         let middles = controller.tracks.trackMiddles
         if !middles.isEmpty {
             parts.append("track_section_xy=\(controller.screenPoints(of: middles))")

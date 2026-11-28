@@ -47,6 +47,8 @@ thiserror = "2.0"
 unicode-normalization = "0.1"
 uniffi = "0.32.2"
 uuid = { version = "1.29", features = ["v7", "serde"] }
+# Only deflate, through flate2 with its pure-Rust backend.
+zip = { version = "9.8", default-features = false, features = ["deflate-flate2"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [workspace.lints.rust]
