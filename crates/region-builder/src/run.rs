@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -47,49 +47,43 @@ pub(crate) fn run(
         log: log.to_path_buf(),
     };
 
+    // Standard output and standard error share one pipe, so their lines keep
+    // the order the script wrote them in, as on a terminal. Two pipes read by
+    // two threads mix them up, and the error at the end can drop out of the tail.
+    let (output, writer) =
+        std::io::pipe().map_err(|e| failed(format!("no pipe for the build script: {e}")))?;
+    let writer_err = writer
+        .try_clone()
+        .map_err(|e| failed(format!("no pipe for the build script: {e}")))?;
     // A process group of its own, so that cancelling reaches the programs the
     // script starts as well.
     let mut child = command
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(writer)
+        .stderr(writer_err)
         .process_group(0)
         .spawn()
         .map_err(|e| failed(format!("the build script cannot be started: {e}")))?;
+    // The command holds the write ends; only the script may keep them open, or
+    // the pipe never ends.
+    drop(command);
     let group = child.id();
 
     let (sender, lines) = mpsc::channel::<Vec<u8>>();
-    let readers: Vec<_> = [
-        child
-            .stdout
-            .take()
-            .map(|out| Box::new(out) as Box<dyn Read + Send>),
-        child
-            .stderr
-            .take()
-            .map(|err| Box::new(err) as Box<dyn Read + Send>),
-    ]
-    .into_iter()
-    .flatten()
-    .map(|stream| {
-        let sender = sender.clone();
-        std::thread::spawn(move || {
-            let mut reader = BufReader::new(stream);
-            loop {
-                let mut line = Vec::new();
-                match reader.read_until(b'\n', &mut line) {
-                    Ok(n) if n > 0 => {
-                        if sender.send(line).is_err() {
-                            break;
-                        }
+    let reader = std::thread::spawn(move || {
+        let mut reader = BufReader::new(output);
+        loop {
+            let mut line = Vec::new();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(n) if n > 0 => {
+                    if sender.send(line).is_err() {
+                        break;
                     }
-                    _ => break,
                 }
+                _ => break,
             }
-        })
-    })
-    .collect();
-    drop(sender);
+        }
+    });
 
     let mut tail: VecDeque<String> = VecDeque::new();
     let mut signalled: Option<Instant> = None;
@@ -113,7 +107,7 @@ pub(crate) fn run(
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
-            // Both streams are closed: the script and its children are gone.
+            // The pipe is closed: the script and its children are gone.
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
         if cancel.load(Ordering::SeqCst) {
@@ -130,9 +124,7 @@ pub(crate) fn run(
             }
         }
     }
-    for reader in readers {
-        let _ = reader.join();
-    }
+    let _ = reader.join();
     let status = child
         .wait()
         .map_err(|e| failed(format!("the build script was lost: {e}")))?;

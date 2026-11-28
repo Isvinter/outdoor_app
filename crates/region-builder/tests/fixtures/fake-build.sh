@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Stands in for scripts/build-region.sh in tests. Takes the same arguments and
 # behaves as FAKE_MODE says; without it the region id picks the mode ("mini"
-# builds the fixture region, "fail", "hang" and "binary" do what they say).
+# builds the fixture region, "fail", "hang" and "binary" do what they say,
+# "interleaved" writes to stdout and stderr in turn and fails).
 set -euo pipefail
 ID="$1"; shift
 PACKAGE_DIR=""
@@ -30,6 +31,12 @@ case "$MODE" in
     for i in $(seq 1 20); do echo "line $i"; done
     echo "error: something broke" >&2
     exit 3
+    ;;
+  interleaved)
+    for i in $(seq 1 200); do
+      if [ $((i % 2)) = 0 ]; then echo "out $i"; else echo "err $i" >&2; fi
+    done
+    exit 1
     ;;
   hang)
     printf '\n== step osm (1/7)\n' >&2
