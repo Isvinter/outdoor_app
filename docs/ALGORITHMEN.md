@@ -522,7 +522,9 @@ aktuellen Ort (GPS, sonst Kartenmitte), sofern der Nutzer nichts fest eingestell
   werden nie automatisch gelöscht (nur „Thermik-Speicher leeren“).
 - **Drossel und Pausen:** höchstens 10 Anfragen je Sekunde an kk7; gleichzeitige Anfragen
   nach derselben Kachel werden zusammengelegt. Ohne Netz pausiert Sky alle Abrufe 30 s, bei
-  einem HTTP-Fehler pro Kachel 10 min (keine schnelle Wiederholung). Timeout beim Abruf:
-  3 s Verbindung, 8 s insgesamt.
+  einem HTTP- oder sonstigen Fehler (z. B. TLS) pro Kachel 10 min (keine schnelle
+  Wiederholung); die 30 s zählen ab dem Eintreffen des Fehlers. Nach dem Warten auf die
+  Drossel wird beides noch einmal geprüft, ebenso ob die Thermikkarte noch an ist.
+  Timeout beim Abruf: 3 s Verbindung, 8 s insgesamt.
 - **Wahl prüfen:** etwa einmal pro Minute; ändert sich der Layer (Tageszeit im Flug),
   bekommt die Karten-Quelle neue Kachel-Adressen.

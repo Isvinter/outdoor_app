@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -123,9 +123,14 @@ impl ThermalState {
             Box::new(UreqFetch::new())
         };
         // If two threads race, one value wins and the other is dropped.
+        let enabled = crate::thermal_layer::load(app).enabled;
         Some(
             self.cache
-                .get_or_init(|| Arc::new(ThermalCache::new(dir, fetch)))
+                .get_or_init(|| {
+                    let cache = ThermalCache::new(dir, fetch);
+                    cache.set_enabled(enabled);
+                    Arc::new(cache)
+                })
                 .clone(),
         )
     }
@@ -210,6 +215,9 @@ pub struct ThermalCache {
     backoff: Mutex<Backoff>,
     requests: AtomicU64,
     fetches: AtomicU64,
+    /// Mirrors the "Thermik" button. While false, nothing goes to the network, not even
+    /// requests that were already waiting for their turn when the map was switched off.
+    enabled: AtomicBool,
 }
 
 /// Locks a mutex; a panic in another thread must not block the cache forever.
@@ -242,7 +250,13 @@ impl ThermalCache {
             backoff: Mutex::new(Backoff::default()),
             requests: AtomicU64::new(0),
             fetches: AtomicU64::new(0),
+            enabled: AtomicBool::new(true),
         }
+    }
+
+    /// Switches network access on or off (the thermal map button).
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
     }
 
     /// Calls of `answer`.
@@ -330,6 +344,19 @@ impl ThermalCache {
             .join(format!("{y}.png"))
     }
 
+    /// True when the map is off or a backoff says to stay away from the network.
+    fn skip_network(&self, file: &Path, now: SystemTime) -> bool {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return true;
+        }
+        let backoff = lock(&self.backoff);
+        backoff.offline_until.is_some_and(|until| until > now)
+            || backoff
+                .tile_until
+                .get(file)
+                .is_some_and(|until| *until > now)
+    }
+
     /// Downloads and stores the tile unless a backoff says to stay away from the network.
     fn try_fetch(
         &self,
@@ -340,20 +367,18 @@ impl ThermalCache {
         file: &Path,
         now: SystemTime,
     ) -> Option<Vec<u8>> {
-        {
-            let backoff = lock(&self.backoff);
-            if backoff.offline_until.is_some_and(|until| until > now)
-                || backoff
-                    .tile_until
-                    .get(file)
-                    .is_some_and(|until| *until > now)
-            {
-                return None;
-            }
+        let started = Instant::now();
+        if self.skip_network(file, now) {
+            return None;
         }
-        let wait = lock(&self.limiter).delay(Instant::now());
+        let wait = lock(&self.limiter).delay(started);
         if !wait.is_zero() {
             std::thread::sleep(wait);
+            // Time has passed: earlier tiles of the burst may have found the network
+            // down, or the map may have been switched off. Look again.
+            if self.skip_network(file, now) {
+                return None;
+            }
         }
         if self.fetch.reaches_network() {
             self.fetches.fetch_add(1, Ordering::Relaxed);
@@ -367,13 +392,18 @@ impl ThermalCache {
             Err(error) => {
                 let mut backoff = lock(&self.backoff);
                 match error {
-                    FetchError::Offline => backoff.offline_until = Some(now + OFFLINE_BACKOFF),
-                    FetchError::Http(_) => {
+                    // Counted from when the error arrived, not from the request start
+                    // (which may be long ago after limiter sleep and a timeout).
+                    FetchError::Offline => {
+                        backoff.offline_until = Some(now + started.elapsed() + OFFLINE_BACKOFF)
+                    }
+                    // `Other` (e.g. TLS errors behind a captive portal) is treated like
+                    // an HTTP error: that tile is left alone for a while.
+                    FetchError::Http(_) | FetchError::Other(_) => {
                         backoff
                             .tile_until
                             .insert(file.to_path_buf(), now + HTTP_BACKOFF);
                     }
-                    FetchError::Other(_) => {}
                 }
                 None
             }
@@ -579,6 +609,66 @@ mod tests {
         assert_eq!(c.fetches(), 2);
         c.answer("jul_07/10/544/358", now + Duration::from_secs(601));
         assert_eq!(c.fetches(), 3);
+    }
+
+    #[test]
+    fn other_error_skips_only_that_tile() {
+        let (c, _dir) = cache("other", Err(FetchError::Other("tls".into())));
+        let now = SystemTime::now();
+        c.answer("jul_07/10/544/358", now);
+        c.answer("jul_07/10/544/358", now + Duration::from_secs(60));
+        assert_eq!(c.fetches(), 1);
+        c.answer("jul_07/10/545/358", now + Duration::from_secs(60));
+        assert_eq!(c.fetches(), 2);
+    }
+
+    /// Makes the next `delay` call wait about 100 ms: ten starts, 900 ms ago.
+    fn fill_limiter(c: &ThermalCache) {
+        let mut limiter = lock(&c.limiter);
+        let past = Instant::now() - Duration::from_millis(900);
+        for _ in 0..FETCHES_PER_SECOND {
+            limiter.starts.push_back(past);
+        }
+    }
+
+    #[test]
+    fn backoff_set_during_limiter_wait_is_respected() {
+        let (c, _dir) = cache("waitbackoff", Ok(b"png".to_vec()));
+        let c = Arc::new(c);
+        fill_limiter(&c);
+        let now = SystemTime::now();
+        let waiting = {
+            let c = c.clone();
+            std::thread::spawn(move || c.answer(PATH, now))
+        };
+        // Another tile of the burst finds the network down while this one sleeps.
+        std::thread::sleep(Duration::from_millis(30));
+        lock(&c.backoff).offline_until = Some(now + OFFLINE_BACKOFF);
+        assert_eq!(waiting.join().unwrap(), Answer::Empty);
+        assert_eq!(c.fetches(), 0);
+    }
+
+    #[test]
+    fn switched_off_map_does_not_fetch() {
+        let (c, _dir) = cache("disabled", Ok(b"png".to_vec()));
+        c.set_enabled(false);
+        assert_eq!(c.answer(PATH, SystemTime::now()), Answer::Empty);
+        assert_eq!(c.fetches(), 0);
+    }
+
+    #[test]
+    fn switching_off_during_limiter_wait_stops_the_fetch() {
+        let (c, _dir) = cache("offwait", Ok(b"png".to_vec()));
+        let c = Arc::new(c);
+        fill_limiter(&c);
+        let waiting = {
+            let c = c.clone();
+            std::thread::spawn(move || c.answer(PATH, SystemTime::now()))
+        };
+        std::thread::sleep(Duration::from_millis(30));
+        c.set_enabled(false);
+        assert_eq!(waiting.join().unwrap(), Answer::Empty);
+        assert_eq!(c.fetches(), 0);
     }
 
     #[test]
