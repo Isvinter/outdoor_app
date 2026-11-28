@@ -314,7 +314,10 @@ fn far_places_come_after_better_matches_inside() {
         &dir,
         "a",
         "A",
-        Some(&[place("Seeblick", -13.9, -72.0), lodging("Seeblick-Hütte", -13.51, -72.0)]),
+        Some(&[
+            place("Seeblick", -13.9, -72.0),
+            lodging("Seeblick-Hütte", -13.51, -72.0),
+        ]),
     );
     let results = common::open(&dir).search("Seeblick", NEAR, 10_000.0, 30);
     let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
