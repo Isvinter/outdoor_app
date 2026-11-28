@@ -705,8 +705,12 @@ function showThermalSettings() {
   $("set-thermal-daytime").value = thermalSettings.dayTime;
 }
 
+// Counts the calls, so a slow answer cannot overwrite a newer one.
+let thermalRequest = 0;
+
 /** Shows the layer that fits now and here, or removes it while the map is off. */
 async function refreshThermal() {
+  const request = ++thermalRequest;
   if (!thermalSettings.enabled) {
     FlightMap.setThermal(null);
     return;
@@ -714,8 +718,8 @@ async function refreshThermal() {
   const place = lastFix ?? FlightMap.center() ?? { latitude: 47.6, longitude: 11.0 };
   try {
     const tiles = await invoke("thermal_tiles", place);
-    // Switched off while waiting for the answer.
-    if (thermalSettings.enabled) FlightMap.setThermal(tiles.url);
+    // Switched off, or asked again, while waiting for the answer.
+    if (thermalSettings.enabled && request === thermalRequest) FlightMap.setThermal(tiles.url);
   } catch (error) {
     console.warn("thermal_tiles", error);
   }
