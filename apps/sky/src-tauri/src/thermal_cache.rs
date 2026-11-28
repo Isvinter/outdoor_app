@@ -83,7 +83,10 @@ impl RateLimiter {
             self.starts.push_back(now);
             return Duration::ZERO;
         }
-        let wait = self.starts[0] + second - now;
+        // Book the slot one second after the 10th-most-recent start (not the oldest),
+        // so a burst is spread out instead of piling up on one instant.
+        let slot = self.starts[self.starts.len() - FETCHES_PER_SECOND] + second;
+        let wait = slot.saturating_duration_since(now);
         self.starts.push_back(now + wait);
         wait
     }
@@ -514,6 +517,28 @@ mod tests {
         let wait = limiter.delay(t0);
         assert!(wait > Duration::ZERO && wait <= Duration::from_secs(1));
         assert_eq!(limiter.delay(t0 + Duration::from_secs(1)), Duration::ZERO);
+    }
+
+    #[test]
+    fn rate_limiter_spreads_a_burst() {
+        let mut limiter = RateLimiter::new();
+        let t0 = Instant::now();
+        let starts: Vec<Instant> = (0..30).map(|_| t0 + limiter.delay(t0)).collect();
+        for (i, start) in starts.iter().enumerate() {
+            assert_eq!(
+                *start,
+                t0 + Duration::from_secs((i / 10) as u64),
+                "call {i}"
+            );
+        }
+        // No window of one second holds more than 10 starts.
+        for start in &starts {
+            let in_window = starts
+                .iter()
+                .filter(|s| **s >= *start && **s < *start + Duration::from_secs(1))
+                .count();
+            assert!(in_window <= 10);
+        }
     }
 
     #[test]
