@@ -227,3 +227,20 @@ treffen sie am ehesten `map.js`, `app.js` und `index.html`.
 - Genaue Lage des Knopfs neben „Folgen“, Deckkraft im Detail.
 - Ablageort auf iOS (siehe oben). Größe: eine Kachel 0,1–30 KB; ein Gebiet bei Zoom 10
   mit allen 20 Layern bleibt im Bereich weniger MB.
+
+## Nachtrag 28.11.2026: Deckkraft-Regler und Selbsttest
+
+Nach dem ersten Ausprobieren auf dem Desktop (Nutzer): Im hellen Modus passt die Deckkraft,
+im dunklen ist sie zu stark.
+
+- **Regler „Deckkraft“** im Abschnitt „Thermikkarte“ der Einstellungen, 10–100 % in
+  5er-Schritten, wirkt sofort auf die Karte.
+- **Ein Wert je Modus** (Entscheidung des Nutzers): hell und dunkel getrennt gespeichert; der
+  Regler zeigt und ändert den Wert des aktuellen Modus. Startwerte hell 60 %, dunkel 35 %.
+  Gespeichert in `thermal-map.json` (`opacityLight`, `opacityDark`, ganze Prozent); fehlende
+  oder unsinnige Werte → Startwert bzw. auf 10–100 begrenzt.
+- **Selbsttest** prüft, dass eine Thermik-Kachel wirklich auf der Karte ankommt (der
+  Fehler mit dem fehlenden `Access-Control-Allow-Origin` blieb sonst unbemerkt). Dazu
+  liefert der Selbsttest ohne `VARIO_SMOKE_KK7` eine eingebaute Testkachel statt kk7 und
+  nutzt einen eigenen Speicherordner im temporären Verzeichnis, damit der echte
+  Thermik-Speicher unberührt bleibt. Er meldet auch die angewandte Deckkraft.

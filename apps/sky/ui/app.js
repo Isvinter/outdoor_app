@@ -687,7 +687,9 @@ $("follow").addEventListener("click", () => FlightMap.toggleFollow());
 
 // ---- Thermal map ----
 
-let thermalSettings = { enabled: false, season: "auto", dayTime: "auto" };
+let thermalSettings = {
+  enabled: false, season: "auto", dayTime: "auto", opacityLight: 60, opacityDark: 35,
+};
 
 async function saveThermalSettings() {
   try {
@@ -703,6 +705,21 @@ function showThermalSettings() {
   $("thermal").classList.toggle("on", thermalSettings.enabled);
   $("set-thermal-season").value = thermalSettings.season;
   $("set-thermal-daytime").value = thermalSettings.dayTime;
+  showThermalOpacity();
+}
+
+/** The field of the opacity the slider shows: one per light and dark map. */
+function thermalOpacityField() {
+  return mapLook.dark ? "opacityDark" : "opacityLight";
+}
+
+/** Slider for the current look, and both values handed to the map. */
+function showThermalOpacity() {
+  const percent = thermalSettings[thermalOpacityField()];
+  $("thermal-opacity-label").textContent = mapLook.dark ? "Deckkraft (dunkel)" : "Deckkraft (hell)";
+  $("set-thermal-opacity").value = percent;
+  $("out-thermal-opacity").textContent = percent + " %";
+  FlightMap.setThermalOpacity(thermalSettings.opacityLight / 100, thermalSettings.opacityDark / 100);
 }
 
 // Counts the calls, so a slow answer cannot overwrite a newer one.
@@ -746,6 +763,12 @@ $("set-thermal-daytime").addEventListener("change", (event) => {
   thermalSettings = { ...thermalSettings, dayTime: event.target.value };
   saveThermalSettings();
 });
+// While sliding the map follows at once; saved when the slider is let go.
+$("set-thermal-opacity").addEventListener("input", (event) => {
+  thermalSettings = { ...thermalSettings, [thermalOpacityField()]: Number(event.target.value) };
+  showThermalOpacity();
+});
+$("set-thermal-opacity").addEventListener("change", () => saveThermalSettings());
 $("clear-thermal").addEventListener("click", async () => {
   if (!confirm("Gespeicherte Thermikkarte vom Gerät löschen?")) return;
   try {
@@ -792,6 +815,8 @@ function showMapLook() {
   }
   $("map-relief").hidden = !mapLook.dark;
   FlightMap.setLook(mapLook);
+  // The opacity slider belongs to the look shown now.
+  showThermalOpacity();
 }
 
 async function saveMapLook(next) {

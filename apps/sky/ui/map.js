@@ -121,6 +121,10 @@ const FlightMap = (() => {
   let onTap = () => {};
   let tapMarker = null;
   let thermalUrl = null; // tile URL template of the thermal layer, null = off
+  // Opacity of the thermal layer for the light and the dark map (0..1).
+  let thermalOpacity = { light: 0.6, dark: 0.35 };
+  // Thermal tiles that arrived as images, and those that failed; for the smoke test.
+  const thermalTiles = { loaded: 0, failed: 0 };
   let landing = null; // { latitudeDeg, longitudeDeg, distanceM } or null
   let formatDistance = (metres) => Math.round(metres) + " m";
 
@@ -282,8 +286,18 @@ const FlightMap = (() => {
       id: THERMAL_SOURCE,
       type: "raster",
       source: THERMAL_SOURCE,
-      paint: { "raster-opacity": 0.6, "raster-fade-duration": 0 },
+      paint: { "raster-opacity": currentThermalOpacity(), "raster-fade-duration": 0 },
     }, beforeId);
+  }
+
+  function currentThermalOpacity() {
+    return look.dark ? thermalOpacity.dark : thermalOpacity.light;
+  }
+
+  function applyThermalOpacity() {
+    if (map && map.getLayer(THERMAL_SOURCE)) {
+      map.setPaintProperty(THERMAL_SOURCE, "raster-opacity", currentThermalOpacity());
+    }
   }
 
   function removeThermalLayer() {
@@ -583,7 +597,13 @@ const FlightMap = (() => {
     map.on("move", updateLandingHint);
     // A tap (not a drag) asks for the airspaces at that place.
     map.on("click", (event) => onTap(event.lngLat.lat, event.lngLat.lng));
+    map.on("data", (event) => {
+      if (event.sourceId === THERMAL_SOURCE && event.dataType === "source" && event.tile) {
+        thermalTiles.loaded += 1;
+      }
+    });
     map.on("error", (event) => {
+      if (event.sourceId === THERMAL_SOURCE) thermalTiles.failed += 1;
       // If the style itself cannot be loaded there is no map at all: fall back once.
       if (!map.isStyleLoaded() && !usingFallback && !map.getSource(TRACK_SOURCE)) {
         usingFallback = true;
@@ -634,6 +654,7 @@ const FlightMap = (() => {
       look = { dark: next.dark, relief: next.relief };
       applyOwnColors();
       applyRelief();
+      applyThermalOpacity();
     },
 
     /** What the map shows of the look; for the smoke test. */
@@ -766,6 +787,19 @@ const FlightMap = (() => {
     },
 
     thermalShown: () => Boolean(map && map.getSource(THERMAL_SOURCE)),
+
+    /** Opacity of the thermal layer for the light and the dark map, each 0..1. */
+    setThermalOpacity(light, dark) {
+      thermalOpacity = { light, dark };
+      applyThermalOpacity();
+    },
+
+    /** Thermal tiles loaded as images and failed so far; for the smoke test. */
+    thermalTileCounts: () => ({ ...thermalTiles }),
+
+    /** The opacity the thermal layer is drawn with, or null without the layer. */
+    thermalOpacity: () =>
+      map && map.getLayer(THERMAL_SOURCE) ? map.getPaintProperty(THERMAL_SOURCE, "raster-opacity") : null,
 
     /** Centre of the map, or null before the map exists. */
     center() {

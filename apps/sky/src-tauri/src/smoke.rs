@@ -222,8 +222,10 @@ fn check_look(window: &tauri::WebviewWindow) {
 }
 
 /// Presses the "Thermik" button on the map twice with real pointer events and prints
-/// what the map and the tile handler did. With the default `NoNetwork` fetcher nothing
-/// reaches kk7 (only `VARIO_SMOKE_KK7=1` allows that). Afterwards the button is in the state it started in.
+/// what the map and the tile handler did, including whether tiles reached the map as
+/// images. Without `VARIO_SMOKE_KK7=1` nothing reaches kk7: the tiles are a built-in test
+/// image (`SmokeTiles`) kept in a temporary folder. Afterwards the button is in the
+/// state it started in.
 fn check_thermal(window: &tauri::WebviewWindow) {
     NOTED.store(false, Ordering::Relaxed);
     let _ = window.eval(
@@ -247,6 +249,7 @@ fn check_thermal(window: &tauri::WebviewWindow) {
           await wait(500);
           const startedOn = document.getElementById("thermal").classList.contains("on");
           const before = await counts();
+          const tilesBefore = FlightMap.thermalTileCounts();
           if (!startedOn) await press();
           await wait(2000);
           const attribution = document.querySelector(".maplibregl-ctrl-attrib")?.innerText ?? "";
@@ -255,6 +258,10 @@ fn check_thermal(window: &tauri::WebviewWindow) {
             buttonOn: document.getElementById("thermal").classList.contains("on"),
             attributionHasKk7: attribution.includes("kk7"),
             counts: await counts(),
+            // Tiles that reached the map as images; 0 means the webview dropped them.
+            tilesLoaded: FlightMap.thermalTileCounts().loaded - tilesBefore.loaded,
+            tilesFailed: FlightMap.thermalTileCounts().failed - tilesBefore.failed,
+            opacity: FlightMap.thermalOpacity(),
           };
           await press();
           await wait(2000);

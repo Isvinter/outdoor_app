@@ -278,6 +278,12 @@
           <option value="evening">Abends (ab 7 h nach Sonnenaufgang)</option>
         </select>
       </div>
+      <div class="setting">
+        <label for="set-thermal-opacity"><span id="thermal-opacity-label">Deckkraft</span>
+          <output id="out-thermal-opacity"></output></label>
+        <input id="set-thermal-opacity" type="range" min="10" max="100" step="5" />
+        <small>Eigener Wert für die helle und die dunkle Karte; gilt für den Modus, der gerade an ist.</small>
+      </div>
       <p id="thermal-size" class="hint"></p>
       <div class="row">
         <button id="clear-thermal" class="button">Thermik-Speicher leeren</button>

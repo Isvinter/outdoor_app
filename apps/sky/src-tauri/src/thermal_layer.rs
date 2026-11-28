@@ -90,7 +90,15 @@ pub struct ThermalSettings {
     pub enabled: bool,
     pub season: Choice<Season>,
     pub day_time: Choice<DayTime>,
+    /// Opacity of the thermal layer on the light map, in whole percent.
+    pub opacity_light: u8,
+    /// The same on the dark map, where the colours stand out more.
+    pub opacity_dark: u8,
 }
+
+/// Bounds of the opacity slider, in percent.
+const OPACITY_MIN: u8 = 10;
+const OPACITY_MAX: u8 = 100;
 
 impl Default for ThermalSettings {
     fn default() -> Self {
@@ -98,14 +106,20 @@ impl Default for ThermalSettings {
             enabled: false,
             season: Choice::Auto,
             day_time: Choice::Auto,
+            opacity_light: 60,
+            opacity_dark: 35,
         }
     }
 }
 
 impl ThermalSettings {
     /// Anything unreadable gives the default.
+    /// Opacities out of range are moved to the nearest bound.
     pub fn parse(text: &str) -> Self {
-        serde_json::from_str(text).unwrap_or_default()
+        let mut settings: Self = serde_json::from_str(text).unwrap_or_default();
+        settings.opacity_light = settings.opacity_light.clamp(OPACITY_MIN, OPACITY_MAX);
+        settings.opacity_dark = settings.opacity_dark.clamp(OPACITY_MIN, OPACITY_MAX);
+        settings
     }
 }
 
@@ -323,7 +337,23 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_string(&ThermalSettings::default()).unwrap(),
-            r#"{"enabled":false,"season":"auto","dayTime":"auto"}"#
+            r#"{"enabled":false,"season":"auto","dayTime":"auto","opacityLight":60,"opacityDark":35}"#
         );
+    }
+
+    #[test]
+    fn opacity_defaults_for_older_files() {
+        // A file written before the slider existed keeps its choices.
+        let s = ThermalSettings::parse(r#"{"enabled":true,"season":"apr","dayTime":"auto"}"#);
+        assert!(s.enabled);
+        assert_eq!((s.opacity_light, s.opacity_dark), (60, 35));
+    }
+
+    #[test]
+    fn opacity_is_kept_within_bounds() {
+        let s = ThermalSettings::parse(r#"{"opacityLight":0,"opacityDark":250}"#);
+        assert_eq!((s.opacity_light, s.opacity_dark), (10, 100));
+        let s = ThermalSettings::parse(r#"{"opacityLight":45,"opacityDark":20}"#);
+        assert_eq!((s.opacity_light, s.opacity_dark), (45, 20));
     }
 }

@@ -392,12 +392,12 @@ fn get_thermal_map(app: AppHandle) -> thermal_layer::ThermalSettings {
 
 #[tauri::command]
 fn set_thermal_map(app: AppHandle, settings: thermal_layer::ThermalSettings) -> Result<(), String> {
-    thermal_layer::save(&app, &settings)?;
-    // Tell the cache, so requests that are still waiting do not go to kk7 any more.
+    // Tell the cache first, so requests that are still waiting do not go to kk7 any
+    // more, even if saving the file fails.
     if let Some(cache) = app.state::<thermal_cache::ThermalState>().get(&app) {
         cache.set_enabled(settings.enabled);
     }
-    Ok(())
+    thermal_layer::save(&app, &settings)
 }
 
 /// Which thermal layer fits now and here, and the tile URL template for it.

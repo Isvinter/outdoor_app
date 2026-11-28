@@ -85,12 +85,16 @@ impl Fetch for UreqFetch {
     }
 }
 
-/// Smoke runs must not touch the network: every download counts as offline.
-pub struct NoNetwork;
+/// Smoke runs must not touch the network: every tile is a built-in test image
+/// (red stripes), so the smoke test can see a tile arrive on the map.
+pub struct SmokeTiles;
 
-impl Fetch for NoNetwork {
+/// `include_bytes!` puts the file into the program at compile time.
+const SMOKE_TILE: &[u8] = include_bytes!("smoke-thermal-tile.png");
+
+impl Fetch for SmokeTiles {
     fn get(&self, _url: &str) -> Result<Vec<u8>, FetchError> {
-        Err(FetchError::Offline)
+        Ok(SMOKE_TILE.to_vec())
     }
 
     fn reaches_network(&self) -> bool {
@@ -114,13 +118,16 @@ impl ThermalState {
         }
         // Not `data_dir()`: on iOS that is the Files-visible Documents folder.
         // Not the cache dir either: iOS may purge it.
-        let dir = app.path().app_data_dir().ok()?.join("thermals");
-        let fetch: Box<dyn Fetch> = if std::env::var_os("VARIO_SMOKE_TEST").is_some()
-            && std::env::var_os("VARIO_SMOKE_KK7").is_none()
-        {
-            Box::new(NoNetwork)
+        let smoke_offline = std::env::var_os("VARIO_SMOKE_TEST").is_some()
+            && std::env::var_os("VARIO_SMOKE_KK7").is_none();
+        let (dir, fetch): (PathBuf, Box<dyn Fetch>) = if smoke_offline {
+            // Own folder, emptied first, so the test tiles never mix with real ones.
+            let dir = std::env::temp_dir().join("vario-smoke-thermals");
+            let _ = std::fs::remove_dir_all(&dir);
+            (dir, Box::new(SmokeTiles))
         } else {
-            Box::new(UreqFetch::new())
+            let dir = app.path().app_data_dir().ok()?.join("thermals");
+            (dir, Box::new(UreqFetch::new()))
         };
         // If two threads race, one value wins and the other is dropped.
         let enabled = crate::thermal_layer::load(app).enabled;
@@ -264,7 +271,7 @@ impl ThermalCache {
         self.requests.load(Ordering::Relaxed)
     }
 
-    /// Calls of `Fetch::get` that can reach the network (never for `NoNetwork`).
+    /// Calls of `Fetch::get` that can reach the network (never for `SmokeTiles`).
     pub fn fetches(&self) -> u64 {
         self.fetches.load(Ordering::Relaxed)
     }
@@ -471,6 +478,19 @@ fn dir_size(dir: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every download counts as offline.
+    struct NoNetwork;
+
+    impl Fetch for NoNetwork {
+        fn get(&self, _url: &str) -> Result<Vec<u8>, FetchError> {
+            Err(FetchError::Offline)
+        }
+
+        fn reaches_network(&self) -> bool {
+            false
+        }
+    }
     use std::sync::Arc;
 
     struct Fake {
@@ -684,6 +704,17 @@ mod tests {
         let c = ThermalCache::new(dir, Box::new(NoNetwork));
         assert!(matches!(c.answer(PATH, SystemTime::now()), Answer::Empty));
         assert_eq!(c.requests(), 1);
+        assert_eq!(c.fetches(), 0);
+    }
+
+    #[test]
+    fn smoke_tiles_serve_a_png_without_the_network() {
+        let dir = temp_dir("smoketile");
+        let c = ThermalCache::new(dir, Box::new(SmokeTiles));
+        match c.answer(PATH, SystemTime::now()) {
+            Answer::Tile(tile) => assert!(tile.data.starts_with(b"\x89PNG\r\n\x1a\n")),
+            _ => panic!("expected the test tile"),
+        }
         assert_eq!(c.fetches(), 0);
     }
 
