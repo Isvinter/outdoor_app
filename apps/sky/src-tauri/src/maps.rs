@@ -345,14 +345,22 @@ fn respond_thermal(app: &AppHandle, rest: &str) -> Response<Vec<u8>> {
     let Some(cache) = app.state::<ThermalState>().get(app) else {
         return empty(StatusCode::NO_CONTENT);
     };
-    match cache.answer(rest, std::time::SystemTime::now()) {
-        Answer::Tile(tile) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "image/png")
+    thermal_response(cache.answer(rest, std::time::SystemTime::now()))
+}
+
+/// The HTTP answer for a thermal tile. Built on `response`, so it carries the same
+/// cross-origin header as the region tiles: without it the webview drops the image.
+fn thermal_response(answer: Answer) -> Response<Vec<u8>> {
+    match answer {
+        Answer::Tile(tile) => {
+            let mut response = response(StatusCode::OK, "image/png", tile.data);
             // The cache decides what is fresh; the webview must not keep its own copy.
-            .header(header::CACHE_CONTROL, "no-store")
-            .body(tile.data)
-            .unwrap_or_else(|_| empty(StatusCode::INTERNAL_SERVER_ERROR)),
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                header::HeaderValue::from_static("no-store"),
+            );
+            response
+        }
         Answer::Empty => empty(StatusCode::NO_CONTENT),
         Answer::BadRequest => empty(StatusCode::BAD_REQUEST),
     }
@@ -386,6 +394,40 @@ mod look_tests {
         let look = MapLook::parse(r#"{"dark":true}"#);
         assert!(look.dark);
         assert!(!look.relief);
+    }
+}
+
+#[cfg(test)]
+mod thermal_response_tests {
+    use super::{StatusCode, header, thermal_response};
+    use crate::thermal_cache::{Answer, ServedTile};
+
+    #[test]
+    fn thermal_tile_may_be_read_by_the_page() {
+        // The page lives on tauri://localhost; without this header the webview drops
+        // the image and the map stays empty although the tile arrived.
+        let tile = Answer::Tile(ServedTile {
+            data: b"png".to_vec(),
+            fallback: false,
+        });
+        let response = thermal_response(tile);
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+        assert_eq!(headers[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+        assert_eq!(headers[header::CONTENT_TYPE], "image/png");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    }
+
+    #[test]
+    fn empty_and_bad_thermal_answers() {
+        assert_eq!(
+            thermal_response(Answer::Empty).status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            thermal_response(Answer::BadRequest).status(),
+            StatusCode::BAD_REQUEST
+        );
     }
 }
 
