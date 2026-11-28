@@ -66,18 +66,26 @@ private struct RootView: View {
             plan.failPlansAfter = start.options.failPlansAfter
             let regions = RegionsController(
                 host: start.host, engine: start.engine, map: map, plan: plan, installed: start.regions)
-            let search = SearchController(backend: SearchBackend(core: start.host.core), map: map.searchOverlay)
+            let search = SearchController(
+                backend: SearchBackend(core: start.host.core), map: map.searchOverlay,
+                routeFrom: { [weak location, weak plan] in
+                    guard let location, let plan else { return nil }
+                    return RouteFrom.live(location: location, plan: plan)
+                })
             let routeHere = RouteHereFlow(
                 host: LiveRouteHereHost(core: start.host.core, plan: plan, location: location))
             // A hit chosen or left: the card of a tapped place goes.
             search.onSelectionCleared = { [weak routeHere] in routeHere?.dismiss() }
             routeHere.onDone = { [weak search] in search?.routeDone() }
             map.searchOverlay.onOtherMove = { [weak search] in search?.mapMoved() }
-            // A tap on a search hit opens it, in both modes; elsewhere the mode decides.
+            // A tap on a search hit opens it, in both modes; while the search is open nothing
+            // else happens, so that a slip of the finger sets no point; otherwise the mode decides.
             plan.onMapTap = { [weak search, weak map] at in
-                guard let index = map?.searchOverlay.dot(at: at) else { return false }
-                search?.tappedDot(index)
-                return true
+                if let index = map?.searchOverlay.dot(at: at) {
+                    search?.tappedDot(index)
+                    return true
+                }
+                return search?.holdsMapTaps == true
             }
             // The first waypoint of a route: the way there from the own position is offered.
             plan.onPickedTap = { [weak routeHere, weak location] at, first in

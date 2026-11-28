@@ -94,12 +94,6 @@ final class SearchOverlay: SearchMap {
         (mapView.style?.source(withIdentifier: Self.source) as? MLNShapeSource)?.shape = shape()
     }
 
-    func fitSearchHits(_ points: [CLLocationCoordinate2D], topInset: Double) -> SearchCamera? {
-        guard let camera = camera(for: points, topInset: topInset) else { return nil }
-        moveSearchCamera(camera)
-        return camera
-    }
-
     func showSearchResult(_ at: CLLocationCoordinate2D, topInset: Double) {
         if let camera = camera(for: [at], topInset: topInset) { moveSearchCamera(camera) }
     }

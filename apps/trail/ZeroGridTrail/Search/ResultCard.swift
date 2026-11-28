@@ -20,7 +20,7 @@ struct ResultCard: View {
             Text(SearchTexts.title(hit))
                 .font(.headline)
                 .accessibilityIdentifier("search-card-title")
-            Text(SearchTexts.details(hit, distance: Format.distance))
+            Text(SearchTexts.details(hit))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             TargetActions(

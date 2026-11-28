@@ -180,6 +180,22 @@ pub struct RouteRequest {
     pub heading_deg: Option<f32>,
 }
 
+/// Routes from one point to many targets.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatrixRequest {
+    pub from: LatLon,
+    pub to: Vec<LatLon>,
+    pub profile: Profile,
+    pub options: RouteOptions,
+}
+
+/// Route distance and time to one target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MatrixEntry {
+    pub distance_m: f64,
+    pub duration_s: f64,
+}
+
 /// A planned route.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Route {
@@ -248,6 +264,15 @@ pub enum RoutingError {
 /// `valhalla`, by `ValhallaRouter`.
 pub trait Router: Send + Sync {
     fn route(&self, request: &RouteRequest) -> Result<Route, RoutingError>;
+    /// Route distance and time from one point to many. The result has one
+    /// entry per target, in order. `None` means there is no way within the
+    /// router's search reach (a long detour counts as none), or the target
+    /// cannot be placed on the network, e.g. outside the map.
+    fn matrix(&self, _request: &MatrixRequest) -> Result<Vec<Option<MatrixEntry>>, RoutingError> {
+        Err(RoutingError::Unavailable(
+            "this router has no matrix".into(),
+        ))
+    }
     /// The profiles this router can compute.
     fn profiles(&self) -> Vec<Profile>;
 }

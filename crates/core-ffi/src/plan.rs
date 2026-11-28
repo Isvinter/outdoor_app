@@ -282,7 +282,7 @@ fn profile_from(name: &str) -> Result<Profile, CoreError> {
         .map_err(|_| failed("route_plan", format!("unknown profile {name}")))
 }
 
-fn leg_from(leg: &LegInput) -> Result<LegSpec, CoreError> {
+pub(crate) fn leg_from(leg: &LegInput) -> Result<LegSpec, CoreError> {
     Ok(LegSpec {
         profile: profile_from(&leg.profile)?,
         options: options_from(&leg.options)?,

@@ -4,9 +4,13 @@
 mod common;
 
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
-use core_app::App;
-use core_routing::LatLon;
+use core_app::{App, KnownPosition, LegSpec, RouteFrom};
+use core_routing::{
+    LatLon, MatrixEntry, MatrixRequest, Profile, Route, RouteOptions, RouteRequest, Router,
+    RoutingError,
+};
 use core_search::{Category, Entry, Kind, SearchWriter};
 
 const NEAR: LatLon = LatLon {
@@ -280,14 +284,14 @@ fn radius_keeps_near_hits_and_places_everywhere() {
     );
     let results = common::open(&dir).search("Hostel", NEAR, 10_000.0, 30);
     let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
-    assert!(names.contains(&"Hostel Nah") && names.contains(&"Hostelito"));
-    assert!(!names.contains(&"Hostel Fern"));
-    assert!(!results.widened);
+    assert_eq!(names, ["Hostel Nah", "Hostelito"]);
+    assert!(!results.hits[0].outside);
+    assert!(results.hits[1].outside);
 }
 
 #[test]
-fn nothing_in_radius_shows_the_nearest_with_a_note() {
-    let dir = common::temp_dir("search-widened");
+fn nothing_in_radius_keeps_only_far_places() {
+    let dir = common::temp_dir("search-nothing-inside");
     region(
         &dir,
         "a",
@@ -298,12 +302,30 @@ fn nothing_in_radius_shows_the_nearest_with_a_note() {
         ]),
     );
     let results = common::open(&dir).search("Hostel", NEAR, 10_000.0, 30);
-    assert_eq!(results.hits.len(), 2);
-    assert!(results.widened);
+    let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["Hostelito"]);
+    assert!(results.hits[0].outside);
 }
 
 #[test]
-fn a_far_place_with_the_whole_word_is_no_widening() {
+fn far_places_come_after_better_matches_inside() {
+    let dir = common::temp_dir("search-far-place-last");
+    region(
+        &dir,
+        "a",
+        "A",
+        Some(&[
+            place("Seeblick", -13.9, -72.0),
+            lodging("Seeblick-Hütte", -13.51, -72.0),
+        ]),
+    );
+    let results = common::open(&dir).search("Seeblick", NEAR, 10_000.0, 30);
+    let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["Seeblick-Hütte", "Seeblick"]);
+}
+
+#[test]
+fn a_far_place_with_the_whole_word_comes_alone() {
     let dir = common::temp_dir("search-far-place");
     region(
         &dir,
@@ -315,9 +337,9 @@ fn a_far_place_with_the_whole_word_is_no_widening() {
         ]),
     );
     let results = common::open(&dir).search("Cusco", NEAR, 10_000.0, 30);
+    assert_eq!(results.hits.len(), 1);
     assert_eq!(results.hits[0].name, "Cusco");
-    assert_eq!(results.hits.len(), 2);
-    assert!(!results.widened);
+    assert!(results.hits[0].outside);
 }
 
 #[test]
@@ -328,7 +350,6 @@ fn category_stays_inside_the_radius() {
         .search_category("lodging", NEAR, 10_000.0, 30)
         .unwrap();
     assert!(results.hits.is_empty());
-    assert!(!results.widened);
 }
 
 #[test]
@@ -440,5 +461,481 @@ fn a_far_place_keeps_a_share_among_many_near_hits() {
     region(&dir, "a", "A", Some(&entries));
     let results = common::open(&dir).search("Neustadt", NEAR, 10_000.0, 30);
     assert_eq!(results.hits.len(), 30);
-    assert_eq!(results.hits[0].name, "Neustadt");
+    assert_eq!(results.hits[29].name, "Neustadt");
+    assert!(results.hits[29].outside);
+}
+
+// Routing from the own position.
+
+const WIDE: [f64; 4] = [-74.0, -15.0, -70.0, -12.0];
+/// The own position, 27 km east of the map centre.
+const POS: LatLon = LatLon {
+    lat: -13.5,
+    lon: -71.5,
+};
+const CENTRE: LatLon = LatLon {
+    lat: -13.5,
+    lon: -71.75,
+};
+
+/// A region with a search file, and a (dummy) routing file if `routing`.
+fn routed_region(dir: &Path, id: &str, bbox: [f64; 4], routing: bool, entries: &[Entry]) {
+    let region = dir.join("regions").join(id);
+    std::fs::create_dir_all(&region).unwrap();
+    let mut writer =
+        SearchWriter::create(&region.join("search.sqlite"), Some("2026-11-01T00:00:00Z")).unwrap();
+    for e in entries {
+        writer.add(e).unwrap();
+    }
+    writer.finish().unwrap();
+    let mut files = vec![(
+        "search.sqlite",
+        std::fs::metadata(region.join("search.sqlite"))
+            .unwrap()
+            .len(),
+    )];
+    if routing {
+        std::fs::write(region.join("routing.tar"), b"dummy").unwrap();
+        files.push(("routing.tar", 5));
+    }
+    let size: u64 = files.iter().map(|f| f.1).sum();
+    let files: Vec<_> = files
+        .iter()
+        .map(|(name, size)| serde_json::json!({ "name": name, "size": size, "sha256": "0".repeat(64) }))
+        .collect();
+    let manifest = serde_json::json!({
+        "format": 1, "id": id, "name": id, "bbox": bbox,
+        "version": "1", "attribution": [], "files": files, "size": size,
+    });
+    std::fs::write(region.join("manifest.json"), manifest.to_string()).unwrap();
+}
+
+/// Answers the matrix from a table by target position, and keeps the calls.
+struct FakeMatrix {
+    table: Vec<(LatLon, Option<MatrixEntry>)>,
+    fail: bool,
+    calls: Mutex<Vec<MatrixRequest>>,
+}
+
+impl Router for FakeMatrix {
+    fn route(&self, _: &RouteRequest) -> Result<Route, RoutingError> {
+        Err(RoutingError::Engine("no route".into()))
+    }
+
+    fn matrix(&self, request: &MatrixRequest) -> Result<Vec<Option<MatrixEntry>>, RoutingError> {
+        self.calls.lock().unwrap().push(request.clone());
+        if self.fail {
+            return Err(RoutingError::Engine("broken".into()));
+        }
+        Ok(request
+            .to
+            .iter()
+            .map(|t| {
+                self.table
+                    .iter()
+                    .find(|(at, _)| (at.lat - t.lat).abs() < 1e-9 && (at.lon - t.lon).abs() < 1e-9)
+                    .and_then(|(_, entry)| *entry)
+            })
+            .collect())
+    }
+
+    fn profiles(&self) -> Vec<Profile> {
+        Vec::new()
+    }
+}
+
+fn way(distance_m: f64) -> Option<MatrixEntry> {
+    Some(MatrixEntry {
+        distance_m,
+        duration_s: distance_m / 1.25,
+    })
+}
+
+fn at(lat: f64, lon: f64) -> LatLon {
+    LatLon { lat, lon }
+}
+
+fn fake(table: Vec<(LatLon, Option<MatrixEntry>)>) -> Arc<FakeMatrix> {
+    Arc::new(FakeMatrix {
+        table,
+        fail: false,
+        calls: Mutex::new(Vec::new()),
+    })
+}
+
+fn from(profile: Profile, age_s: f64) -> RouteFrom {
+    RouteFrom {
+        position: KnownPosition {
+            lat: POS.lat,
+            lon: POS.lon,
+            age_s,
+        },
+        leg: LegSpec {
+            profile,
+            options: RouteOptions::default(),
+        },
+    }
+}
+
+fn lodgings(dir: &Path, entries: &[Entry]) -> App {
+    routed_region(dir, "a", WIDE, true, entries);
+    common::open(dir)
+}
+
+fn hostel_pair() -> [Entry; 2] {
+    [
+        lodging("Hostel A", -13.509, -71.5),
+        lodging("Hostel B", -13.518, -71.5),
+    ]
+}
+
+#[test]
+fn without_position_nothing_changes() {
+    let dir = common::temp_dir("route-none");
+    let app = lodgings(&dir, &hostel_pair());
+    let router = fake(vec![(at(-13.509, -71.5), way(6_000.0))]);
+    app.set_router_for_tests("a", router.clone());
+    let plain = app.search("Hostel", CENTRE, 50_000.0, 30);
+    assert_eq!(app.search_from("Hostel", CENTRE, 50_000.0, 30, None), plain);
+    let old = from(Profile::Trekking, 121.0);
+    assert_eq!(
+        app.search_from("Hostel", CENTRE, 50_000.0, 30, Some(&old)),
+        plain
+    );
+    assert!(
+        plain
+            .hits
+            .iter()
+            .all(|h| h.route_m.is_none() && !h.no_route)
+    );
+    assert_eq!(plain.hits[0].distance_m, plain.hits[0].centre_distance_m);
+    assert!(router.calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn routed_hits_sort_by_route_distance() {
+    let dir = common::temp_dir("route-sort");
+    let app = lodgings(&dir, &hostel_pair());
+    app.set_router_for_tests(
+        "a",
+        fake(vec![
+            (at(-13.509, -71.5), way(6_000.0)),
+            (at(-13.518, -71.5), way(3_000.0)),
+        ]),
+    );
+    let found = app
+        .search_category_from(
+            "lodging",
+            CENTRE,
+            50_000.0,
+            30,
+            Some(&from(Profile::Trekking, 5.0)),
+        )
+        .unwrap();
+    let names: Vec<_> = found.hits.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["Hostel B", "Hostel A"]);
+    let b = &found.hits[0];
+    assert_eq!(b.route_m, Some(3_000.0));
+    assert_eq!(b.route_s, Some(2_400.0));
+    assert!((b.distance_m - 2_000.0).abs() < 20.0, "{}", b.distance_m);
+    assert!(
+        (b.centre_distance_m - 27_000.0).abs() < 600.0,
+        "{}",
+        b.centre_distance_m
+    );
+    assert!(!found.ascent_ignored);
+}
+
+#[test]
+fn match_quality_goes_before_route() {
+    let dir = common::temp_dir("route-quality");
+    let app = lodgings(
+        &dir,
+        &[
+            place("Seeblick", -13.527, -71.5),
+            lodging("Seeblickhof", -13.509, -71.5),
+        ],
+    );
+    app.set_router_for_tests(
+        "a",
+        fake(vec![
+            (at(-13.527, -71.5), way(3_000.0)),
+            (at(-13.509, -71.5), way(1_000.0)),
+        ]),
+    );
+    let found = app.search_from(
+        "Seeblick",
+        CENTRE,
+        50_000.0,
+        30,
+        Some(&from(Profile::Trekking, 5.0)),
+    );
+    let names: Vec<_> = found.hits.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["Seeblick", "Seeblickhof"]);
+}
+
+#[test]
+fn hit_without_route_goes_after_routed_ones() {
+    let dir = common::temp_dir("route-noway");
+    let app = lodgings(
+        &dir,
+        &[
+            lodging("Hostel A", -13.509, -71.5),
+            lodging("Hostel B", -13.518, -71.5),
+            lodging("Hostel C", -13.527, -71.5),
+        ],
+    );
+    app.set_router_for_tests(
+        "a",
+        fake(vec![
+            (at(-13.509, -71.5), None),
+            (at(-13.518, -71.5), way(9_000.0)),
+            (at(-13.527, -71.5), way(8_000.0)),
+        ]),
+    );
+    let found = app
+        .search_category_from(
+            "lodging",
+            CENTRE,
+            50_000.0,
+            30,
+            Some(&from(Profile::Trekking, 5.0)),
+        )
+        .unwrap();
+    let got: Vec<_> = found
+        .hits
+        .iter()
+        .map(|h| (h.name.as_str(), h.no_route))
+        .collect();
+    assert_eq!(
+        got,
+        [("Hostel C", false), ("Hostel B", false), ("Hostel A", true)]
+    );
+}
+
+#[test]
+fn far_hits_are_not_routed() {
+    let dir = common::temp_dir("route-far");
+    let app = lodgings(
+        &dir,
+        &[
+            lodging("Hostel A", -13.509, -71.5),
+            lodging("Hostel B", -13.518, -71.5),
+            lodging("Hostel Fern", -13.5, -72.05),
+        ],
+    );
+    let router = fake(vec![
+        (at(-13.509, -71.5), way(6_000.0)),
+        (at(-13.518, -71.5), None),
+    ]);
+    app.set_router_for_tests("a", router.clone());
+    let found = app
+        .search_category_from(
+            "lodging",
+            CENTRE,
+            50_000.0,
+            30,
+            Some(&from(Profile::Trekking, 5.0)),
+        )
+        .unwrap();
+    let got: Vec<_> = found
+        .hits
+        .iter()
+        .map(|h| (h.name.as_str(), h.no_route))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("Hostel A", false),
+            ("Hostel B", true),
+            ("Hostel Fern", false)
+        ]
+    );
+    let calls = router.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].to.len(), 2);
+}
+
+#[test]
+fn target_outside_the_region_has_no_route() {
+    let dir = common::temp_dir("route-outside");
+    routed_region(
+        &dir,
+        "a",
+        [-71.9, -15.0, -70.0, -12.0],
+        true,
+        &[lodging("Hostel A", -13.509, -71.5)],
+    );
+    routed_region(
+        &dir,
+        "b",
+        [-75.0, -15.0, -71.9, -12.0],
+        false,
+        &[lodging("Hostel West", -13.5, -71.95)],
+    );
+    let app = common::open(&dir);
+    let router = fake(vec![(at(-13.509, -71.5), way(6_000.0))]);
+    app.set_router_for_tests("a", router.clone());
+    let found = app
+        .search_category_from(
+            "lodging",
+            CENTRE,
+            50_000.0,
+            30,
+            Some(&from(Profile::Trekking, 5.0)),
+        )
+        .unwrap();
+    let got: Vec<_> = found
+        .hits
+        .iter()
+        .map(|h| (h.name.as_str(), h.no_route))
+        .collect();
+    assert_eq!(got, [("Hostel A", false), ("Hostel West", true)]);
+    assert_eq!(router.calls.lock().unwrap()[0].to.len(), 1);
+}
+
+#[test]
+fn failed_matrix_falls_back_to_air_distance() {
+    let dir = common::temp_dir("route-fail");
+    let app = lodgings(&dir, &hostel_pair());
+    let broken = Arc::new(FakeMatrix {
+        table: Vec::new(),
+        fail: true,
+        calls: Mutex::new(Vec::new()),
+    });
+    app.set_router_for_tests("a", broken);
+    for profile in [Profile::Trekking, Profile::Manual] {
+        let found = app
+            .search_category_from("lodging", CENTRE, 50_000.0, 30, Some(&from(profile, 5.0)))
+            .unwrap();
+        let names: Vec<_> = found.hits.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(names, ["Hostel A", "Hostel B"]);
+        assert!(
+            found
+                .hits
+                .iter()
+                .all(|h| h.route_m.is_none() && !h.no_route)
+        );
+        assert!((found.hits[0].distance_m - 1_000.0).abs() < 20.0);
+        assert!(!found.ascent_ignored);
+    }
+    // A position outside every routing region.
+    let lonely = RouteFrom {
+        position: KnownPosition {
+            lat: 10.0,
+            lon: 10.0,
+            age_s: 5.0,
+        },
+        leg: from(Profile::Trekking, 5.0).leg,
+    };
+    let found = app
+        .search_category_from("lodging", CENTRE, 50_000.0, 30, Some(&lonely))
+        .unwrap();
+    assert!(
+        found
+            .hits
+            .iter()
+            .all(|h| h.route_m.is_none() && !h.no_route)
+    );
+}
+
+#[test]
+fn far_places_keep_their_slots() {
+    let dir = common::temp_dir("route-places");
+    let app = lodgings(
+        &dir,
+        &[
+            lodging("Seeblick Hostel", -13.509, -71.5),
+            place("Seeblickort", -13.5, -73.5),
+        ],
+    );
+    let router = fake(vec![(at(-13.509, -71.5), way(6_000.0))]);
+    app.set_router_for_tests("a", router.clone());
+    let found = app.search_from(
+        "Seeblick",
+        CENTRE,
+        50_000.0,
+        30,
+        Some(&from(Profile::Trekking, 5.0)),
+    );
+    let names: Vec<_> = found.hits.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["Seeblick Hostel", "Seeblickort"]);
+    assert!(found.hits[1].outside);
+    let far = &found.hits[1];
+    assert!(far.route_m.is_none() && !far.no_route);
+    assert!(
+        (far.distance_m - 216_000.0).abs() < 5_000.0,
+        "{}",
+        far.distance_m
+    );
+    assert_eq!(router.calls.lock().unwrap()[0].to.len(), 1);
+}
+
+#[test]
+fn ascent_note_only_for_hiking() {
+    let dir = common::temp_dir("route-ascent");
+    let app = lodgings(&dir, &hostel_pair());
+    app.set_router_for_tests("a", fake(vec![(at(-13.509, -71.5), way(1_500.0))]));
+    for (profile, expected) in [(Profile::Hike, true), (Profile::Trekking, false)] {
+        let found = app
+            .search_category_from("lodging", CENTRE, 50_000.0, 30, Some(&from(profile, 5.0)))
+            .unwrap();
+        assert_eq!(found.ascent_ignored, expected, "{profile:?}");
+    }
+}
+
+#[test]
+fn only_shown_hits_are_routed() {
+    let dir = common::temp_dir("route-limit");
+    let entries: Vec<Entry> = (0..5)
+        .map(|i| {
+            lodging(
+                &format!("Hostel {i}"),
+                -13.5 - 0.009 * f64::from(i + 1),
+                -71.5,
+            )
+        })
+        .collect();
+    let app = lodgings(&dir, &entries);
+    let router = fake(Vec::new());
+    app.set_router_for_tests("a", router.clone());
+    let found = app
+        .search_category_from(
+            "lodging",
+            CENTRE,
+            50_000.0,
+            3,
+            Some(&from(Profile::Trekking, 5.0)),
+        )
+        .unwrap();
+    assert_eq!(found.hits.len(), 3);
+    let calls = router.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].to.len(), 3);
+}
+
+#[test]
+fn exact_far_town_stays_after_the_hits_inside() {
+    let dir = common::temp_dir("route-far-town");
+    let app = lodgings(
+        &dir,
+        &[
+            lodging("Seeblickhof", -13.509, -71.5),
+            place("Seeblick", -13.5, -73.5),
+        ],
+    );
+    app.set_router_for_tests("a", fake(vec![(at(-13.509, -71.5), way(6_000.0))]));
+    let with = app.search_from(
+        "Seeblick",
+        CENTRE,
+        50_000.0,
+        30,
+        Some(&from(Profile::Trekking, 5.0)),
+    );
+    let without = app.search("Seeblick", CENTRE, 50_000.0, 30);
+    let order = |r: &core_app::SearchResults| -> Vec<String> {
+        r.hits.iter().map(|h| h.name.clone()).collect()
+    };
+    assert_eq!(order(&with), ["Seeblickhof", "Seeblick"]);
+    assert_eq!(order(&without), order(&with));
 }

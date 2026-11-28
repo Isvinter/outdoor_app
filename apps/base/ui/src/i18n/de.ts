@@ -118,7 +118,6 @@ export const de = {
   "search.placeholder": "Ort, Straße oder Name",
   "search.none": "Nichts gefunden.",
   "search.none_nearby": "Keine Treffer im Umkreis. Zoome heraus.",
-  "search.widened": "Nichts im Umkreis, nächste Treffer weiter entfernt.",
   "search.unsearchable": "{region} ist nicht durchsuchbar. Baue die Region neu.",
   "search.route": "Route hierher",
   "search.back": "Zurück",
