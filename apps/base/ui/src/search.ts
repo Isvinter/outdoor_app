@@ -161,7 +161,6 @@ export class SearchPanel {
     list.replaceChildren(...(results?.hits ?? []).map((hit) => this.row(hit)));
     list.hidden = list.childElementCount === 0;
     const notes = (results?.unsearchable ?? []).map((region) => t("search.unsearchable", { region }));
-    if (results?.widened) notes.unshift(t("search.widened"));
     if (results && results.hits.length === 0) notes.unshift(t(this.category ? "search.none_nearby" : "search.none"));
     const note = $("search-notes");
     note.textContent = notes.join(" ");

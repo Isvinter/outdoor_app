@@ -69,23 +69,39 @@ struct SearchBar: View {
         }
     }
 
-    /// Measures the hits by the way from the own position.
+    /// How the hits are measured: as the crow flies or by the way from the own position.
     private var routesToggle: some View {
-        Button {
-            search.toggleRoutes()
+        HStack(spacing: 2) {
+            distanceSegment("Luft", icon: "line.diagonal", label: "Luftlinie", on: false, id: "search-air")
+            distanceSegment(
+                "Weg", icon: "point.topleft.down.to.point.bottomright.curvepath", label: "Weg", on: true,
+                id: "search-routes")
+        }
+        .padding(2)
+        .background(Color(.secondarySystemFill), in: Capsule())
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Entfernung")
+    }
+
+    private func distanceSegment(_ title: String, icon: String, label: String, on: Bool, id: String) -> some View {
+        let chosen = search.routes == on
+        return Button {
+            search.setRoutes(on)
         } label: {
-            Label("Weg", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+            Label(title, systemImage: icon)
                 .labelStyle(.titleAndIcon)
-                .font(.footnote.weight(search.routes ? .semibold : .regular))
-                .foregroundStyle(search.routes ? Color.white : Color.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(search.routes ? Color.accentColor : Color(.secondarySystemFill), in: Capsule())
+                .font(.caption.weight(chosen ? .semibold : .regular))
+                .foregroundStyle(chosen ? Color.white : Color.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(chosen ? Color.accentColor : Color.clear, in: Capsule())
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
         }
-        .accessibilityIdentifier("search-routes")
-        .accessibilityAddTraits(search.routes ? .isSelected : [])
+        .accessibilityIdentifier(id)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
     private var categories: some View {
@@ -115,7 +131,17 @@ struct SearchBar: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array((search.results?.hits ?? []).enumerated()), id: \.offset) { index, hit in
+                let hits = search.results?.hits ?? []
+                ForEach(Array(hits.enumerated()), id: \.offset) { index, hit in
+                    if hit.outside && (index == 0 || !hits[index - 1].outside) {
+                        Text("Außerhalb des Bereichs")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 10)
+                            .padding(.bottom, 2)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("search-outside")
+                    }
                     Button {
                         search.select(hit)
                     } label: {

@@ -78,11 +78,14 @@ private struct RootView: View {
             search.onSelectionCleared = { [weak routeHere] in routeHere?.dismiss() }
             routeHere.onDone = { [weak search] in search?.routeDone() }
             map.searchOverlay.onOtherMove = { [weak search] in search?.mapMoved() }
-            // A tap on a search hit opens it, in both modes; elsewhere the mode decides.
+            // A tap on a search hit opens it, in both modes; while the search is open nothing
+            // else happens, so that a slip of the finger sets no point; otherwise the mode decides.
             plan.onMapTap = { [weak search, weak map] at in
-                guard let index = map?.searchOverlay.dot(at: at) else { return false }
-                search?.tappedDot(index)
-                return true
+                if let index = map?.searchOverlay.dot(at: at) {
+                    search?.tappedDot(index)
+                    return true
+                }
+                return search?.holdsMapTaps == true
             }
             // The first waypoint of a route: the way there from the own position is offered.
             plan.onPickedTap = { [weak routeHere, weak location] at, first in

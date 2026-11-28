@@ -25,6 +25,8 @@ pub struct SearchHit {
     pub route_s: Option<f64>,
     /// Routing ran, but found no way within its reach.
     pub no_route: bool,
+    /// A place outside the radius; these come last.
+    pub outside: bool,
 }
 
 /// What a search found.
@@ -33,8 +35,6 @@ pub struct SearchResults {
     pub hits: Vec<SearchHit>,
     /// Names of the enabled regions that could not be searched.
     pub unsearchable: Vec<String>,
-    /// Nothing lay within the radius, so these are the nearest further away.
-    pub widened: bool,
     /// The radius the search used, after its limits.
     pub radius_m: f64,
     /// The way was found without regard to ascent.
@@ -81,10 +81,10 @@ fn results_to(results: core_app::SearchResults) -> SearchResults {
                 route_m: hit.route_m,
                 route_s: hit.route_s,
                 no_route: hit.no_route,
+                outside: hit.outside,
             })
             .collect(),
         unsearchable: results.unsearchable,
-        widened: results.widened,
         radius_m: results.radius_m,
         ascent_ignored: results.ascent_ignored,
     }
@@ -184,14 +184,13 @@ mod tests {
                 route_m: Some(3_200.0),
                 route_s: Some(3_120.0),
                 no_route: false,
+                outside: true,
             }],
             unsearchable: vec!["Alt".into()],
-            widened: true,
             radius_m: 5_000.0,
             ascent_ignored: true,
         });
         assert!(results.ascent_ignored);
-        assert!(results.widened);
         assert_eq!(results.radius_m, 5_000.0);
         let hit = results.hits.first().unwrap();
         assert_eq!(hit.kind, "poi");
@@ -202,6 +201,7 @@ mod tests {
         assert_eq!(hit.centre_distance_m, 900.0);
         assert_eq!((hit.route_m, hit.route_s), (Some(3_200.0), Some(3_120.0)));
         assert!(!hit.no_route);
+        assert!(hit.outside);
         assert_eq!(results.unsearchable, ["Alt"]);
     }
 

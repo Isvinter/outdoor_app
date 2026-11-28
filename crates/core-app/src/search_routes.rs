@@ -59,8 +59,14 @@ impl App {
         });
         let Some(from) = from else {
             let mut chosen = chosen;
-            chosen.sort_by(|a, b| best_first(&a.hit, &b.hit));
-            let hits = chosen.into_iter().map(|c| shown(c.hit)).collect();
+            chosen.sort_by(|a, b| a.far.cmp(&b.far).then(best_first(&a.hit, &b.hit)));
+            let hits = chosen
+                .into_iter()
+                .map(|c| SearchHit {
+                    outside: c.far,
+                    ..shown(c.hit)
+                })
+                .collect();
             return (hits, false);
         };
         let origin = (from.position.lat, from.position.lon);
@@ -75,6 +81,7 @@ impl App {
             let far = c.far;
             let mut hit = shown(c.hit);
             hit.distance_m = air[i];
+            hit.outside = far;
             let (group, key) = match matrix.as_ref().map(|m| m[i]) {
                 Some(Slot::Routed(entry)) => {
                     hit.route_m = Some(entry.distance_m);
@@ -96,9 +103,9 @@ impl App {
             });
         }
         measured.sort_by(|a, b| {
-            a.match_rank
-                .cmp(&b.match_rank)
-                .then(a.far.cmp(&b.far))
+            a.far
+                .cmp(&b.far)
+                .then(a.match_rank.cmp(&b.match_rank))
                 .then(a.group.cmp(&b.group))
                 .then(a.key.partial_cmp(&b.key).unwrap_or(Ordering::Equal))
         });

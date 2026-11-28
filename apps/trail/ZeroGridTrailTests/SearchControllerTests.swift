@@ -9,27 +9,20 @@ private final class FakeMap: SearchMap {
     var searchCamera = SearchCamera(center: CLLocationCoordinate2D(latitude: -13.5, longitude: -72), zoom: 14)
     var dots: [CLLocationCoordinate2D] = []
     var selectedDot: Int?
-    var fitted: [[CLLocationCoordinate2D]] = []
-    var fitInsets: [Double] = []
+    var moves = 0
 
     func showSearchHits(_ points: [CLLocationCoordinate2D], selected: Int?) {
         dots = points
         selectedDot = selected
     }
 
-    func fitSearchHits(_ points: [CLLocationCoordinate2D], topInset: Double) -> SearchCamera? {
-        guard let first = points.first else { return nil }
-        fitted.append(points)
-        fitInsets.append(topInset)
-        searchCamera = SearchCamera(center: first, zoom: 13)
-        return searchCamera
-    }
-
     func showSearchResult(_ at: CLLocationCoordinate2D, topInset: Double) {
+        moves += 1
         searchCamera = SearchCamera(center: at, zoom: 15)
     }
 
     func moveSearchCamera(_ camera: SearchCamera) {
+        moves += 1
         searchCamera = camera
     }
 }
@@ -37,30 +30,35 @@ private final class FakeMap: SearchMap {
 private final class Calls: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [(String, LatLon)] = []
+    private var radii: [Double] = []
     private var starts: [RouteFrom?] = []
 
-    func add(_ text: String, _ near: LatLon, _ from: RouteFrom? = nil) {
+    func add(_ text: String, _ near: LatLon, _ radius: Double, _ from: RouteFrom? = nil) {
         lock.withLock {
             values.append((text, near))
+            radii.append(radius)
             starts.append(from)
         }
     }
 
     var all: [(String, LatLon)] { lock.withLock { values } }
+    var radius: [Double] { lock.withLock { radii } }
     var from: [RouteFrom?] { lock.withLock { starts } }
 }
 
 private func hit(
     _ name: String, lat: Double = -13.51, distance: Double = 1_000, centre: Double? = nil,
-    category: String? = "lodging", routeM: Double? = nil, routeS: Double? = nil, noRoute: Bool = false
+    category: String? = "lodging", routeM: Double? = nil, routeS: Double? = nil, noRoute: Bool = false,
+    outside: Bool = false
 ) -> SearchHit {
     SearchHit(
-        kind: "poi", category: category, name: name, town: nil, lat: lat, lon: -72, distanceM: distance,
-        centreDistanceM: centre ?? distance, routeM: routeM, routeS: routeS, noRoute: noRoute)
+        kind: outside ? "place" : "poi", category: outside ? nil : category, name: name, town: nil, lat: lat, lon: -72,
+        distanceM: distance, centreDistanceM: centre ?? distance, routeM: routeM, routeS: routeS, noRoute: noRoute,
+        outside: outside)
 }
 
-private func answer(_ hits: [SearchHit], widened: Bool = false, ascentIgnored: Bool = false) -> SearchResults {
-    SearchResults(hits: hits, unsearchable: [], widened: widened, radiusM: 5_000, ascentIgnored: ascentIgnored)
+private func answer(_ hits: [SearchHit], ascentIgnored: Bool = false) -> SearchResults {
+    SearchResults(hits: hits, unsearchable: [], radiusM: 5_000, ascentIgnored: ascentIgnored)
 }
 
 private let start = RouteFrom(
@@ -84,17 +82,16 @@ final class SearchControllerTests: XCTestCase {
         text: @escaping @Sendable (String) -> SearchResults = { _ in answer([hit("A"), hit("B", lat: -13.52)]) }
     ) -> SearchController {
         let backend = SearchBackend(
-            text: { query, near, _, _, from in
-                calls.add(query, near, from)
+            text: { query, near, radius, _, from in
+                calls.add(query, near, radius, from)
                 return text(query)
             },
-            category: { key, near, _, _, from in
-                calls.add(key, near, from)
+            category: { key, near, radius, _, from in
+                calls.add(key, near, radius, from)
                 return answer([hit("Kategorie")])
             })
         return SearchController(
-            backend: backend, map: map, typingDelay: 0.01, fitDelay: 0.01, layoutDelay: 0.08, routeFrom: routeFrom,
-            defaults: defaults)
+            backend: backend, map: map, typingDelay: 0.01, routeFrom: routeFrom, defaults: defaults)
     }
 
     private func wait(_ what: String, _ condition: @MainActor () -> Bool) async {
@@ -131,35 +128,36 @@ final class SearchControllerTests: XCTestCase {
         XCTAssertEqual(SearchTexts.title(hit("", category: "fuel")), "Tankstelle")
     }
 
-    func testHitsAppearAsDotsAndTheMapFitsThem() async {
+    func testHitsAppearAsDotsAndTheMapStays() async {
         let map = FakeMap()
+        let before = map.searchCamera
         let search = controller(map: map)
         search.text = "Hostel"
         await wait("dots") { map.dots.count == 2 }
-        await wait("fit") { map.fitted.count == 1 }
+        search.chooseCategory("lodging")
+        await wait("category dots") { map.dots.count == 1 }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(map.moves, 0)
+        XCTAssertEqual(map.searchCamera, before)
     }
 
-    func testFarPlaceDoesNotPullTheFitOut() async {
-        let map = FakeMap()
-        let search = controller(map: map) { _ in
-            answer([hit("Nah"), hit("Fern", lat: -15, distance: 150_000)])
-        }
-        search.text = "Hostel"
-        await wait("fit") { map.fitted.count == 1 }
-        XCTAssertEqual(map.fitted[0].count, 1)
-        XCTAssertEqual(map.dots.count, 2)
-    }
-
-    func testFittingKeepsTheSearchArea() async {
+    func testTypingAndTogglingKeepTheSearchArea() async {
         let map = FakeMap()
         let calls = Calls()
-        let search = controller(map: map, calls: calls)
+        let search = controller(map: map, calls: calls, routeFrom: { start })
         search.text = "Hostel"
-        await wait("fit") { map.fitted.count == 1 }
+        await wait("first search") { calls.all.count == 1 }
+        // Opening a hit moves the map; the area stays the one searched.
+        search.tappedDot(0)
         map.searchCentre = CLLocationCoordinate2D(latitude: -13.6, longitude: -72)
-        search.text = "Hostels"
+        map.searchRadiusM = 900
+        search.back()
+        search.text = "Pension"
         await wait("second search") { calls.all.count == 2 }
-        XCTAssertEqual(calls.all[1].1.lat, -13.5)
+        search.toggleRoutes()
+        await wait("third search") { calls.all.count == 3 }
+        XCTAssertEqual(calls.all.map(\.1.lat), [-13.5, -13.5, -13.5])
+        XCTAssertEqual(calls.radius, [5_000, 5_000, 5_000])
     }
 
     func testAMapMoveStartsANewSearchArea() async {
@@ -167,7 +165,7 @@ final class SearchControllerTests: XCTestCase {
         let calls = Calls()
         let search = controller(map: map, calls: calls)
         search.text = "Hostel"
-        await wait("fit") { map.fitted.count == 1 }
+        await wait("first search") { calls.all.count == 1 }
         map.searchCentre = CLLocationCoordinate2D(latitude: -13.6, longitude: -72)
         search.mapMoved()
         search.text = "Hostels"
@@ -175,26 +173,12 @@ final class SearchControllerTests: XCTestCase {
         XCTAssertEqual(calls.all[1].1.lat, -13.6)
     }
 
-    func testSlowAnswerLeavesAMovedMapAlone() async {
-        let map = FakeMap()
-        let search = controller(map: map) { _ in
-            Thread.sleep(forTimeInterval: 0.1)
-            return answer([hit("A")])
-        }
-        search.text = "Hostel"
-        try? await Task.sleep(nanoseconds: 40_000_000)
-        search.mapMoved()
-        await wait("answer") { search.results != nil }
-        try? await Task.sleep(nanoseconds: 60_000_000)
-        XCTAssertTrue(map.fitted.isEmpty)
-    }
-
     func testBackRestoresListAndOverview() async {
         let map = FakeMap()
         let calls = Calls()
         let search = controller(map: map, calls: calls)
         search.text = "Hostel"
-        await wait("fit") { map.fitted.count == 1 }
+        await wait("dots") { map.dots.count == 2 }
         let overview = map.searchCamera
         search.tappedDot(0)
         XCTAssertEqual(search.selected?.name, "A")
@@ -224,17 +208,6 @@ final class SearchControllerTests: XCTestCase {
         XCTAssertEqual(search.category, "lodging")
     }
 
-    func testCategoryFitUsesThePanelAfterItsLayout() async {
-        let map = FakeMap()
-        let search = controller(map: map)
-        search.topInset = 60
-        search.chooseCategory("lodging")
-        await wait("answer") { search.results != nil }
-        search.topInset = 280
-        await wait("fit") { map.fitted.count == 1 }
-        XCTAssertEqual(map.fitInsets, [280])
-    }
-
     func testRouteDoneRemovesTheDots() async {
         let map = FakeMap()
         let search = controller(map: map)
@@ -252,11 +225,18 @@ final class SearchControllerTests: XCTestCase {
         let backend = SearchBackend(
             text: { _, _, _, _, _ in answer([]) },
             category: { _, _, _, _, _ in answer([]) })
-        let search = SearchController(
-            backend: backend, map: map, typingDelay: 0.01, fitDelay: 0.01, defaults: defaults)
+        let search = SearchController(backend: backend, map: map, typingDelay: 0.01, defaults: defaults)
         search.chooseCategory("fuel")
         await wait("answer") { search.results != nil }
-        XCTAssertEqual(search.notes, ["Keine Treffer im Umkreis. Zoome heraus."])
+        XCTAssertEqual(search.notes, ["Nichts im Bereich. Zoome heraus."])
+    }
+
+    func testOnlyFarPlacesSayToZoomOut() async {
+        let search = controller(map: FakeMap()) { _ in answer([hit("Bozen", distance: 60_000, outside: true)]) }
+        search.text = "Bozen"
+        await wait("answer") { search.results != nil }
+        XCTAssertEqual(search.notes, ["Nichts im Bereich. Zoome heraus."])
+        XCTAssertTrue(search.showsList)
     }
 
     func testRoutesOffPassesNoRouteStart() async {
@@ -271,6 +251,32 @@ final class SearchControllerTests: XCTestCase {
         await wait("search") { calls.all.count == 1 }
         XCTAssertNil(calls.from[0])
         XCTAssertEqual(asked.count, 0)
+    }
+
+    func testChoosingTheShownMeasureDoesNotSearchAgain() async {
+        let calls = Calls()
+        let search = controller(map: FakeMap(), calls: calls)
+        search.text = "Hostel"
+        await wait("search") { calls.all.count == 1 }
+        search.setRoutes(false)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(calls.all.count, 1)
+        search.setRoutes(true)
+        await wait("second search") { calls.all.count == 2 }
+    }
+
+    func testOpenSearchHoldsMapTaps() async {
+        let search = controller(map: FakeMap())
+        XCTAssertFalse(search.holdsMapTaps)
+        search.open = true
+        XCTAssertTrue(search.holdsMapTaps)
+        search.text = "Hostel"
+        await wait("answer") { search.results != nil }
+        XCTAssertTrue(search.holdsMapTaps)
+        search.tappedDot(0)
+        XCTAssertFalse(search.holdsMapTaps)
+        search.close()
+        XCTAssertFalse(search.holdsMapTaps)
     }
 
     func testRoutesOnPassesRouteStart() async {
@@ -334,16 +340,6 @@ final class SearchControllerTests: XCTestCase {
         await wait("newer answer") { search.results?.hits.first?.name == "neu" }
         try? await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertEqual(search.results?.hits.first?.name, "neu")
-    }
-
-    func testFitUsesCentreDistance() async {
-        let map = FakeMap()
-        let search = controller(map: map) { _ in
-            answer([hit("Nah", distance: 60_000, centre: 1_000), hit("Fern", lat: -15, distance: 1_000, centre: 150_000)])
-        }
-        search.text = "Hostel"
-        await wait("fit") { map.fitted.count == 1 }
-        XCTAssertEqual(map.fitted[0].map(\.latitude), [-13.51])
     }
 
     func testDetailsShowRouteAndAir() {

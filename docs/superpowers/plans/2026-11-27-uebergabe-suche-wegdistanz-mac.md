@@ -51,3 +51,31 @@ a. Die Grenzen sind am Desktop eingestellt. Auf dem iPhone die gefühlte Warteze
 b. Alle POIs haben denselben `match_rank`, deshalb wirkt „Treffgüte zuerst“ bei Position nur auf Orte.
 c. Der Bisect-Pfad für ein nicht platzierbares Ziel (bis zu 2n−1 Valhalla-Aufrufe) ist ungemessen; auf
    alpenraum-ost wurde kein solches Ziel gefunden.
+
+## Stand nach dem Mac (2026-11-28)
+
+Task 4 fertig, `main` (Tour-Export) hineingemergt, auf dem iPhone 13 Pro Max getestet. Nach dem iPhone-Test
+hat der Nutzer drei Dinge geändert:
+
+1. **Umschalter „Luft | Weg“** statt eines einzelnen Knopfs „Weg“: zwei Segmente, das aktive farbig
+   (`search-air`, `search-routes`). Das aktive Segment noch einmal antippen sucht nicht neu.
+2. **Kein Punkt beim Tippen auf die Karte, solange Suchfeld oder Liste offen sind**
+   (`SearchController.holdsMapTaps`). Treffer-Punkte, Zoomen und Verschieben gehen weiter.
+3. **Der Suchbereich ist die sichtbare Karte, und die Suche bewegt die Karte nicht mehr.** Das automatische
+   Einpassen auf die Treffer (`fitSearchHits`) ist weg. Der Bereich (Radius 2–50 km) bleibt beim Tippen,
+   bei neuen Begriffen und beim Umschalten Luft/Weg gleich, bis der Nutzer die Karte selbst bewegt.
+   Luft/Weg ändert nur die Reihenfolge.
+   - Kern: `widened` ist entfernt (core-app, core-ffi, Base-UI). POIs und Straßen kommen nur aus dem Radius.
+     Orte außerhalb kommen danach, mit `SearchHit.outside = true`, auch mit Position (vorher ging die
+     Treffgüte vor, s. c4926ac; das gilt jetzt nicht mehr: „Bozen“ außerhalb steht hinter allen Treffern
+     im Bereich).
+   - Trail zeigt sie unter „Außerhalb des Bereichs“. Liegt im Bereich nichts:
+     „Nichts im Bereich. Zoome heraus.“
+
+## Für Linux
+
+- **Base ist ungeprüft**: `apps/base/ui/src/api.ts`, `search.ts`, `i18n/de.ts` (nur `widened` entfernt,
+  `outside` im Typ ergänzt). Base zeigt die fernen Orte am Ende der Liste, aber ohne eigene Überschrift.
+  Bitte bauen, die Base-Tests laufen lassen, die Suche kurz ausprobieren.
+- `cargo test -p core-app -p core-ffi` und clippy waren auf dem Mac grün. Die Valhalla-Tests von
+  `core-routing` liefen nur auf Linux (Task 1).

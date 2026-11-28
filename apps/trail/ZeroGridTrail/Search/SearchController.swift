@@ -26,8 +26,6 @@ protocol SearchMap: AnyObject {
     var searchRadiusM: Double { get }
     var searchCamera: SearchCamera { get }
     func showSearchHits(_ points: [CLLocationCoordinate2D], selected: Int?)
-    /// Moves the map so that all points show below the panel; returns where it is heading.
-    func fitSearchHits(_ points: [CLLocationCoordinate2D], topInset: Double) -> SearchCamera?
     func showSearchResult(_ at: CLLocationCoordinate2D, topInset: Double)
     func moveSearchCamera(_ camera: SearchCamera)
 }
@@ -152,8 +150,9 @@ final class SearchController: ObservableObject {
     static let routesKey = "search.routes"
     /// The list is hidden behind the card of the chosen hit.
     var showsList: Bool { selected == nil && !(results?.hits.isEmpty ?? true) }
-    /// Where the panel ends on the screen, so that the map fits the hits below it.
+    /// Where the panel ends on the screen, so that a chosen hit shows below it.
     var topInset = 0.0
+    static let nothingInside = "Nichts im Bereich. Zoome heraus."
 
     /// A hit was chosen or the chosen one is gone.
     var onSelectionCleared: (() -> Void)?
@@ -169,25 +168,18 @@ final class SearchController: ObservableObject {
     private let defaults: UserDefaults
     private let map: SearchMap
     private let typingDelay: Double
-    private let fitDelay: Double
-    /// Lets the panel take its new height before the map fits the hits below it.
-    private let layoutDelay: Double
     private let queue = DispatchQueue(label: "de.zeibig.zerogrid.trail.search", qos: .userInitiated)
     /// Counts the searches, so that a slow answer cannot replace a newer one.
     private var request = 0
     private var typingTask: Task<Void, Never>?
-    private var fitTask: Task<Void, Never>?
-    /// Kept while the search moves the map, so that fitting it does not shift the search.
+    /// The area searched: what the map showed when the search began. The search
+    /// never moves the map for its list, and only a move by someone else ends the area.
     private var anchor: Anchor?
-    /// Where the map is heading, or has arrived, to show all hits.
-    private var overview: SearchCamera?
     /// Where "Zurück" takes the map: the view before the first hit was opened.
     private var returnTo: SearchCamera?
-    /// Counts map moves not made by the search, so that a late answer leaves them alone.
-    private var otherMoves = 0
 
-    init(backend: SearchBackend, map: SearchMap, typingDelay: Double = 0.2, fitDelay: Double = 0.5,
-        layoutDelay: Double = 0.1, routeFrom: @escaping @MainActor () -> RouteFrom? = { nil },
+    init(backend: SearchBackend, map: SearchMap, typingDelay: Double = 0.2,
+        routeFrom: @escaping @MainActor () -> RouteFrom? = { nil },
         defaults: UserDefaults = .standard
     ) {
         self.backend = backend
@@ -196,8 +188,6 @@ final class SearchController: ObservableObject {
         routes = defaults.bool(forKey: Self.routesKey)
         self.map = map
         self.typingDelay = typingDelay
-        self.fitDelay = fitDelay
-        self.layoutDelay = layoutDelay
     }
 
     /// Hints below the list.
@@ -205,10 +195,7 @@ final class SearchController: ObservableObject {
         guard let results else { return [] }
         var notes = results.unsearchable.map { "\($0) ist nicht durchsuchbar. Baue die Region neu." }
         if results.ascentIgnored { notes.append(SearchTexts.ascentIgnored) }
-        if results.widened { notes.insert("Nichts im Umkreis, nächste Treffer weiter entfernt.", at: 0) }
-        if results.hits.isEmpty {
-            notes.insert(category == nil ? "Nichts gefunden." : "Keine Treffer im Umkreis. Zoome heraus.", at: 0)
-        }
+        if results.hits.allSatisfy(\.outside) { notes.insert(Self.nothingInside, at: 0) }
         return notes
     }
 
@@ -219,14 +206,12 @@ final class SearchController: ObservableObject {
 
     private func typed() {
         typingTask?.cancel()
-        fitTask?.cancel()
         clearSelection()
         category = nil
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= Self.minChars else {
             request += 1
             anchor = nil
-            overview = nil
             show(nil)
             return
         }
@@ -241,24 +226,31 @@ final class SearchController: ObservableObject {
 
     private func runText(_ query: String) {
         let backend = backend
-        run(fitDelay: fitDelay) { near, radius, from in
+        run { near, radius, from in
             backend.text(query, near, radius, Self.limit, from)
         }
     }
 
     private func runCategory(_ key: String) {
         let backend = backend
-        run(fitDelay: layoutDelay) { near, radius, from in
+        run { near, radius, from in
             try backend.category(key, near, radius, Self.limit, from)
         }
     }
 
-    /// Switches measuring by the way on or off and searches again what is shown.
+    /// While the field or the list is open, a tap on the map sets nothing; only the dots answer.
+    var holdsMapTaps: Bool { open && selected == nil }
+
     func toggleRoutes() {
-        routes.toggle()
+        setRoutes(!routes)
+    }
+
+    /// Measures by the way or as the crow flies and searches again what is shown.
+    func setRoutes(_ on: Bool) {
+        guard on != routes else { return }
+        routes = on
         defaults.set(routes, forKey: Self.routesKey)
         typingTask?.cancel()
-        fitTask?.cancel()
         if let category {
             runCategory(category)
         } else {
@@ -269,22 +261,18 @@ final class SearchController: ObservableObject {
 
     func chooseCategory(_ key: String) {
         typingTask?.cancel()
-        fitTask?.cancel()
         clearSelection()
         category = key
         runCategory(key)
     }
 
-    private func run(
-        fitDelay: Double, _ work: @escaping @Sendable (LatLon, Double, RouteFrom?) throws -> SearchResults
-    ) {
+    private func run(_ work: @escaping @Sendable (LatLon, Double, RouteFrom?) throws -> SearchResults) {
         request += 1
         let number = request
         let current = anchor ?? Anchor(
             centre: LatLon(lat: map.searchCentre.latitude, lon: map.searchCentre.longitude),
             radiusM: map.searchRadiusM)
         anchor = current
-        let movesBefore = otherMoves
         let queue = queue
         let (centre, radius) = (current.centre, current.radiusM)
         let from = routes ? routeFrom() : nil
@@ -300,24 +288,9 @@ final class SearchController: ObservableObject {
             if let chosen = self.selected {
                 // Searched again behind the card: it stays, with the new numbers if the hit is still there.
                 self.selected = results.hits.first { Self.same($0, chosen) } ?? chosen
-                self.show(results)
-                return
             }
             self.show(results)
-            self.overview = nil
-            guard self.otherMoves == movesBefore else { return }
-            self.fitTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(fitDelay * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
-                self.fit(results)
-            }
         }
-    }
-
-    /// Brings the hits around the search into view; a far place alone does not pull the map out.
-    private func fit(_ results: SearchResults) {
-        let inside = results.hits.filter { $0.centreDistanceM <= results.radiusM }
-        overview = map.fitSearchHits((inside.isEmpty ? results.hits : inside).map(Self.coordinate), topInset: topInset)
     }
 
     private func show(_ results: SearchResults?) {
@@ -349,10 +322,9 @@ final class SearchController: ObservableObject {
     func select(_ hit: SearchHit) {
         // A search still under way must not open its list over the card.
         typingTask?.cancel()
-        fitTask?.cancel()
         request += 1
         onSelectionCleared?()
-        if returnTo == nil { returnTo = overview ?? map.searchCamera }
+        if returnTo == nil { returnTo = map.searchCamera }
         selected = hit
         open = false
         drawDots()
@@ -365,28 +337,20 @@ final class SearchController: ObservableObject {
         clearSelection()
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { open = true }
         drawDots()
-        if let camera {
-            overview = camera
-            map.moveSearchCamera(camera)
-        }
+        if let camera { map.moveSearchCamera(camera) }
     }
 
     /// The map was moved by something other than the search.
     func mapMoved() {
-        otherMoves += 1
-        fitTask?.cancel()
         anchor = nil
-        overview = nil
     }
 
     /// A route to the hit is on the map; it takes the place of the pin and the dots.
     func routeDone() {
-        fitTask?.cancel()
         request += 1
         selected = nil
         category = nil
         anchor = nil
-        overview = nil
         returnTo = nil
         show(nil)
     }

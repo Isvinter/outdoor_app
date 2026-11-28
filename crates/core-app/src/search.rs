@@ -43,6 +43,8 @@ pub struct SearchHit {
     pub route_s: Option<f64>,
     /// Routing ran, but found no way within its reach.
     pub no_route: bool,
+    /// A place outside the radius; these come last, after everything inside.
+    pub outside: bool,
 }
 
 /// What a search found.
@@ -51,8 +53,6 @@ pub struct SearchResults {
     pub hits: Vec<SearchHit>,
     /// Names of the enabled regions that could not be searched.
     pub unsearchable: Vec<String>,
-    /// Nothing lay within the radius, so these are the nearest further away.
-    pub widened: bool,
     /// The radius the search used, after its limits.
     pub radius_m: f64,
     /// Times come from a router that ignores the ascent (hiking).
@@ -60,10 +60,10 @@ pub struct SearchResults {
 }
 
 impl App {
-    /// Finds streets and POIs by name within `radius_m` of `near`, and places
-    /// anywhere. With nothing in the radius, the nearest hits further away are
-    /// returned. A query that is one word for a kind of place also finds the
-    /// nearest of that category.
+    /// Finds streets and POIs by name within `radius_m` of `near` only, and
+    /// places anywhere; places outside the radius come last, marked `outside`.
+    /// A query that is one word for a kind of place also finds the nearest of
+    /// that category.
     #[must_use]
     pub fn search(&self, text: &str, near: LatLon, radius_m: f64, limit: usize) -> SearchResults {
         self.search_from(text, near, radius_m, limit, None)
@@ -94,23 +94,14 @@ impl App {
             Ok(hits)
         });
         let inside = |hit: &Hit| hit.distance_m.is_some_and(|d| d <= radius_m);
-        let any_inside = hits.iter().any(inside);
-        let widened = !any_inside && !hits.is_empty() && !hits.iter().any(Hit::is_whole_word_place);
         let (main, far_places): (Vec<Hit>, Vec<Hit>) = hits
             .into_iter()
-            .filter(|hit| !any_inside || hit.kind == Kind::Place || inside(hit))
-            .partition(|hit| {
-                if any_inside {
-                    inside(hit)
-                } else {
-                    hit.kind != Kind::Place
-                }
-            });
+            .filter(|hit| hit.kind == Kind::Place || inside(hit))
+            .partition(inside);
         let (hits, ascent_ignored) = self.measure_hits(share_limit(main, far_places, limit), from);
         SearchResults {
             hits,
             unsearchable,
-            widened,
             radius_m,
             ascent_ignored,
         }
@@ -154,7 +145,6 @@ impl App {
         Ok(SearchResults {
             hits,
             unsearchable,
-            widened: false,
             radius_m,
             ascent_ignored,
         })
@@ -249,5 +239,6 @@ pub(crate) fn shown(hit: Hit) -> SearchHit {
         route_m: None,
         route_s: None,
         no_route: false,
+        outside: false,
     }
 }

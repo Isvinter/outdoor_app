@@ -156,14 +156,14 @@ export interface SearchHit {
   lat: number;
   lon: number;
   distance_m: number;
+  /** A place outside the radius; these come last. */
+  outside: boolean;
 }
 
 export interface SearchResults {
   hits: SearchHit[];
   /** Names of the enabled regions that could not be searched. */
   unsearchable: string[];
-  /** Nothing lay within the radius, so these are the nearest further away. */
-  widened: boolean;
   /** The radius the search used, after its limits. */
   radius_m: number;
 }

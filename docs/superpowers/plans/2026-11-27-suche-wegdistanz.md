@@ -223,14 +223,14 @@ git commit -m "Pass the route start through the search bindings"
 
 - [x] **Step 4: Tests grün**, ganze `ZeroGridTrailTests` grün.
 
-- [ ] **Step 5: Von Hand auf dem iPhone**
+- [x] **Step 5: Von Hand auf dem iPhone**
   - Ein bekannter Umweg-Fall (POI hinter Fluss oder Bahnlinie): Liste ordnet nach Weg, „Luftl.“ zeigt den Unterschied.
   - Stadtsuche zu Fuß (`hike`): Zeiten plausibel, Hinweis „Zeiten ohne Höhenmeter.“
   - Karte weit weg schieben (> 50 km): keine Wege, keine Verzögerung.
   - GPS aus: Liste wie bisher.
   - Gefühlte Wartezeit bei Kategorie „Camping“ im 50-km-Ausschnitt notieren.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/trail

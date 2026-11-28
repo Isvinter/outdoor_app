@@ -284,14 +284,14 @@ fn radius_keeps_near_hits_and_places_everywhere() {
     );
     let results = common::open(&dir).search("Hostel", NEAR, 10_000.0, 30);
     let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
-    assert!(names.contains(&"Hostel Nah") && names.contains(&"Hostelito"));
-    assert!(!names.contains(&"Hostel Fern"));
-    assert!(!results.widened);
+    assert_eq!(names, ["Hostel Nah", "Hostelito"]);
+    assert!(!results.hits[0].outside);
+    assert!(results.hits[1].outside);
 }
 
 #[test]
-fn nothing_in_radius_shows_the_nearest_with_a_note() {
-    let dir = common::temp_dir("search-widened");
+fn nothing_in_radius_keeps_only_far_places() {
+    let dir = common::temp_dir("search-nothing-inside");
     region(
         &dir,
         "a",
@@ -302,12 +302,27 @@ fn nothing_in_radius_shows_the_nearest_with_a_note() {
         ]),
     );
     let results = common::open(&dir).search("Hostel", NEAR, 10_000.0, 30);
-    assert_eq!(results.hits.len(), 2);
-    assert!(results.widened);
+    let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["Hostelito"]);
+    assert!(results.hits[0].outside);
 }
 
 #[test]
-fn a_far_place_with_the_whole_word_is_no_widening() {
+fn far_places_come_after_better_matches_inside() {
+    let dir = common::temp_dir("search-far-place-last");
+    region(
+        &dir,
+        "a",
+        "A",
+        Some(&[place("Seeblick", -13.9, -72.0), lodging("Seeblick-Hütte", -13.51, -72.0)]),
+    );
+    let results = common::open(&dir).search("Seeblick", NEAR, 10_000.0, 30);
+    let names: Vec<_> = results.hits.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!(names, ["Seeblick-Hütte", "Seeblick"]);
+}
+
+#[test]
+fn a_far_place_with_the_whole_word_comes_alone() {
     let dir = common::temp_dir("search-far-place");
     region(
         &dir,
@@ -319,9 +334,9 @@ fn a_far_place_with_the_whole_word_is_no_widening() {
         ]),
     );
     let results = common::open(&dir).search("Cusco", NEAR, 10_000.0, 30);
+    assert_eq!(results.hits.len(), 1);
     assert_eq!(results.hits[0].name, "Cusco");
-    assert_eq!(results.hits.len(), 2);
-    assert!(!results.widened);
+    assert!(results.hits[0].outside);
 }
 
 #[test]
@@ -332,7 +347,6 @@ fn category_stays_inside_the_radius() {
         .search_category("lodging", NEAR, 10_000.0, 30)
         .unwrap();
     assert!(results.hits.is_empty());
-    assert!(!results.widened);
 }
 
 #[test]
@@ -444,7 +458,8 @@ fn a_far_place_keeps_a_share_among_many_near_hits() {
     region(&dir, "a", "A", Some(&entries));
     let results = common::open(&dir).search("Neustadt", NEAR, 10_000.0, 30);
     assert_eq!(results.hits.len(), 30);
-    assert_eq!(results.hits[0].name, "Neustadt");
+    assert_eq!(results.hits[29].name, "Neustadt");
+    assert!(results.hits[29].outside);
 }
 
 // Routing from the own position.
@@ -836,12 +851,13 @@ fn far_places_keep_their_slots() {
     let found = app.search_from(
         "Seeblick",
         CENTRE,
-        2_000.0,
+        50_000.0,
         30,
         Some(&from(Profile::Trekking, 5.0)),
     );
     let names: Vec<_> = found.hits.iter().map(|h| h.name.as_str()).collect();
     assert_eq!(names, ["Seeblick Hostel", "Seeblickort"]);
+    assert!(found.hits[1].outside);
     let far = &found.hits[1];
     assert!(far.route_m.is_none() && !far.no_route);
     assert!(
@@ -896,7 +912,7 @@ fn only_shown_hits_are_routed() {
 }
 
 #[test]
-fn exact_far_town_ranks_above_partial_hits_with_position() {
+fn exact_far_town_stays_after_the_hits_inside() {
     let dir = common::temp_dir("route-far-town");
     let app = lodgings(
         &dir,
@@ -909,14 +925,14 @@ fn exact_far_town_ranks_above_partial_hits_with_position() {
     let with = app.search_from(
         "Seeblick",
         CENTRE,
-        2_000.0,
+        50_000.0,
         30,
         Some(&from(Profile::Trekking, 5.0)),
     );
-    let without = app.search("Seeblick", CENTRE, 2_000.0, 30);
+    let without = app.search("Seeblick", CENTRE, 50_000.0, 30);
     let order = |r: &core_app::SearchResults| -> Vec<String> {
         r.hits.iter().map(|h| h.name.clone()).collect()
     };
-    assert_eq!(order(&with), ["Seeblick", "Seeblickhof"]);
+    assert_eq!(order(&with), ["Seeblickhof", "Seeblick"]);
     assert_eq!(order(&without), order(&with));
 }
