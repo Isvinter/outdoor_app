@@ -728,6 +728,11 @@ impl App {
         })
     }
 
+    /// The IDs of a track's sections, in the order of [`TrackDetail::sections`].
+    pub fn section_ids(&self, id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        Ok(self.shared.inner().storage.segment_ids(id)?)
+    }
+
     /// Statistics of a track and its sections with the elevations taken from the
     /// terrain model.
     fn dem_stats(&self, track: &Track) -> Result<Option<(TrackStats, Vec<TrackStats>)>, AppError> {

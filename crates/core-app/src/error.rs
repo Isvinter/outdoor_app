@@ -37,6 +37,10 @@ pub enum AppError {
     InvalidMedia,
     #[error("media file: {0}")]
     MediaFile(String),
+    #[error("not enough free space for the package")]
+    ExportNoSpace,
+    #[error("the package cannot be written: {0}")]
+    Export(String),
     #[error("unknown search category: {0}")]
     SearchCategory(String),
 }
@@ -68,6 +72,8 @@ impl AppError {
             AppError::InvalidSection => "invalid_section",
             AppError::InvalidMedia => "invalid_media",
             AppError::MediaFile(_) => "media_file",
+            AppError::ExportNoSpace => "export_no_space",
+            AppError::Export(_) => "export_failed",
             AppError::SearchCategory(_) => "search_category",
         }
     }

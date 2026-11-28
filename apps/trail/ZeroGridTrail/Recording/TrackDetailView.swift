@@ -57,6 +57,22 @@ struct TrackDetailView: View {
                     }
                 }
             }
+            Button {
+                Task { await tracks.exportTour() }
+            } label: {
+                HStack(spacing: 8) {
+                    if tracks.exporting {
+                        ProgressView()
+                        Text("Paket wird gebaut …")
+                    } else {
+                        Label("Tour exportieren", systemImage: "shippingbox")
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 56)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(tracks.exporting)
+            .accessibilityIdentifier("tour-export")
             if let file = tracks.shareFile {
                 ShareLink(item: file) {
                     Label("Als GPX teilen", systemImage: "square.and.arrow.up")
@@ -79,6 +95,17 @@ struct TrackDetailView: View {
             }
         }
         .onDisappear { player.stop() }
+        .sheet(
+            isPresented: Binding(
+                get: { tracks.exportFile != nil }, set: { if !$0 { tracks.finishExport() } }),
+            onDismiss: { tracks.finishExport() }
+        ) {
+            if let file = tracks.exportFile {
+                ShareSheet(items: [file]) { tracks.finishExport() }
+                    .presentationDetents([.medium, .large])
+                    .ignoresSafeArea()
+            }
+        }
         .alert("Track umbenennen", isPresented: $renaming) {
             TextField("Name des Tracks", text: $name)
             Button("Umbenennen") { tracks.rename(track.summary, to: name) }

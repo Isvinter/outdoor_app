@@ -6,6 +6,7 @@ mod app;
 mod error;
 mod guide;
 mod media;
+mod package;
 mod plan;
 mod regions;
 mod routes;
@@ -23,6 +24,10 @@ pub use guide::{
     WayBackTarget,
 };
 pub use media::{MediaDetail, MediaInput};
+pub use package::{
+    Elevation, MediaInfo, PACKAGE_FORMAT, PACKAGE_VERSION, SectionInfo, TourInfo, TourManifest,
+    notes_markdown, package_path, tour_manifest,
+};
 pub use plan::{
     KnownPosition, Leg, LegError, LegSpec, MAX_POSITION_AGE_S, PlanRequest, RoutePlan, RoutePoint,
     RouteStart, Stage, Totals,
