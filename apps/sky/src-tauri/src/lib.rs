@@ -14,6 +14,7 @@ mod share;
 #[cfg(desktop)]
 mod sim;
 mod smoke;
+mod thermal_layer;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
