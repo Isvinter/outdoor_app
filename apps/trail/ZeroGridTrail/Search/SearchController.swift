@@ -4,8 +4,8 @@ import Foundation
 
 /// What the search asks the core; a seam for the tests.
 struct SearchBackend {
-    var text: @Sendable (String, LatLon, Double, UInt32) -> SearchResults
-    var category: @Sendable (String, LatLon, Double, UInt32) throws -> SearchResults
+    var text: @Sendable (String, LatLon, Double, UInt32, RouteFrom?) -> SearchResults
+    var category: @Sendable (String, LatLon, Double, UInt32, RouteFrom?) throws -> SearchResults
 }
 
 /// Where the map looks.
@@ -108,10 +108,22 @@ enum SearchTexts {
         return hit.category.map(category) ?? kind(hit.kind)
     }
 
-    /// Kind, town and distance, as far as there are any.
-    static func details(_ hit: SearchHit, distance: (Double) -> String) -> String {
+    static let noRoute = "Umweg oder kein Weg"
+    static let ascentIgnored = "Zeiten ohne Höhenmeter."
+
+    /// Kind, town and distance, as far as there are any; with a way from the
+    /// own position its length and time, then the distance as the crow flies.
+    static func details(_ hit: SearchHit) -> String {
         let what = hit.category.map(category) ?? kind(hit.kind)
-        return ([what, hit.town, distance(hit.distanceM)] as [String?])
+        let distances: [String?]
+        if let metres = hit.routeM {
+            distances = [Format.distance(metres), hit.routeS.map(Format.hours), "Luftl. \(Format.distance(hit.distanceM))"]
+        } else if hit.noRoute {
+            distances = [Format.distance(hit.distanceM), noRoute]
+        } else {
+            distances = [Format.distance(hit.distanceM)]
+        }
+        return ([what, hit.town] + distances)
             .compactMap { $0 }
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
@@ -135,6 +147,9 @@ final class SearchController: ObservableObject {
     @Published private(set) var category: String?
     /// The field is in use: the panel shows the quick choices.
     @Published var open = false
+    /// The hits are measured and ordered by the way from the own position.
+    @Published private(set) var routes: Bool
+    static let routesKey = "search.routes"
     /// The list is hidden behind the card of the chosen hit.
     var showsList: Bool { selected == nil && !(results?.hits.isEmpty ?? true) }
     /// Where the panel ends on the screen, so that the map fits the hits below it.
@@ -149,6 +164,9 @@ final class SearchController: ObservableObject {
     }
 
     private let backend: SearchBackend
+    /// The position and the leg settings, asked only while `routes` is on.
+    private let routeFrom: @MainActor () -> RouteFrom?
+    private let defaults: UserDefaults
     private let map: SearchMap
     private let typingDelay: Double
     private let fitDelay: Double
@@ -169,9 +187,13 @@ final class SearchController: ObservableObject {
     private var otherMoves = 0
 
     init(backend: SearchBackend, map: SearchMap, typingDelay: Double = 0.2, fitDelay: Double = 0.5,
-        layoutDelay: Double = 0.1
+        layoutDelay: Double = 0.1, routeFrom: @escaping @MainActor () -> RouteFrom? = { nil },
+        defaults: UserDefaults = .standard
     ) {
         self.backend = backend
+        self.routeFrom = routeFrom
+        self.defaults = defaults
+        routes = defaults.bool(forKey: Self.routesKey)
         self.map = map
         self.typingDelay = typingDelay
         self.fitDelay = fitDelay
@@ -182,6 +204,7 @@ final class SearchController: ObservableObject {
     var notes: [String] {
         guard let results else { return [] }
         var notes = results.unsearchable.map { "\($0) ist nicht durchsuchbar. Baue die Region neu." }
+        if results.ascentIgnored { notes.append(SearchTexts.ascentIgnored) }
         if results.widened { notes.insert("Nichts im Umkreis, nächste Treffer weiter entfernt.", at: 0) }
         if results.hits.isEmpty {
             notes.insert(category == nil ? "Nichts gefunden." : "Keine Treffer im Umkreis. Zoome heraus.", at: 0)
@@ -212,9 +235,35 @@ final class SearchController: ObservableObject {
         typingTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
-            self.run(fitDelay: self.fitDelay) { near, radius in
-                backend.text(query, near, radius, Self.limit)
-            }
+            self.runText(query)
+        }
+    }
+
+    private func runText(_ query: String) {
+        let backend = backend
+        run(fitDelay: fitDelay) { near, radius, from in
+            backend.text(query, near, radius, Self.limit, from)
+        }
+    }
+
+    private func runCategory(_ key: String) {
+        let backend = backend
+        run(fitDelay: layoutDelay) { near, radius, from in
+            try backend.category(key, near, radius, Self.limit, from)
+        }
+    }
+
+    /// Switches measuring by the way on or off and searches again what is shown.
+    func toggleRoutes() {
+        routes.toggle()
+        defaults.set(routes, forKey: Self.routesKey)
+        typingTask?.cancel()
+        fitTask?.cancel()
+        if let category {
+            runCategory(category)
+        } else {
+            let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if query.count >= Self.minChars { runText(query) }
         }
     }
 
@@ -223,13 +272,12 @@ final class SearchController: ObservableObject {
         fitTask?.cancel()
         clearSelection()
         category = key
-        let backend = backend
-        run(fitDelay: layoutDelay) { near, radius in
-            try backend.category(key, near, radius, Self.limit)
-        }
+        runCategory(key)
     }
 
-    private func run(fitDelay: Double, _ work: @escaping @Sendable (LatLon, Double) throws -> SearchResults) {
+    private func run(
+        fitDelay: Double, _ work: @escaping @Sendable (LatLon, Double, RouteFrom?) throws -> SearchResults
+    ) {
         request += 1
         let number = request
         let current = anchor ?? Anchor(
@@ -239,13 +287,20 @@ final class SearchController: ObservableObject {
         let movesBefore = otherMoves
         let queue = queue
         let (centre, radius) = (current.centre, current.radiusM)
+        let from = routes ? routeFrom() : nil
         Task { [weak self] in
             let result: Result<SearchResults, Error> = await withCheckedContinuation { done in
-                queue.async { done.resume(returning: Result { try work(centre, radius) }) }
+                queue.async { done.resume(returning: Result { try work(centre, radius, from) }) }
             }
             guard let self, number == self.request else { return }
             guard case .success(let results) = result else {
                 self.show(nil)
+                return
+            }
+            if let chosen = self.selected {
+                // Searched again behind the card: it stays, with the new numbers if the hit is still there.
+                self.selected = results.hits.first { Self.same($0, chosen) } ?? chosen
+                self.show(results)
                 return
             }
             self.show(results)
@@ -261,7 +316,7 @@ final class SearchController: ObservableObject {
 
     /// Brings the hits around the search into view; a far place alone does not pull the map out.
     private func fit(_ results: SearchResults) {
-        let inside = results.hits.filter { $0.distanceM <= results.radiusM }
+        let inside = results.hits.filter { $0.centreDistanceM <= results.radiusM }
         overview = map.fitSearchHits((inside.isEmpty ? results.hits : inside).map(Self.coordinate), topInset: topInset)
     }
 
@@ -272,7 +327,13 @@ final class SearchController: ObservableObject {
 
     private func drawDots() {
         let hits = results?.hits ?? []
-        map.showSearchHits(hits.map(Self.coordinate), selected: selected.flatMap { hits.firstIndex(of: $0) })
+        map.showSearchHits(
+            hits.map(Self.coordinate), selected: selected.flatMap { chosen in hits.firstIndex { Self.same($0, chosen) } })
+    }
+
+    /// The same thing found, whatever it was measured from.
+    private static func same(_ a: SearchHit, _ b: SearchHit) -> Bool {
+        a.kind == b.kind && a.name == b.name && a.lat == b.lat && a.lon == b.lon
     }
 
     private static func coordinate(_ hit: SearchHit) -> CLLocationCoordinate2D {

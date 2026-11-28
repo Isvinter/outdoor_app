@@ -54,6 +54,7 @@ struct SearchBar: View {
                 .onSubmit { focused = false }
                 .accessibilityIdentifier("search-field")
             if search.open || !search.text.isEmpty || search.results != nil {
+                routesToggle
                 Button {
                     focused = false
                     search.close()
@@ -66,6 +67,25 @@ struct SearchBar: View {
                 .accessibilityLabel("Suche schließen")
             }
         }
+    }
+
+    /// Measures the hits by the way from the own position.
+    private var routesToggle: some View {
+        Button {
+            search.toggleRoutes()
+        } label: {
+            Label("Weg", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                .labelStyle(.titleAndIcon)
+                .font(.footnote.weight(search.routes ? .semibold : .regular))
+                .foregroundStyle(search.routes ? Color.white : Color.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(search.routes ? Color.accentColor : Color(.secondarySystemFill), in: Capsule())
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("search-routes")
+        .accessibilityAddTraits(search.routes ? .isSelected : [])
     }
 
     private var categories: some View {
@@ -102,7 +122,7 @@ struct SearchBar: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(SearchTexts.title(hit))
                                 .foregroundStyle(Color.primary)
-                            Text(SearchTexts.details(hit, distance: Format.distance))
+                            Text(SearchTexts.details(hit))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }

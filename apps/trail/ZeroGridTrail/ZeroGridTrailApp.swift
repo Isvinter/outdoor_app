@@ -64,7 +64,12 @@ private struct RootView: View {
             plan.failPlansAfter = start.options.failPlansAfter
             let regions = RegionsController(
                 host: start.host, engine: start.engine, map: map, plan: plan, installed: start.regions)
-            let search = SearchController(backend: SearchBackend(core: start.host.core), map: map.searchOverlay)
+            let search = SearchController(
+                backend: SearchBackend(core: start.host.core), map: map.searchOverlay,
+                routeFrom: { [weak location, weak plan] in
+                    guard let location, let plan else { return nil }
+                    return RouteFrom.live(location: location, plan: plan)
+                })
             let routeHere = RouteHereFlow(
                 host: LiveRouteHereHost(core: start.host.core, plan: plan, location: location))
             // A hit chosen or left: the card of a tapped place goes.

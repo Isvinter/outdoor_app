@@ -206,7 +206,7 @@ git commit -m "Pass the route start through the search bindings"
   - `SearchController.init(…, routeFrom: @escaping @MainActor () -> RouteFrom? = { nil }, defaults: UserDefaults = .standard)`; `@Published private(set) var routes: Bool` (Schlüssel `"search.routes"`, Standard `false`); `func toggleRoutes()`.
   - Live-Quelle in `ZeroGridTrailApp`: `location.knowsPosition`, `location.last` → `KnownPosition(lat, lon, ageS: -last.timestamp.timeIntervalSinceNow)`, `plan.newLeg`.
 
-- [ ] **Step 1: Tests schreiben** (`SearchControllerTests`; `hit(…)`/`answer(…)` um die neuen Felder ergänzen)
+- [x] **Step 1: Tests schreiben** (`SearchControllerTests`; `hit(…)`/`answer(…)` um die neuen Felder ergänzen)
   - `routes_off_passes_no_route_start`: Umschalter aus → Backend bekommt `nil`, `routeFrom`-Quelle wird nicht gefragt.
   - `routes_on_passes_route_start`: an, Quelle liefert `RouteFrom` → Backend bekommt ihn.
   - `toggle_persists`: `toggleRoutes()` schreibt `"search.routes"`; neuer Controller mit denselben Defaults startet an.
@@ -217,11 +217,11 @@ git commit -m "Pass the route start through the search bindings"
   - `details_show_route_and_air`: `routeM 3200, routeS 3120, distanceM 1100` → `"Unterkunft · 3,20 km · 0:52 h · Luftl. 1,10 km"` (Kategorie `lodging`) (Reihenfolge Art, Ort, Weg, Zeit, Luftlinie; Formatierer aus `Format`); `noRoute` → `"… · 800 m · Umweg oder kein Weg"`; ohne Weg wie heute.
   - `ascent_note`: `ascentIgnored` → `notes` enthält `"Zeiten ohne Höhenmeter."`.
 
-- [ ] **Step 2: Tests scheitern** (Xcode, Schema `ZeroGridTrail`, nur `SearchControllerTests`) → FAIL.
+- [x] **Step 2: Tests scheitern** (Xcode, Schema `ZeroGridTrail`, nur `SearchControllerTests`) → FAIL.
 
-- [ ] **Step 3: Umsetzen.** `run` holt `RouteFrom` auf dem Main-Actor (nur wenn `routes`) und reicht ihn in die Arbeit im selben Hintergrundjob. Umschalter in `SearchBar.field` zwischen Textfeld und Schließen-Knopf: Text „Weg“ mit Symbol `point.topleft.down.to.point.bottomright.curvepath`, an = Akzentfarbe, Trefferfläche ≥ 44 pt, `accessibilityIdentifier("search-routes")`, `.isSelected` wenn an. Sichtbar, solange die Suche offen ist. OLED-Dunkelmodus prüfen.
+- [x] **Step 3: Umsetzen.** `run` holt `RouteFrom` auf dem Main-Actor (nur wenn `routes`) und reicht ihn in die Arbeit im selben Hintergrundjob. Umschalter in `SearchBar.field` zwischen Textfeld und Schließen-Knopf: Text „Weg“ mit Symbol `point.topleft.down.to.point.bottomright.curvepath`, an = Akzentfarbe, Trefferfläche ≥ 44 pt, `accessibilityIdentifier("search-routes")`, `.isSelected` wenn an. Sichtbar, solange die Suche offen ist. OLED-Dunkelmodus prüfen.
 
-- [ ] **Step 4: Tests grün**, ganze `ZeroGridTrailTests` grün.
+- [x] **Step 4: Tests grün**, ganze `ZeroGridTrailTests` grün.
 
 - [ ] **Step 5: Von Hand auf dem iPhone**
   - Ein bekannter Umweg-Fall (POI hinter Fluss oder Bahnlinie): Liste ordnet nach Weg, „Luftl.“ zeigt den Unterschied.

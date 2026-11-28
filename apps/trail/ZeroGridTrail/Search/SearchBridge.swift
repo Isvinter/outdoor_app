@@ -5,12 +5,25 @@ extension SearchBackend {
     /// The search of the core; called off the main thread.
     init(core: CoreApp) {
         self.init(
-            text: { text, near, radius, limit in
-                core.search(text: text, near: near, radiusM: radius, limit: limit)
+            text: { text, near, radius, limit, from in
+                core.search(text: text, near: near, radiusM: radius, limit: limit, from: from)
             },
-            category: { category, near, radius, limit in
-                try core.searchCategory(category: category, near: near, radiusM: radius, limit: limit)
+            category: { category, near, radius, limit, from in
+                try core.searchCategory(category: category, near: near, radiusM: radius, limit: limit, from: from)
             })
+    }
+}
+
+extension RouteFrom {
+    /// The own position, if it is known, with the settings a new leg would get.
+    @MainActor
+    static func live(location: LocationService, plan: PlanController) -> RouteFrom? {
+        guard location.knowsPosition, let last = location.last else { return nil }
+        return RouteFrom(
+            position: KnownPosition(
+                lat: last.coordinate.latitude, lon: last.coordinate.longitude,
+                ageS: max(0, -last.timestamp.timeIntervalSinceNow)),
+            leg: plan.newLeg)
     }
 }
 

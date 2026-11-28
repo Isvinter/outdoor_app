@@ -240,6 +240,8 @@ final class PlanController: ObservableObject {
     }
 
     /// What a new leg gets: the profile and the settings that were changed.
+    var newLeg: LegInput { formLeg }
+
     private var formLeg: LegInput {
         LegInput(
             profile: profile,
