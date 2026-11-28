@@ -24,6 +24,8 @@ use serde::Serialize;
 use tauri::http::{Request, Response, StatusCode, header};
 use tauri::{AppHandle, Manager};
 
+use crate::thermal_cache::{Answer, ThermalState};
+
 pub const SCHEME: &str = "tiles";
 
 /// Number of tiles served so far; the smoke test reports it.
@@ -33,6 +35,11 @@ pub static TILES_SERVED: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomi
 const TILES_BASE: &str = "http://tiles.localhost/";
 #[cfg(not(any(windows, target_os = "android")))]
 const TILES_BASE: &str = "tiles://localhost/";
+
+/// The tile URL template of one thermal layer, for MapLibre (`{z}/{x}/{y}` stay as is).
+pub fn thermal_url(key: &str) -> String {
+    format!("{TILES_BASE}thermals/{key}/{{z}}/{{x}}/{{y}}")
+}
 
 /// Where the glyph files live among the bundled frontend assets (`ui/map/fonts`).
 const FONT_ASSETS: &str = "map/fonts/";
@@ -305,6 +312,9 @@ pub fn respond(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>>
             .unwrap_or_default();
         return response(StatusCode::OK, "application/x-protobuf", glyphs);
     }
+    if let Some(rest) = path.strip_prefix("/thermals/") {
+        return respond_thermal(app, rest);
+    }
     let Ok(tile) = path.parse::<TilePath>() else {
         return empty(StatusCode::BAD_REQUEST);
     };
@@ -327,6 +337,24 @@ pub fn respond(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>>
             eprintln!("map tile {path}: {error}");
             empty(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+/// Answers a thermal tile request from the on-device cache (`rest` is `<key>/<z>/<x>/<y>`).
+fn respond_thermal(app: &AppHandle, rest: &str) -> Response<Vec<u8>> {
+    let Some(cache) = app.state::<ThermalState>().get(app) else {
+        return empty(StatusCode::NO_CONTENT);
+    };
+    match cache.answer(rest, std::time::SystemTime::now()) {
+        Answer::Tile(tile) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "image/png")
+            // The cache decides what is fresh; the webview must not keep its own copy.
+            .header(header::CACHE_CONTROL, "no-store")
+            .body(tile.data)
+            .unwrap_or_else(|_| empty(StatusCode::INTERNAL_SERVER_ERROR)),
+        Answer::Empty => empty(StatusCode::NO_CONTENT),
+        Answer::BadRequest => empty(StatusCode::BAD_REQUEST),
     }
 }
 
@@ -358,5 +386,15 @@ mod look_tests {
         let look = MapLook::parse(r#"{"dark":true}"#);
         assert!(look.dark);
         assert!(!look.relief);
+    }
+}
+
+#[cfg(test)]
+mod thermal_url_tests {
+    use super::thermal_url;
+
+    #[test]
+    fn thermal_tiles_url_template() {
+        assert!(thermal_url("jul_07").ends_with("thermals/jul_07/{z}/{x}/{y}"));
     }
 }

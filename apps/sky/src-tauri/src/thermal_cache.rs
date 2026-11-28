@@ -5,8 +5,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
+
+use tauri::{AppHandle, Manager};
 
 use crate::thermal_layer::{LayerKey, fallbacks};
 
@@ -31,6 +33,92 @@ pub enum FetchError {
 /// `Send + Sync` because several request threads share one fetcher.
 pub trait Fetch: Send + Sync {
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError>;
+}
+
+/// Real downloads with ureq (the HTTP library the airspace update uses too).
+pub struct UreqFetch {
+    agent: ureq::Agent,
+}
+
+impl UreqFetch {
+    pub fn new() -> Self {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(3)))
+            .timeout_global(Some(Duration::from_secs(8)))
+            .user_agent(format!("ZeroGrid/{} (Sky)", env!("CARGO_PKG_VERSION")))
+            // Let `call` return 4xx/5xx as a response, so we can tell `Http(code)` apart.
+            .http_status_as_error(false)
+            .build()
+            .into();
+        Self { agent }
+    }
+}
+
+impl Fetch for UreqFetch {
+    fn get(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        let mut response = self.agent.get(url).call().map_err(|error| match error {
+            ureq::Error::Timeout(_)
+            | ureq::Error::Io(_)
+            | ureq::Error::HostNotFound
+            | ureq::Error::ConnectionFailed => FetchError::Offline,
+            other => FetchError::Other(other.to_string()),
+        })?;
+        let status = response.status().as_u16();
+        if status >= 400 {
+            return Err(FetchError::Http(status));
+        }
+        response
+            .body_mut()
+            .with_config()
+            .limit(1024 * 1024)
+            .read_to_vec()
+            .map_err(|error| match error {
+                ureq::Error::Timeout(_) | ureq::Error::Io(_) => FetchError::Offline,
+                other => FetchError::Other(other.to_string()),
+            })
+    }
+}
+
+/// Smoke runs must not touch the network: every download counts as offline.
+pub struct NoNetwork;
+
+impl Fetch for NoNetwork {
+    fn get(&self, _url: &str) -> Result<Vec<u8>, FetchError> {
+        Err(FetchError::Offline)
+    }
+}
+
+/// Tauri state holding the cache. It is created on the first tile request, because
+/// the folder needs the `AppHandle`, which does not exist yet when the state is set up.
+#[derive(Default)]
+pub struct ThermalState {
+    // `OnceLock`: set once, then shared; the first caller fills it.
+    cache: OnceLock<Arc<ThermalCache>>,
+}
+
+impl ThermalState {
+    /// The cache; `None` if the app data folder is unknown (then no tiles are served).
+    pub fn get(&self, app: &AppHandle) -> Option<Arc<ThermalCache>> {
+        if let Some(cache) = self.cache.get() {
+            return Some(cache.clone());
+        }
+        // Not `data_dir()`: on iOS that is the Files-visible Documents folder.
+        // Not the cache dir either: iOS may purge it.
+        let dir = app.path().app_data_dir().ok()?.join("thermals");
+        let fetch: Box<dyn Fetch> = if std::env::var_os("VARIO_SMOKE_TEST").is_some()
+            && std::env::var_os("VARIO_SMOKE_KK7").is_none()
+        {
+            Box::new(NoNetwork)
+        } else {
+            Box::new(UreqFetch::new())
+        };
+        // If two threads race, one value wins and the other is dropped.
+        Some(
+            self.cache
+                .get_or_init(|| Arc::new(ThermalCache::new(dir, fetch)))
+                .clone(),
+        )
+    }
 }
 
 /// The KK7 tile URL. KK7 counts tile rows from the south (TMS), the map from the north.
@@ -148,11 +236,14 @@ impl ThermalCache {
     }
 
     /// Calls of `answer`.
+    // Only the smoke report (a later task) reads the counters.
+    #[allow(dead_code)]
     pub fn requests(&self) -> u64 {
         self.requests.load(Ordering::Relaxed)
     }
 
     /// Calls of `Fetch::get`.
+    #[allow(dead_code)]
     pub fn fetches(&self) -> u64 {
         self.fetches.load(Ordering::Relaxed)
     }

@@ -14,11 +14,7 @@ mod share;
 #[cfg(desktop)]
 mod sim;
 mod smoke;
-// used by the thermal tile route (next task); remove then
-#[allow(dead_code)]
 mod thermal_cache;
-// Used by the thermal tile route (next tasks); remove then.
-#[allow(dead_code)]
 mod thermal_layer;
 
 use std::path::PathBuf;
@@ -390,6 +386,61 @@ fn default_settings() -> SettingsDto {
 }
 
 #[tauri::command]
+fn get_thermal_map(app: AppHandle) -> thermal_layer::ThermalSettings {
+    thermal_layer::load(&app)
+}
+
+#[tauri::command]
+fn set_thermal_map(app: AppHandle, settings: thermal_layer::ThermalSettings) -> Result<(), String> {
+    thermal_layer::save(&app, &settings)
+}
+
+/// Which thermal layer fits now and here, and the tile URL template for it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThermalTiles {
+    key: String,
+    url: String,
+}
+
+#[tauri::command]
+fn thermal_tiles(app: AppHandle, latitude: f64, longitude: f64) -> ThermalTiles {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs() as i64);
+    let key =
+        thermal_layer::choose(&thermal_layer::load(&app), now, latitude, longitude).as_string();
+    ThermalTiles {
+        url: maps::thermal_url(&key),
+        key,
+    }
+}
+
+#[tauri::command]
+async fn thermal_cache_size(app: AppHandle) -> u64 {
+    // The folder walk is blocking work; keep it off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<thermal_cache::ThermalState>()
+            .get(&app)
+            .map_or(0, |cache| cache.size_bytes())
+    })
+    .await
+    .unwrap_or(0)
+}
+
+#[tauri::command]
+async fn clear_thermal_cache(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match app.state::<thermal_cache::ThermalState>().get(&app) {
+            Some(cache) => cache.clear(),
+            None => Ok(()),
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 fn get_map_style(app: AppHandle) -> String {
     settings::load_map_style(&app)
 }
@@ -508,6 +559,7 @@ pub fn run() {
         .plugin(tauri_plugin_vario_sensors::init())
         .manage(AppState::default())
         .manage(maps::Maps::default())
+        .manage(thermal_cache::ThermalState::default())
         .manage(airspace::Loaded::default())
         .manage(share::Downloads::default())
         .register_asynchronous_uri_scheme_protocol(maps::SCHEME, |context, request, responder| {
@@ -533,6 +585,11 @@ pub fn run() {
             default_settings,
             get_map_style,
             set_map_style,
+            get_thermal_map,
+            set_thermal_map,
+            thermal_tiles,
+            thermal_cache_size,
+            clear_thermal_cache,
             permissions,
             open_settings,
             interrupted_session,
