@@ -395,13 +395,16 @@ impl App {
         let gpx = self.export_gpx(id)?;
         let data_dir = self.shared.data_dir.clone();
 
-        let mut files: Vec<(String, File)> = Vec::new();
+        // Only paths here: a tour has hundreds of photos, more than iOS lets an
+        // app keep open at once. Each file is opened when it is written.
+        let mut files: Vec<(String, PathBuf)> = Vec::new();
         let mut present = std::collections::HashSet::new();
         for media in detail.media.iter().map(|d| &d.record) {
             let (Some(target), Some(file)) = (package_path(media), media.file.as_deref()) else {
                 continue;
             };
-            if let Ok(source) = File::open(data_dir.join(file)) {
+            let source = data_dir.join(file);
+            if File::open(&source).is_ok() {
                 present.insert(media.id);
                 files.push((target, source));
             }
@@ -433,7 +436,7 @@ fn write_package(
     path: &Path,
     gpx: &str,
     manifest: &TourManifest,
-    files: Vec<(String, File)>,
+    files: Vec<(String, PathBuf)>,
 ) -> Result<(), AppError> {
     let json = serde_json::to_vec_pretty(manifest).map_err(|e| AppError::Export(e.to_string()))?;
     let notes = notes_markdown(manifest);
@@ -448,7 +451,8 @@ fn write_package(
         zip.write_all(content).map_err(io_error)?;
     }
     // Photos and audio are compressed already; storing them saves battery.
-    for (name, mut source) in files {
+    for (name, path) in files {
+        let mut source = File::open(&path).map_err(io_error)?;
         let size = source.metadata().map_err(io_error)?.len();
         let stored = SimpleFileOptions::default()
             .compression_method(CompressionMethod::Stored)
