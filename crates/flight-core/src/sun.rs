@@ -18,7 +18,8 @@ pub enum Sunrise {
 /// Uses the NOAA "general solar position" approximation (equation of time and solar
 /// declination as Fourier series, zenith 90.833 degrees); accurate to about +-2 minutes
 /// at mid latitudes. `date` is the UTC day the returned time is counted from, so for
-/// far-west longitudes the result can fall just past that day's end.
+/// far-west longitudes the result can fall just past that day's end, and for far-east
+/// longitudes just before that day's start (on the previous UTC day).
 pub fn sunrise(date: Date, latitude_deg: f64, longitude_deg: f64) -> Sunrise {
     let jan_first = Date::new(date.year(), 1, 1).expect("1 January always exists");
     let day_of_year = (date.days_since_unix_epoch() - jan_first.days_since_unix_epoch()) as f64;

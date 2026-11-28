@@ -200,7 +200,7 @@ und keine Nachbarkacheln (kk7-Regeln, Details in `docs/DATENQUELLEN.md`). Anfrag
 `?src=ZeroGrid`, höchstens 10 je Sekunde. Der Selbsttest läuft ohne Netz (`NoNetwork`);
 nur mit `VARIO_SMOKE_KK7=1` geht er wirklich an kk7, das nur selten und mit leerem HOME tun:
 `cargo build -p vario-app && HOME=$(mktemp -d) VARIO_SMOKE_TEST=1 VARIO_SMOKE_KK7=1 target/debug/vario-app`.
-Der Selbsttest schaltet die Thermikkarte am Ende wieder aus; `thermal report` zählt
+Der Selbsttest stellt den Zustand der Thermikkarte von vor dem Test wieder her; `thermal report` zählt
 Aufrufe des Kachel-Handlers (`requests`) und echte Netzabrufe (`fetches`, ohne
 `VARIO_SMOKE_KK7` immer 0).
 
@@ -227,6 +227,8 @@ Regionen kopieren mit `devicectl … copy to`; Befehle in `docs/sky/ios-test.md`
 Rust ist per `rustup` im Home-Verzeichnis installiert (`~/.cargo/bin`). Auf dem Mac läuft
 die Shell von Claude Code unter Rosetta; die Toolchain ist trotzdem nativ arm64
 (`aarch64-apple-darwin`). `timeout` gibt es auf macOS nicht.
+Bei Selbsttests mit leerem `HOME=$(mktemp -d)` erst bauen und dann die fertige Datei
+starten (wie oben): `cargo` unter einem leeren `HOME` findet `rustup` nicht mehr.
 
 ## Fachliche Leitplanken
 

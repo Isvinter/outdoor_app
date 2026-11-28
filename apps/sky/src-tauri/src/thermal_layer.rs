@@ -52,8 +52,8 @@ impl DayTime {
 }
 
 /// Either "pick it for me" or one fixed value. On the wire it is the plain string
-/// `"auto"` or the value's own name. `untagged` tries the variants in order, so
-/// "auto" is matched first and everything else is read as the value `T`.
+/// `"auto"` or the value's own name. The manual (de)serialization below reads "auto"
+/// first and everything else as the value `T`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Choice<T> {
     Auto,
