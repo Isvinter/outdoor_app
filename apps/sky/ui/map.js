@@ -20,6 +20,7 @@ const FlightMap = (() => {
   const SAVED_SOURCE = "saved-flight";
   const AIRSPACE_SOURCE = "airspace";
   const LANDING_SOURCE = "landing";
+  const THERMAL_SOURCE = "thermals";
   // How far inside the map edge a landing point must lie to count as visible, in px.
   const EDGE_INSET = 20;
 
@@ -119,6 +120,7 @@ const FlightMap = (() => {
   let onMessage = () => {};
   let onTap = () => {};
   let tapMarker = null;
+  let thermalUrl = null; // tile URL template of the thermal layer, null = off
   let landing = null; // { latitudeDeg, longitudeDeg, distanceM } or null
   let formatDistance = (metres) => Math.round(metres) + " m";
 
@@ -244,10 +246,45 @@ const FlightMap = (() => {
   function addOwnLayers() {
     // Airspaces first: the track goes on top of them.
     addAirspaceLayers();
+    // Under labels and airspaces, so it needs the airspace layers to exist already.
+    addThermalLayer();
     addTrackLayers();
     // Above the track; the own position is an HTML marker and stays on top of all.
     addLandingLayer();
     applyRelief();
+  }
+
+  /** Adds the thermal source and layer, or only changes the tiles if they exist. */
+  function addThermalLayer() {
+    if (!thermalUrl) return;
+    const existing = map.getSource(THERMAL_SOURCE);
+    if (existing) {
+      // Only a new URL reloads the tiles.
+      if (existing.tiles?.[0] !== thermalUrl) existing.setTiles([thermalUrl]);
+      return;
+    }
+    map.addSource(THERMAL_SOURCE, {
+      type: "raster",
+      tiles: [thermalUrl],
+      tileSize: 256,
+      maxzoom: 10,
+      attribution: "Thermik © thermal.kk7.ch (CC BY-NC-SA 4.0)",
+    });
+    // Below the first label (symbol layer) of the style; if there is none, below the
+    // airspaces. Then labels, airspaces, track and landing cross stay readable.
+    const firstSymbol = map.getStyle().layers.find((layer) => layer.type === "symbol");
+    const beforeId = firstSymbol ? firstSymbol.id : map.getLayer("airspace-fill") ? "airspace-fill" : undefined;
+    map.addLayer({
+      id: THERMAL_SOURCE,
+      type: "raster",
+      source: THERMAL_SOURCE,
+      paint: { "raster-opacity": 0.6, "raster-fade-duration": 0 },
+    }, beforeId);
+  }
+
+  function removeThermalLayer() {
+    if (map.getLayer(THERMAL_SOURCE)) map.removeLayer(THERMAL_SOURCE);
+    if (map.getSource(THERMAL_SOURCE)) map.removeSource(THERMAL_SOURCE);
   }
 
   function landingData() {
@@ -709,6 +746,28 @@ const FlightMap = (() => {
       const source = map && map.getSource(LANDING_SOURCE);
       if (source) source.setData(landingData());
       updateLandingHint();
+    },
+
+    /** Shows the thermal layer for this tile URL template; null removes layer and source. */
+    setThermal(url) {
+      thermalUrl = url;
+      if (!map) return;
+      try {
+        if (url) addThermalLayer();
+        else removeThermalLayer();
+      } catch (error) {
+        // The style is still loading; "style.load" calls addOwnLayers, which adds it.
+        console.warn("thermal", error);
+      }
+    },
+
+    thermalShown: () => Boolean(map && map.getSource(THERMAL_SOURCE)),
+
+    /** Centre of the map, or null before the map exists. */
+    center() {
+      if (!map) return null;
+      const centre = map.getCenter();
+      return { latitude: centre.lat, longitude: centre.lng };
     },
 
     landingCount: () => (landing ? 1 : 0),

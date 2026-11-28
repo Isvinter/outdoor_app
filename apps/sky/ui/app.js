@@ -55,6 +55,7 @@ function showPage(name) {
     refreshRegions();
     // Files copied in meanwhile are read.
     loadAirspaces();
+    showThermalSize();
   }
   if (name === "flights") loadFlights();
 }
@@ -98,6 +99,7 @@ function render(status) {
 
   $("map-climb").textContent = signed(climb);
   $("map-altitude").textContent = number(status?.altitudeM);
+  if (fix) lastFix = { latitude: fix.latitudeDeg, longitude: fix.longitudeDeg };
   if (fix) FlightMap.setPosition(fix.latitudeDeg, fix.longitudeDeg, fix.courseDeg ?? null);
 
   renderGlide(status?.glideRatio ?? null);
@@ -670,6 +672,8 @@ $("tone-sink").addEventListener("click", () => toggleTone(-4));
 
 // ---- Map ----
 
+let lastFix = null; // { latitude, longitude } of the last GPS fix
+
 FlightMap.configure({
   onFollowChange: (follow) => $("follow").classList.toggle("on", follow),
   onMessage: (text) => {
@@ -680,6 +684,73 @@ FlightMap.configure({
   formatDistance: distance,
 });
 $("follow").addEventListener("click", () => FlightMap.toggleFollow());
+
+// ---- Thermal map ----
+
+let thermalSettings = { enabled: false, season: "auto", dayTime: "auto" };
+
+async function saveThermalSettings() {
+  try {
+    await invoke("set_thermal_map", { settings: thermalSettings });
+  } catch (error) {
+    console.warn("set_thermal_map", error);
+  }
+  showThermalSettings();
+  refreshThermal();
+}
+
+function showThermalSettings() {
+  $("thermal").classList.toggle("on", thermalSettings.enabled);
+  $("set-thermal-season").value = thermalSettings.season;
+  $("set-thermal-daytime").value = thermalSettings.dayTime;
+}
+
+/** Shows the layer that fits now and here, or removes it while the map is off. */
+async function refreshThermal() {
+  if (!thermalSettings.enabled) {
+    FlightMap.setThermal(null);
+    return;
+  }
+  const place = lastFix ?? FlightMap.center() ?? { latitude: 47.6, longitude: 11.0 };
+  try {
+    const tiles = await invoke("thermal_tiles", place);
+    // Switched off while waiting for the answer.
+    if (thermalSettings.enabled) FlightMap.setThermal(tiles.url);
+  } catch (error) {
+    console.warn("thermal_tiles", error);
+  }
+}
+
+async function showThermalSize() {
+  try {
+    const bytes = await invoke("thermal_cache_size");
+    $("thermal-size").textContent = "Gespeichert: " + (bytes / 1e6).toFixed(1) + " MB";
+  } catch (error) {
+    console.warn("thermal_cache_size", error);
+  }
+}
+
+$("thermal").addEventListener("click", () => {
+  thermalSettings = { ...thermalSettings, enabled: !thermalSettings.enabled };
+  saveThermalSettings();
+});
+$("set-thermal-season").addEventListener("change", (event) => {
+  thermalSettings = { ...thermalSettings, season: event.target.value };
+  saveThermalSettings();
+});
+$("set-thermal-daytime").addEventListener("change", (event) => {
+  thermalSettings = { ...thermalSettings, dayTime: event.target.value };
+  saveThermalSettings();
+});
+$("clear-thermal").addEventListener("click", async () => {
+  if (!confirm("Gespeicherte Thermikkarte vom Gerät löschen?")) return;
+  try {
+    await invoke("clear_thermal_cache");
+  } catch (error) {
+    console.warn("clear_thermal_cache", error);
+  }
+  showThermalSize();
+});
 
 // Offline regions win over the online style. The style text is compared so the map is
 // only reloaded when something changed.
@@ -1295,6 +1366,10 @@ async function init() {
   mapLook = await invoke("get_map_look");
   showMapLook();
   showQrScanner();
+  thermalSettings = await invoke("get_thermal_map");
+  showThermalSettings();
+  refreshThermal();
+  showThermalSize();
   // The desktop is asked only when the settings are opened: on iOS the first
   // connection asks for the local network permission.
   await updateMapStyle();
@@ -1307,6 +1382,10 @@ async function init() {
   setInterval(checkPermissions, 5000);
   setInterval(pollStatus, 200);
   setInterval(pollTrack, 1000);
+  // Season and time of day change slowly; this only does work while the map is on.
+  setInterval(() => {
+    if (thermalSettings.enabled) refreshThermal();
+  }, 60000);
 }
 
 init().catch((error) => {

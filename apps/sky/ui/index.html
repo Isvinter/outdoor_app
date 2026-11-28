@@ -63,6 +63,7 @@
         <div id="map-glide" hidden>GZ <span id="map-glide-value"></span></div>
       </div>
       <button id="follow" class="map-overlay on">Folgen</button>
+      <button id="thermal" class="map-overlay">Thermik</button>
       <!-- Wind from circling: the arrow points where the wind blows to. -->
       <div id="wind-box" class="map-overlay" hidden>
         <svg id="wind-arrow" viewBox="0 0 40 40" width="40" height="40">
@@ -255,7 +256,41 @@
       <div class="row" style="margin-top: 14px">
         <button id="reset-warning" class="button">Standardwerte</button>
       </div>
-            <h3>Online-Karte</h3>
+      <h3>Thermikkarte</h3>
+      <div class="setting">
+        <label for="set-thermal-season">Jahreszeit</label>
+        <select id="set-thermal-season">
+          <option value="auto">Automatisch</option>
+          <option value="all">Ganzes Jahr</option>
+          <option value="jan">Winter (Mitte Nov. – Mitte März)</option>
+          <option value="apr">Frühling (Mitte Feb. – Mitte Juni)</option>
+          <option value="jul">Sommer (Mitte Mai – Mitte Sept.)</option>
+          <option value="oct">Herbst (Mitte Aug. – Mitte Dez.)</option>
+        </select>
+      </div>
+      <div class="setting">
+        <label for="set-thermal-daytime">Tageszeit</label>
+        <select id="set-thermal-daytime">
+          <option value="auto">Automatisch</option>
+          <option value="all">Ganzer Tag</option>
+          <option value="morning">Morgens (bis 7 h nach Sonnenaufgang)</option>
+          <option value="midday">Mittags (5–11 h nach Sonnenaufgang)</option>
+          <option value="evening">Abends (ab 7 h nach Sonnenaufgang)</option>
+        </select>
+      </div>
+      <p id="thermal-size" class="hint"></p>
+      <div class="row">
+        <button id="clear-thermal" class="button">Thermik-Speicher leeren</button>
+      </div>
+      <small class="hint">
+        Wahrscheinlichkeit von Thermik aus vergangenen Streckenflügen, keine Vorhersage.
+        Geladen wird nur, was du bei eingeschalteter Thermikkarte ansiehst; es bleibt auf dem
+        Gerät. Zur Vorbereitung Tageszeit auf „Mittags“ stellen und das Fluggebiet bei Zoom 10
+        oder näher ansehen, danach wieder „Automatisch“. Ohne Netz zeigt Sky, was gespeichert
+        ist, notfalls eine andere Tageszeit. Daten © thermal.kk7.ch (M. von Känel), Lizenz
+        CC BY-NC-SA 4.0.
+      </small>
+      <h3>Online-Karte</h3>
       <div class="setting">
         <label for="set-map-style">Kartenstil (URL)</label>
         <input id="set-map-style" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" />
