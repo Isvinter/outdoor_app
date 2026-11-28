@@ -223,7 +223,7 @@ fn check_look(window: &tauri::WebviewWindow) {
 
 /// Presses the "Thermik" button on the map twice with real pointer events and prints
 /// what the map and the tile handler did. With the default `NoNetwork` fetcher nothing
-/// reaches kk7 (only `VARIO_SMOKE_KK7=1` allows that). The button is left off.
+/// reaches kk7 (only `VARIO_SMOKE_KK7=1` allows that). Afterwards the button is in the state it started in.
 fn check_thermal(window: &tauri::WebviewWindow) {
     NOTED.store(false, Ordering::Relaxed);
     let _ = window.eval(
@@ -261,6 +261,8 @@ fn check_thermal(window: &tauri::WebviewWindow) {
           const afterOff = await counts();
           await wait(2000);
           const later = await counts();
+          // Leave the map as it was found: press once more if it had been on.
+          if (startedOn) { await press(); await wait(500); }
           window.__TAURI__.core.invoke("smoke_note", { text: "thermal report: " + JSON.stringify({
             startedOn,
             before,
