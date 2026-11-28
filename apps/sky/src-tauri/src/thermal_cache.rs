@@ -33,6 +33,12 @@ pub enum FetchError {
 /// `Send + Sync` because several request threads share one fetcher.
 pub trait Fetch: Send + Sync {
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError>;
+
+    /// Whether `get` can send a request over the network. Only those calls are counted
+    /// as fetches. A default method: implementors get `true` unless they override it.
+    fn reaches_network(&self) -> bool {
+        true
+    }
 }
 
 /// Real downloads with ureq (the HTTP library the airspace update uses too).
@@ -85,6 +91,10 @@ pub struct NoNetwork;
 impl Fetch for NoNetwork {
     fn get(&self, _url: &str) -> Result<Vec<u8>, FetchError> {
         Err(FetchError::Offline)
+    }
+
+    fn reaches_network(&self) -> bool {
+        false
     }
 }
 
@@ -240,7 +250,7 @@ impl ThermalCache {
         self.requests.load(Ordering::Relaxed)
     }
 
-    /// Calls of `Fetch::get`.
+    /// Calls of `Fetch::get` that can reach the network (never for `NoNetwork`).
     pub fn fetches(&self) -> u64 {
         self.fetches.load(Ordering::Relaxed)
     }
@@ -345,7 +355,9 @@ impl ThermalCache {
         if !wait.is_zero() {
             std::thread::sleep(wait);
         }
-        self.fetches.fetch_add(1, Ordering::Relaxed);
+        if self.fetch.reaches_network() {
+            self.fetches.fetch_add(1, Ordering::Relaxed);
+        }
         match self.fetch.get(&kk7_url(key, z, x, y)) {
             Ok(data) => {
                 // A failed write is not fatal: the caller still gets the tile.
@@ -574,6 +586,15 @@ mod tests {
         let (c, dir) = cache("kk7empty", Ok(vec![7; 68]));
         assert_eq!(c.answer(PATH, SystemTime::now()), tile(&[7; 68], false));
         assert_eq!(std::fs::read(dir.join(FILE)).unwrap().len(), 68);
+    }
+
+    #[test]
+    fn no_network_answers_empty_without_counting_a_fetch() {
+        let dir = temp_dir("nonet");
+        let c = ThermalCache::new(dir, Box::new(NoNetwork));
+        assert!(matches!(c.answer(PATH, SystemTime::now()), Answer::Empty));
+        assert_eq!(c.requests(), 1);
+        assert_eq!(c.fetches(), 0);
     }
 
     #[test]

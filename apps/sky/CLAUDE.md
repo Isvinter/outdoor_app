@@ -201,8 +201,8 @@ und keine Nachbarkacheln (kk7-Regeln, Details in `docs/DATENQUELLEN.md`). Anfrag
 nur mit `VARIO_SMOKE_KK7=1` geht er wirklich an kk7, das nur selten und mit leerem HOME tun:
 `cargo build -p vario-app && HOME=$(mktemp -d) VARIO_SMOKE_TEST=1 VARIO_SMOKE_KK7=1 target/debug/vario-app`.
 Der Selbsttest schaltet die Thermikkarte am Ende wieder aus; `thermal report` zählt
-Aufrufe des Kachel-Handlers (`requests`) und Abrufversuche (`fetches`, ohne Netz gegen
-`NoNetwork`, also ohne Verkehr).
+Aufrufe des Kachel-Handlers (`requests`) und echte Netzabrufe (`fetches`, ohne
+`VARIO_SMOKE_KK7` immer 0).
 
 Flüge liegen als IGC-Dateien im Ordner `flights` (iOS: Dokumente-Ordner der App, in der
 App „Dateien“ sichtbar; Desktop: Datenordner der App), Sensorlogs daneben in `logs`. Jeder
