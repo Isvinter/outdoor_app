@@ -270,10 +270,14 @@ const FlightMap = (() => {
       maxzoom: 10,
       attribution: "Thermik © thermal.kk7.ch (CC BY-NC-SA 4.0)",
     });
-    // Below the first label (symbol layer) of the style; if there is none, below the
-    // airspaces. Then labels, airspaces, track and landing cross stay readable.
-    const firstSymbol = map.getStyle().layers.find((layer) => layer.type === "symbol");
-    const beforeId = firstSymbol ? firstSymbol.id : map.getLayer("airspace-fill") ? "airspace-fill" : undefined;
+    // Below the first label (symbol layer) of the style or the first layer of the app
+    // itself (airspaces, track, landing), whichever comes first. Then labels, airspaces,
+    // track and landing cross stay readable, also in a style without symbol layers.
+    const ownIds = [SAVED_SOURCE, TRACK_SOURCE].flatMap((source) => [source + "-casing", source + "-line"]);
+    ownIds.push(LANDING_SOURCE);
+    const isOwn = (id) => id.startsWith("airspace-") || ownIds.includes(id);
+    const first = map.getStyle().layers.find((layer) => layer.type === "symbol" || isOwn(layer.id));
+    const beforeId = first ? first.id : undefined;
     map.addLayer({
       id: THERMAL_SOURCE,
       type: "raster",
