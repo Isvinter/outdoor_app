@@ -98,6 +98,26 @@ fn rebuilding_asks_for_fresh_data_and_chooses_the_extracts_again() {
     assert_eq!(definition.osm, ["https://example.org/a-latest.osm.pbf"]);
 }
 
+/// Standard output and standard error reach the log and the tail in the order
+/// the script wrote them, as on a terminal.
+#[test]
+fn output_keeps_the_order_of_both_streams() {
+    let (builder, dir) = builder("interleaved");
+    defined(&dir, "interleaved");
+
+    let (result, _) = build(&builder, "interleaved");
+
+    let Err(BuildError::Failed { tail, log }) = result else {
+        panic!("{result:?}");
+    };
+    let expected: Vec<String> = (1..=200)
+        .map(|i| format!("{} {i}", if i % 2 == 0 { "out" } else { "err" }))
+        .collect();
+    let written = std::fs::read_to_string(log).unwrap();
+    assert_eq!(written.lines().collect::<Vec<_>>(), expected);
+    assert_eq!(tail, expected[185..].join("\n"));
+}
+
 #[test]
 fn failure_carries_the_tail_of_the_output() {
     let (builder, dir) = builder("fail");
