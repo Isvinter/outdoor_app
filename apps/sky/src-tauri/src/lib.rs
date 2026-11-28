@@ -14,6 +14,9 @@ mod share;
 #[cfg(desktop)]
 mod sim;
 mod smoke;
+// used by the thermal tile route (next task); remove then
+#[allow(dead_code)]
+mod thermal_cache;
 // Used by the thermal tile route (next tasks); remove then.
 #[allow(dead_code)]
 mod thermal_layer;
