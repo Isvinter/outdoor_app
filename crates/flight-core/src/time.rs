@@ -65,6 +65,11 @@ impl Date {
         let (year, month, day) = civil_from_days(days_from_civil(self) + days);
         Date { year, month, day }
     }
+
+    /// Whole days since 1970-01-01 (negative before that).
+    pub fn days_since_unix_epoch(self) -> i64 {
+        days_from_civil(self)
+    }
 }
 
 fn is_leap_year(year: i32) -> bool {

@@ -16,6 +16,7 @@ pub mod landing;
 pub mod openaip;
 pub mod sensor;
 pub mod settings;
+pub mod sun;
 pub mod terrain;
 pub mod time;
 pub mod track;
